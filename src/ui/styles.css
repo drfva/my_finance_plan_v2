@@ -243,10 +243,10 @@ input:disabled,select:disabled{background:var(--surface-3);color:var(--muted);cu
 
 /* Шапка копилки: название правится прямо в заголовке */
 .goal-head{align-items:center;gap:12px;margin-bottom:14px;}
-.goal-title{flex:1;min-width:180px;background:transparent;border:1px solid transparent;box-shadow:none;
+.goal-title{flex:1;min-width:180px;background:var(--surface-2);border:1px solid transparent;box-shadow:none;
   font-family:var(--font-display);font-size:17px;font-weight:800;color:var(--ink);padding:6px 8px;margin:-6px -8px;}
 .goal-title:hover:not(:disabled){border-color:var(--line);}
-.goal-title:focus{border-color:var(--accent);background:transparent;}
+.goal-title:focus{border-color:var(--accent);background:var(--surface-2);}
 
 /* Свои дни календаря: дата с крестиком */
 .day-pill{display:inline-flex;align-items:center;gap:4px;background:var(--surface-3);border-radius:999px;

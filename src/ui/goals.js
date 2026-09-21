@@ -150,6 +150,9 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
   const pct = total > 0 ? Math.max(0, Math.min(100, Math.round(progress / total * 100))) : 0;
   const balance = goalBalanceAt(sim, g, state.savings?.goal_transactions ?? [], ctx.today);
   const cycleCount = (state.savings?.goal_cycles ?? []).filter(c => c.goal_id === g.id).length;
+  // цель без этапов копится одной суммой: её прогноз показываем прямо под шкалой
+  const mainOne = milestones.length ? null : (sim.milestonesOf(g)[0] ?? null);
+  const mainStatus = mainOne ? milestoneStatus(ctx, g, mainOne) : null;
 
   const msRows = milestones.slice().sort((a, b) => ((a.deadline || '9999') < (b.deadline || '9999') ? -1 : 1)).map(m => {
     const { label, cls } = milestoneStatus(ctx, g, m);
@@ -203,19 +206,22 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
       </div>
     </div>
     ${hasTarget ? `<div class="progress"><i style="width:${pct}%"></i></div>
-      <div class="small-note">${esc(fmt.money(progress, g.currency_code))} / ${esc(fmt.money(total, g.currency_code))} (${pct}%)<br>
-        на счету сейчас (${esc(fmt.date(ctx.today))}): <b>${esc(fmt.money(balance, g.currency_code))}</b></div>`
+      <div class="row between wrap" style="gap:8px;">
+        <span class="small-note" style="margin:0;">${esc(fmt.money(progress, g.currency_code))} / ${esc(fmt.money(total, g.currency_code))} (${pct}%) ·
+          на счету сейчас (${esc(fmt.date(ctx.today))}): <b>${esc(fmt.money(balance, g.currency_code))}</b></span>
+        ${mainStatus ? pill(mainStatus.label, mainStatus.cls) : ''}
+      </div>`
       : `<div class="small-note">на счету сейчас (${esc(fmt.date(ctx.today))}): <b>${esc(fmt.money(balance, g.currency_code))}</b>.
         Прогноза нет: не задана сумма цели и нет этапов.</div>`}
     <div class="row wrap" style="gap:12px;margin-top:12px;align-items:start;">
       <div style="width:120px;">${field('Валюта', select({ edit: 'savings|goals|currency_code', key: { id: g.id }, value: g.currency_code, options: currencies, disabled: !canEdit }))}</div>
       <div style="width:160px;">${field('Начальный остаток', input({ edit: 'savings|goals|starting_balance', key: { id: g.id }, value: g.starting_balance, type: 'money', disabled: !canEdit }))}</div>
-      ${canEdit ? `<div class="row wrap goal-actions" style="gap:8px;">
+      ${canEdit ? field(' ', `<div class="row wrap goal-actions" style="gap:8px;">
         ${button({ action: 'goal-close', value: g.id, label: g.completed ? 'Вернуть в работу' : 'Закрыть цель',
           cls: g.completed ? 'ghost small' : 'small',
           title: g.completed ? 'Цель снова участвует в распределении' : 'Цель перестанет получать деньги: в будущих выплатах её не будет, в зафиксированных останется' })}
         ${button({ action: 'transfer-open', value: g.id, label: 'Перевести в другую цель', cls: 'ghost small' })}
-      </div>` : ''}
+      </div>`) : ''}
     </div>
     ${extraFields}
     ${!milestones.length ? `<div class="row wrap" style="gap:12px;margin-top:10px;align-items:start;">
@@ -249,7 +255,7 @@ export function render(ctx) {
   const goals = (state.savings?.goals ?? []).filter(g => g.kind_code === 'bucket')
     .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
   return `
-    <div class="row wrap" style="gap:8px;">
+    <div class="row between wrap" style="gap:8px;">
       ${pill('Копилка — цель с оборотом: копим к сроку, тратим, копим снова')}
       ${canEdit ? addButton({ domain: 'savings', table: 'goals', cls: 'primary small', label: '+ копилка',
         row: { id: uid('goal'), title: 'Новая копилка', kind_code: 'bucket', currency_code: ctx.cfg.get('base_currency'),

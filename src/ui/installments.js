@@ -57,7 +57,7 @@ export function render(ctx) {
     <td class="num">${esc(fmt.money(r.installmentsTotal))}</td></tr>`);
 
   return `
-    <div class="row wrap" style="gap:8px;">
+    <div class="row between wrap" style="gap:8px;">
       ${pill('Платёж оплачивается из последней выплаты не позже его даты')}
       ${canEdit ? addButton({ domain: 'debts', table: 'installments', cls: 'primary small', label: '+ покупка в рассрочку',
         row: { id: uid('inst'), title: 'Новая покупка', total: 0, parts: 4, every_n: 2, period_unit: 'week', first_date: ctx.today, sort_order: list.length + 1 } }) : ''}

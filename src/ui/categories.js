@@ -89,9 +89,11 @@ export function render(ctx) {
   const preview = perPeriod.slice(0, 4).map(r => `<tr><td>${esc(fmt.date(r.period.pay_date))}</td><td class="num">${esc(fmt.money(r.categoriesTotal))}</td></tr>`);
 
   return `
-    <div class="row wrap" style="gap:8px;">
-      ${pill(`${esc(fmt.money(monthTotal))} в месяц фиксированными`)}
-      ${percentTotal ? pill(`${esc(fmt.percent(percentTotal, 1))} от выплаты процентными`) : ''}
+    <div class="row between wrap" style="gap:8px;">
+      <div class="row wrap" style="gap:8px;">
+        ${pill(`${esc(fmt.money(monthTotal))} в месяц фиксированными`)}
+        ${percentTotal ? pill(`${esc(fmt.percent(percentTotal, 1))} от выплаты процентными`) : ''}
+      </div>
       ${canEdit ? addButton({ domain: 'expenses', table: 'expense_categories', cls: 'primary small', label: '+ категория',
         row: { id: uid('cat'), title: 'Новая категория', mode: 'fixed_month', monthly_amount: 0, percent_value: 0, split_mode: 'even', sort_order: cats.length + 1 } }) : ''}
     </div>

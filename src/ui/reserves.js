@@ -30,7 +30,7 @@ export function render(ctx) {
   }).join('');
 
   return `
-    <div class="row wrap" style="gap:8px;">
+    <div class="row between wrap" style="gap:8px;">
       ${pill('Подушка получает свой темп за выплату, а после копилок — остаток')}
       ${canEdit ? addButton({ domain: 'savings', table: 'goals', cls: 'primary small', label: '+ подушка', row: { id: uid('goal'), title: 'Новая подушка', kind_code: 'reserve', currency_code: ctx.cfg.get('base_currency'), priority: goals.length + 1, target_amount: 0, starting_balance: 0, pace_amount: 0, completed: false } }) : ''}
     </div>

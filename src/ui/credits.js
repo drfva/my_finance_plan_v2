@@ -103,7 +103,7 @@ export function render(ctx) {
 
   return `
     ${settingsCard}
-    <div class="row wrap" style="gap:8px;">
+    <div class="row between wrap" style="gap:8px;">
       ${pill('Гасим так, чтобы уложиться в льготный период')}
       ${canEdit ? addButton({ domain: 'debts', table: 'credit_cards', cls: 'primary small', label: '+ карта',
         row: { id: uid('card'), title: 'Новая карта', credit_limit: 0, grace_days: 60, currency_code: ctx.cfg.get('base_currency'), sort_order: cards.length + 1 } }) : ''}
