@@ -173,8 +173,10 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
           title: 'Повторять этот этап через равные промежутки' }) : ''}
         ${canEdit && !spent ? button({ action: 'ms-spend', value: m.id, label: 'создать трату', cls: 'ghost small',
           title: 'Списать накопленное в дату этапа' }) : ''}
-        ${generated ? `<span class="small-note" style="margin:0;">создан ${m.source === 'gift' ? 'из праздника' : 'повторяющимся накоплением'}${m.user_edited ? ', правка сохранена' : ''}</span>
-          ${canEdit && !m.user_edited ? button({ action: 'edit-generated', value: m.id, label: 'открепить от шаблона', cls: 'ghost small' }) : ''}` : ''}
+        ${generated ? `<span class="small-note" style="margin:0;">${m.source === 'gift' ? 'из праздника' : 'из повторяющегося накопления'}${
+          m.user_edited ? ' · правка сохранена, шаблон его больше не трогает' : ' · правка здесь закрепит этап за вами'}</span>
+          ${canEdit && m.user_edited ? button({ action: 'edit-generated', value: `back:${m.id}`, label: 'вернуть к шаблону', cls: 'ghost small',
+            title: 'Снова вести этот этап по шаблону — ваша правка пропадёт' }) : ''}` : ''}
       </div>
     </div>`;
   }).join('');
@@ -333,11 +335,14 @@ export function handle(ev, ctx) {
     return true;
   }
 
+  // вернуть этап под управление шаблона: снимаем признак правки и у него, и у его траты
   const unpin = ev.target.closest('[data-edit-generated]');
   if (unpin) {
+    const id = unpin.dataset.editGenerated.replace(/^back:/, '');
     store.update('savings', d => {
-      const m = d.goal_milestones.find(x => x.id === unpin.dataset.editGenerated);
-      if (m) m.user_edited = true;
+      const m = (d.goal_milestones ?? []).find(x => x.id === id);
+      if (m) m.user_edited = false;
+      for (const t of (d.goal_transactions ?? []).filter(x => x.milestone_id === id)) t.user_edited = false;
     });
     return true;
   }

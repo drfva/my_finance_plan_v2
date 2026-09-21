@@ -150,3 +150,18 @@ test('правка: одно поле даты праздника пишет д�
   assert.deepEqual([yearly.day, yearly.month, yearly.base_year], [16, 2, 2026]);
   assert.deepEqual([once.day, once.month, once.base_year], [6, 8, 2027]);
 });
+
+test('правка: этап из шаблона закрепляется, генератор его больше не трогает', () => {
+  const store = fakeStore({ savings: {
+    goal_milestones: [{ id: 'cyc:c1:2027-06-01', goal_id: 'g', target: 15000, source: 'cycle', user_edited: false },
+      { id: 'ms-hand', goal_id: 'g', target: 100, source: 'manual', user_edited: false }],
+    goal_transactions: [{ id: 'cyc:c1:2027-06-01:spend', goal_id: 'g', milestone_id: 'cyc:c1:2027-06-01', amount: 15000, source: 'cycle', user_edited: false }],
+  } });
+  applyEdit(store, el({ edit: 'savings|goal_milestones|target', key: JSON.stringify({ id: 'cyc:c1:2027-06-01' }), type: 'money' }, '22000'), fmt);
+  assert.equal(store.state.savings.goal_milestones[0].user_edited, true);
+  applyEdit(store, el({ edit: 'savings|goal_transactions|amount', key: JSON.stringify({ id: 'cyc:c1:2027-06-01:spend' }), type: 'money' }, '9000'), fmt);
+  assert.equal(store.state.savings.goal_transactions[0].user_edited, true);
+  // ручная строка признак не получает — ей он не нужен
+  applyEdit(store, el({ edit: 'savings|goal_milestones|target', key: JSON.stringify({ id: 'ms-hand' }), type: 'money' }, '200'), fmt);
+  assert.equal(store.state.savings.goal_milestones[1].user_edited, false);
+});

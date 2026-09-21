@@ -2,6 +2,7 @@
    store.js — состояние плана, изменения по доменам и автосохранение.
 
    Загрузка:   await store.load()          → bootstrap_user: создаст план, если его нет
+               await store.switchAccount(id) → открыть другой доступный план
    Чтение:     store.state.income.periods  → строки таблиц как в базе (snake_case)
                store.config()              → настройки и справочники (core/config.js)
    Изменение:  store.update('income', income => { income.periods.push({...}); })
@@ -217,6 +218,18 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     return state;
   }
 
+  /* Открыть другой план, к которому есть доступ. Несохранённое сначала уходит в базу. */
+  async function switchAccount(accountId) {
+    if (!accountId || accountId === state?.account?.id) return state;
+    await flush();
+    const { data, error } = await client.rpc('state_get', { p_account: accountId });
+    if (error) throw toError(error, 'Не удалось открыть план');
+    applyLoaded(data);
+    emit('loaded', { state });
+    emit('change', { domain: null });
+    return state;
+  }
+
   /* Перечитать один домен после конфликта */
   async function reloadDomain(domain) {
     const { data, error } = await client.rpc('state_get', { p_account: state.account.id });
@@ -367,7 +380,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
       return config ?? (config = createConfig(state));
     },
     status,
-    load, reload, update, setSetting, setAccountTitle,
+    load, reload, switchAccount, update, setSetting, setAccountTitle,
     save, flush, hasPending, subscribe,
   };
 }

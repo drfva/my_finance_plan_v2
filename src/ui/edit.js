@@ -20,6 +20,9 @@
    Своя сумма вместо расчёта: вписали отпускные руками — отпуск помечается
    pay_manual, и вернуть расчёт можно ссылкой «подставить по формуле».
 
+   Правка этапа или траты, созданных шаблоном, ставит им user_edited: с этого
+   момента повторяющееся накопление и праздники их не перезаписывают.
+
    Перевод между целями — это пара движений с общим ключом transfer:… . Правка
    даты, суммы или названия одной стороны переносится на вторую, удаление одной
    удаляет обе.
@@ -117,6 +120,12 @@ export function applyEdit(store, el, fmt) {
       return;
     }
     row[column] = value;
+    /* Этап или трату, созданные шаблоном, правка закрепляет: с этого момента
+       повторяющееся накопление и праздники это вхождение не перезаписывают. */
+    if (domain === 'savings' && (table === 'goal_milestones' || table === 'goal_transactions')
+      && row.source && row.source !== 'manual') {
+      row.user_edited = true;
+    }
     if (el.dataset.removeWhen !== undefined && String(value) === el.dataset.removeWhen) {
       rows.splice(rows.indexOf(row), 1);
     }

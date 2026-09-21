@@ -192,7 +192,8 @@ export function syncGenerated({ savings = {}, gifts = {}, until, years = [], tod
   const skips = new Set((savings.goal_cycle_skips ?? []).map(s => `${s.cycle_id}|${s.occurrence_key}`));
   const wantMs = [];
   const wantTx = [];
-  // вхождение, которое пользователь правил (этап или его трату), генератор не трогает целиком
+  // вхождение, которое пользователь правил (этап или его трату), генератор не трогает целиком:
+  // ни этап, ни его трату — они остаются такими, какими их оставили руками
   const edited = new Set([
     ...(savings.goal_milestones ?? []).filter(m => m.user_edited).map(m => m.id),
     ...(savings.goal_transactions ?? []).filter(t => t.user_edited && t.milestone_id).map(t => t.milestone_id),
@@ -243,14 +244,17 @@ export function syncGenerated({ savings = {}, gifts = {}, until, years = [], tod
     }
   }
 
-  function merge(existing, wanted) {
-    const keep = existing.filter(r => r.source === 'manual' || !r.source || r.user_edited);
+  /* Что остаётся из существующих строк: ручные, правленые руками и всё,
+     что относится к закреплённому вхождению (его этап и его трата). */
+  const pinned = occurrenceId => edited.has(occurrenceId);
+  function merge(existing, wanted, occurrenceOf) {
+    const keep = existing.filter(r => r.source === 'manual' || !r.source || r.user_edited || pinned(occurrenceOf(r)));
     const kept = new Set(keep.map(r => r.id));
     const out = [...keep, ...wanted.filter(r => !kept.has(r.id))];
     return out.sort((a, b) => String(a.id).localeCompare(String(b.id)));
   }
-  const goal_milestones = merge(savings.goal_milestones ?? [], wantMs);
-  const goal_transactions = merge(savings.goal_transactions ?? [], wantTx);
+  const goal_milestones = merge(savings.goal_milestones ?? [], wantMs, r => r.id);
+  const goal_transactions = merge(savings.goal_transactions ?? [], wantTx, r => r.milestone_id);
   // порядок ключей в строках из базы другой, поэтому сравниваем с отсортированными ключами
   const stable = r => JSON.stringify(Object.keys(r).sort().map(k => [k, r[k]]));
   const norm = list => [...list].map(stable).sort().join('\n');

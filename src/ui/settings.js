@@ -176,6 +176,27 @@ function calendarCard(ctx) {
 }
 
 
+/* Переключатель планов: показывается, когда доступов больше одного.
+   Свой план и планы, куда вас добавили владельцы, приходят из базы вместе с ролью. */
+function planSwitch(ctx) {
+  const list = ctx.state.accounts ?? [];
+  if (list.length < 2) return '';
+  const current = ctx.state.account?.id;
+  return `<div class="info-box" style="margin-bottom:16px;">
+    <div class="row between wrap" style="gap:10px;">
+      <div>
+        <b>Доступные планы</b>
+        <div class="small-note" style="margin-top:2px;">Переключение перечитывает данные: несохранённое сначала уходит в базу.</div>
+      </div>
+      <div class="row wrap" style="gap:8px;">
+        ${list.map(a => (a.id === current
+          ? pill(`${a.title} · ${ROLE_TITLES[a.role] ?? a.role}`, 'ok')
+          : button({ action: 'open-plan', value: a.id, label: `${a.title} · ${ROLE_TITLES[a.role] ?? a.role}`, cls: 'small' }))).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
 /* Аккаунт: пароль, почта и вход по Face ID / Touch ID */
 function securityCard(ctx) {
   const sec = ctx.security;
@@ -282,6 +303,7 @@ export function render(ctx) {
 
   return `
     ${section({ key: 'set:plan', title: 'План', open: ctx.ui.open.has('set:plan'), body: `
+      ${planSwitch(ctx)}
       <div class="grid cols-2">
         ${field('Название плана', `<input data-account-title value="${esc(state.account.title)}"${canEdit ? '' : ' disabled'}>`,
           'Показывается в шапке приложения')}
@@ -333,6 +355,16 @@ export function handle(ev, ctx) {
 
   const reset = ev.target.closest('[data-reset-setting]');
   if (reset) { store.setSetting(reset.dataset.resetSetting, null); return false; }
+
+  // открыть другой план: данные перечитываются, вкладка и год сбрасываются
+  const openPlan = ev.target.closest('[data-open-plan]');
+  if (openPlan) {
+    const id = openPlan.dataset.openPlan;
+    ctx.ui.year = null;
+    ctx.ui.open.clear();
+    store.switchAccount(id).catch(e => ctx.notice?.('danger', e.message));
+    return false;
+  }
 
   /* Аккаунт: всё асинхронное, экран перерисуется сам, когда придёт ответ */
   const sec = ctx.security;

@@ -66,7 +66,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     const sim = simulate(state, c, { income, round: f.round });
     const list = years();
     if (!list.includes(ui.year)) ui.year = list.includes(Number(f.todayISO().slice(0, 4))) ? Number(f.todayISO().slice(0, 4)) : list[0];
-    return { store, state, cfg: c, fmt: f, income, sim, ui, year: ui.year, years: list, today: f.todayISO(), canEdit: c.canEdit, security, onSignOut };
+    return { store, state, cfg: c, fmt: f, income, sim, ui, year: ui.year, years: list, today: f.todayISO(), canEdit: c.canEdit, security, onSignOut, notice };
   }
 
   /* Циклы и праздники разворачиваются в этапы и траты при изменении данных */
@@ -231,6 +231,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     });
 
     store.subscribe(ev => {
+      // открыли другой план: генератор должен пересобрать этапы заново
+      if (ev.type === 'loaded') { lastSync = ''; render(); return; }
       if (ev.type === 'change') render();
       else if (ev.type === 'status') renderStatus(ev.status);
       else if (ev.type === 'conflict') {

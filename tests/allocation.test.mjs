@@ -476,3 +476,29 @@ test('копилки: ручная сумма фиксируется, остал
   assert.equal(first.allocations.car, 45000);             // остальное разошлось автоматически
   assert.equal(first.unallocated, 0);
 });
+
+test('шаблон: правленое вхождение не перезаписывается, и его трата остаётся', () => {
+  const goal = { id: 'g', title: 'Химия', kind_code: 'bucket', currency_code: 'RUB' };
+  const cycle = { id: 'c1', goal_id: 'g', title: 'Химия', amount: 15000,
+    start_date: '2027-03-01', every_n: 3, period_unit: 'month', repeats: 3, auto_spend: true, enabled: true };
+  const base = { goals: [goal], goal_cycles: [cycle], goal_milestones: [], goal_transactions: [], goal_cycle_skips: [] };
+  const args = { until: '2027-12-31', years: [2027], today: '2027-01-01', units: UNITS, goalKinds: { bucket: 'buckets' } };
+
+  const first = syncGenerated({ savings: base, ...args });
+  assert.equal(first.goal_milestones.length, 3);
+  assert.equal(first.goal_transactions.length, 3);
+
+  // правим сумму второго этапа руками
+  const ms = first.goal_milestones.map(m => (m.deadline === '2027-06-01' ? { ...m, target: 22000, user_edited: true } : m));
+  const after = syncGenerated({ savings: { ...base, goal_milestones: ms, goal_transactions: first.goal_transactions }, ...args });
+
+  const edited = after.goal_milestones.find(m => m.deadline === '2027-06-01');
+  assert.equal(edited.target, 22000, 'правка руками сохраняется');
+  assert.equal(after.goal_milestones.length, 3, 'дубликатов не появилось');
+  // трата этого вхождения никуда не делась
+  const tx = after.goal_transactions.find(t => t.milestone_id === edited.id);
+  assert.ok(tx, 'трата закреплённого этапа осталась');
+  assert.equal(after.goal_transactions.length, 3);
+  // соседние вхождения шаблон по-прежнему ведёт сам
+  assert.equal(after.goal_milestones.find(m => m.deadline === '2027-09-01').target, 15000);
+});
