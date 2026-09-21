@@ -17,6 +17,9 @@
    этапы, циклы, движения и ручные суммы, у года плана — его график и выплаты.
    Иначе база отклонит патч: там те же связи описаны внешними ключами.
 
+   Своя сумма вместо расчёта: вписали отпускные руками — отпуск помечается
+   pay_manual, и вернуть расчёт можно ссылкой «подставить по формуле».
+
    Перевод между целями — это пара движений с общим ключом transfer:… . Правка
    даты, суммы или названия одной стороны переносится на вторую, удаление одной
    удаляет обе.
@@ -203,6 +206,13 @@ export function attachEditing(container, store, getCtx, onError) {
       if (domain === 'savings' && table === 'goal_transactions') {
         const tx = findRow(store.state, domain, table, key);
         if (tx) syncTransfer(store, tx);
+      }
+      // своя сумма отпускных: как только её ввели, отпуск перестаёт считаться по формуле
+      if (domain === 'income' && table === 'vacations' && column === 'pay_amount') {
+        store.update('income', d => {
+          const v = (d.vacations ?? []).find(x => x.id === key.id);
+          if (v) v.pay_manual = true;
+        });
       }
       if (domain === 'debts' && table === 'installments' && SCHEDULE_FIELDS.has(column)) {
         const inst = findRow(store.state, domain, table, key);

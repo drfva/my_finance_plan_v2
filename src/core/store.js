@@ -198,7 +198,9 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   }
 
   async function load({ title } = {}) {
-    const { data, error } = await client.rpc('bootstrap_user', title ? { p_title: title } : {});
+    // параметр передаём всегда: PostgREST ищет функцию по именам аргументов, и вызов
+    // без параметров он у bootstrap_user(p_title) не находит — «not found in the schema cache»
+    const { data, error } = await client.rpc('bootstrap_user', { p_title: title || 'Мой план' });
     if (error) throw toError(error, 'Не удалось загрузить план');
     applyLoaded(data);
     emit('loaded', { state });
@@ -373,7 +375,12 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
 /* Ошибка Supabase → Error с понятным текстом; исходная — в cause */
 export function toError(err, fallback) {
   if (err instanceof Error) return err;
-  const msg = err?.message || fallback || 'Ошибка';
+  let msg = err?.message || fallback || 'Ошибка';
+  // частая причина на новой базе: SQL выполнен, но PostgREST ещё не перечитал схему
+  if (/schema cache/i.test(msg)) {
+    msg += '. Похоже, в этой базе не выполнен 002_api.sql — либо PostgREST не перечитал схему.'
+      + ' Выполните в SQL Editor: notify pgrst, \'reload schema\';';
+  }
   const e = new Error(msg);
   e.code = err?.code;
   e.details = err?.details;

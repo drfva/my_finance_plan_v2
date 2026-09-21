@@ -84,7 +84,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
   /* 3. Отпускные: формула, сумма в плане, деление по выплатам */
   const avgDaysInMonth = Number(cfg.get('avg_days_in_month'));
   const vacationInfo = vacations.map(v => {
-    const formula = vacationFormula(v, { monthIncome, rates, sickLeaves, avgDaysInMonth }, round);
+    const formula = vacationFormula(v, { monthIncome, rates, sickLeaves, vacations, avgDaysInMonth }, round);
     const pay = vacationPay(v, formula);
     return {
       vacation: v,

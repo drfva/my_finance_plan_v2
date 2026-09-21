@@ -344,3 +344,21 @@ test('налог: из каких ставок он сложился', () => {
   assert.deepEqual(taxParts(200000, 2300000, s), [{ rate: 13, amount: 13000 }, { rate: 15, amount: 15000 }]);
   assert.deepEqual(taxParts(0, 0, s), []);
 });
+
+test('отпускные: прошлый отпуск в расчётном периоде тоже делает месяц неполным', () => {
+  const ctx = {
+    monthIncome: () => 100000, rates: RATES, avgDaysInMonth: 29.3,
+    sickLeaves: [],
+    vacations: [
+      { id: 'v-old', start_date: '2027-04-01', end_date: '2027-04-14' },   // 14 дней в апреле
+      { id: 'v-new', start_date: '2027-08-10', end_date: '2027-08-23' },   // считаем его самого
+    ],
+  };
+  const f = vacationFormula({ id: 'v-new', start_date: '2027-08-10', end_date: '2027-08-23' }, ctx);
+  const april = f.months.find(m => m.m === 4 && m.y === 2027);
+  assert.equal(april.vacDays, 14);
+  assert.equal(april.workedDays, 16);
+  assert.ok(Math.abs(april.coef - 29.3 / 30 * 16) < 1e-9);
+  // свой собственный отпуск в коэффициент не попадает
+  assert.equal(f.months.every(m => m.vacDays === 0 || m.m === 4), true);
+});

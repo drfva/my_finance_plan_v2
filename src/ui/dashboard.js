@@ -198,7 +198,7 @@ function expensesView(ctx, rows) {
 /* --------------------------------------------------- отложено в цели */
 
 /* Год, к которому относится этап: срок, а если его нет — прогноз накопления.
-   null — этап не достигается в плане, показываем его в любом году. */
+   Этап без прогноза (не достигается в плане) в обзор не попадает вовсе. */
 function milestoneYear(m, done, planStartYear) {
   if (m.deadline) return Number(m.deadline.slice(0, 4));
   if (done === 'pre') return planStartYear;
@@ -212,25 +212,32 @@ function yearGoalCard(ctx, g, allocated, { withStages, extra = '' }) {
   const txs = state.savings?.goal_transactions ?? [];
   const planStartYear = sim.rows.length ? Number(sim.rows[0].period.pay_date.slice(0, 4)) : year;
 
-  const total = goalTotal(g, state.savings?.goal_milestones ?? []) || (Number(g.target_amount) || 0);
+  const list = sim.milestonesOf(g);
+  const dates = sim.milestoneDates[g.id] ?? [];
+  /* В обзор года идут только этапы, которые в этом году закрываются по сроку
+     или по прогнозу. Недостижимые в плане и уже прошедшие сроки не показываем
+     и в сумму года не берём. */
+  const mine = withStages
+    ? list.map((m, i) => ({ m, done: dates[i] }))
+      .filter(({ m, done }) => done && done !== 'pre'
+        && milestoneYear(m, done, planStartYear) === year
+        && !(m.deadline && m.deadline < ctx.today))
+    : [];
+
+  // сумма года: по этапам этого года, а у целей без этапов — вся сумма цели
+  const total = withStages
+    ? (mine.reduce((acc, x) => acc + (Number(x.m.target) || 0), 0)
+      || (list.length ? 0 : goalTotal(g, state.savings?.goal_milestones ?? []) || (Number(g.target_amount) || 0)))
+    : (goalTotal(g, state.savings?.goal_milestones ?? []) || (Number(g.target_amount) || 0));
   const base = goalBalanceAt(sim, g, txs, `${year - 1}-12-31`);
   const added = allocated.get(g.id) ?? 0;
   const end = base + added;
   const pct = v => (total > 0 ? Math.max(0, Math.min(100, Math.round(v / total * 100))) : 0);
 
-  const list = sim.milestonesOf(g);
-  const dates = sim.milestoneDates[g.id] ?? [];
-  const mine = withStages
-    ? list.map((m, i) => ({ m, done: dates[i] }))
-      .filter(({ m, done }) => { const y = milestoneYear(m, done, planStartYear); return y === null || y === year; })
-    : [];
-
   const stages = mine.map(({ m, done }) => {
-    const label = !done ? (m.deadline ? `не достигается к ${fmt.date(m.deadline)}` : 'не достигается в плане')
-      : done === 'pre' ? 'уже накоплено'
-      : m.deadline ? (done <= m.deadline ? `в графике (к ${fmt.date(done)})` : `позже срока (к ${fmt.date(done)})`)
+    const label = m.deadline ? (done <= m.deadline ? `в графике (к ${fmt.date(done)})` : `позже срока (к ${fmt.date(done)})`)
       : `прогноз: к ${fmt.date(done)}`;
-    const cls = !done ? 'danger' : (!m.deadline || done === 'pre' || done <= m.deadline) ? 'ok' : 'warn';
+    const cls = (!m.deadline || done <= m.deadline) ? 'ok' : 'warn';
     return `<div class="row between" style="gap:8px;">
       <span>${esc(m.title || 'Этап')} · ${esc(fmt.money(m.target, g.currency_code))}</span>${pill(label, cls)}</div>`;
   }).join('');
@@ -250,7 +257,8 @@ function yearGoalCard(ctx, g, allocated, { withStages, extra = '' }) {
            на конец ${year}: <b>${esc(fmt.money(end, g.currency_code))}</b> из ${esc(fmt.money(total, g.currency_code))}</div>`
       : `<div class="small-note">на начало ${year}: ${esc(fmt.money(base, g.currency_code))} ·
            за год ${added > 0.5 ? '+' : ''}${esc(fmt.money(added, g.currency_code))} ·
-           на конец ${year}: <b>${esc(fmt.money(end, g.currency_code))}</b>. Сумма цели не задана.</div>`}
+           на конец ${year}: <b>${esc(fmt.money(end, g.currency_code))}</b>.
+           ${list.length ? `Прогресс не показываем: в ${year} году сроков нет.` : 'Сумма цели не задана.'}</div>`}
     ${stages ? `<div style="margin-top:10px;display:grid;gap:6px;">${stages}</div>`
       : withStages ? `<div class="small-note" style="margin-top:10px;">В ${year} году ничего не закрывается — копим дальше.</div>` : ''}
     ${extra ? `<div style="margin-top:12px;">${extra}</div>` : ''}

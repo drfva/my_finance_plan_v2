@@ -7,8 +7,11 @@
                           история доходов, отпускные в доход не входят);
      индексация         = если оклад на дату начала отпуска выше оклада на конец
                           месяца, доход месяца × (новый оклад / старый);
-     коэффициент месяца = avg_days_in_month (29,3), а при больничных
-                          avg_days_in_month / дней в месяце × (дней в месяце − дней больничного);
+     коэффициент месяца = avg_days_in_month (29,3) за полностью отработанный месяц;
+                          если в месяце были исключаемые дни (больничный, другой отпуск),
+                          он считается неполным: avg_days_in_month / дней в месяце ×
+                          (дней в месяце − исключаемые дни) — так предписывает
+                          Положение № 922 (п. 10);
      средний дневной    = Σ доходов / Σ коэффициентов.
    Отпускные по формуле = округл(средний дневной × календарных дней отпуска).
 
@@ -24,16 +27,17 @@
 import { parts, daysInMonth, monthsBefore, monthEnd, daysInclusive, overlap } from './dates.js';
 import { rateOn, daysInWindow } from './salary.js';
 
-function sickDaysInMonth(y, m, sickLeaves) {
+/* Календарные дни месяца, попавшие в перечисленные периоды */
+function daysInMonthFrom(y, m, ranges) {
   const from = `${y}-${String(m).padStart(2, '0')}-01`;
   const to = monthEnd(y, m);
   let days = 0;
-  for (const s of sickLeaves) {
-    if (!s.start_date || !s.end_date) continue;
-    const o = overlap(s.start_date, s.end_date, from, to);
+  for (const r of ranges) {
+    if (!r.start_date || !r.end_date) continue;
+    const o = overlap(r.start_date, r.end_date, from, to);
     if (o) days += daysInclusive(o.from, o.to);
   }
-  return Math.min(days, daysInMonth(y, m));
+  return days;
 }
 
 function raiseFactor(y, m, start, rates) {
@@ -46,15 +50,22 @@ function raiseFactor(y, m, start, rates) {
 }
 
 /* Средний дневной заработок на дату начала отпуска */
-export function averageDailyEarnings({ start, monthIncome, rates = [], sickLeaves = [], avgDaysInMonth = 29.3 }) {
+export function averageDailyEarnings({
+  start, monthIncome, rates = [], sickLeaves = [], vacations = [], excludeVacationId = null, avgDaysInMonth = 29.3,
+}) {
   const { y, m } = parts(start);
+  const otherVacations = vacations.filter(v => v.id !== excludeVacationId);
   const months = monthsBefore(y, m, 12).map(mo => {
     const base = Number(monthIncome(mo.y, mo.m)) || 0;
     const factor = raiseFactor(mo.y, mo.m, start, rates);
-    const sickDays = sickDaysInMonth(mo.y, mo.m, sickLeaves);
     const dim = daysInMonth(mo.y, mo.m);
-    const coef = sickDays > 0 ? (avgDaysInMonth / dim) * (dim - sickDays) : avgDaysInMonth;
-    return { y: mo.y, m: mo.m, income: base * factor, baseIncome: base, factor, sickDays, coef };
+    const sickDays = Math.min(daysInMonthFrom(mo.y, mo.m, sickLeaves), dim);
+    const vacDays = Math.min(daysInMonthFrom(mo.y, mo.m, otherVacations), dim);
+    const excludedDays = Math.min(sickDays + vacDays, dim);
+    const workedDays = dim - excludedDays;
+    const coef = excludedDays > 0 ? (avgDaysInMonth / dim) * workedDays : avgDaysInMonth;
+    return { y: mo.y, m: mo.m, income: base * factor, baseIncome: base, factor,
+      days: dim, sickDays, vacDays, excludedDays, workedDays, coef };
   });
   const totalIncome = months.reduce((s, x) => s + x.income, 0);
   const totalCoef = months.reduce((s, x) => s + x.coef, 0);
@@ -64,9 +75,10 @@ export function averageDailyEarnings({ start, monthIncome, rates = [], sickLeave
 /* Отпускные по формуле: { amount, days, avgDaily, months } или null */
 export function vacationFormula(vacation, ctx, round = Math.round) {
   if (!vacation.start_date || !vacation.end_date || vacation.end_date < vacation.start_date) return null;
-  const avg = averageDailyEarnings({ start: vacation.start_date, ...ctx });
+  const avg = averageDailyEarnings({ start: vacation.start_date, excludeVacationId: vacation.id, ...ctx });
   const days = daysInclusive(vacation.start_date, vacation.end_date);
-  return { amount: round(avg.avgDaily * days), days, avgDaily: avg.avgDaily, months: avg.months };
+  return { amount: round(avg.avgDaily * days), days, avgDaily: avg.avgDaily, months: avg.months,
+    totalIncome: avg.totalIncome, totalCoef: avg.totalCoef };
 }
 
 /* Сумма, которая идёт в план */
