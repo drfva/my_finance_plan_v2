@@ -227,12 +227,13 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
       </div>`) : ''}
     </div>
     ${extraFields}
-    ${!milestones.length ? `<div class="row wrap" style="gap:12px;margin-top:10px;align-items:start;">
-        <div style="flex:1;min-width:160px;">${field('Сколько накопить', input({ edit: 'savings|goals|target_amount', key: { id: g.id }, value: g.target_amount, type: 'money', disabled: !canEdit }), 'Или разбейте цель на этапы')}</div>
+    ${!milestones.length ? `<div class="row wrap" style="gap:12px;margin-top:12px;align-items:end;">
+        <div style="flex:1;min-width:160px;">${field('Сколько накопить', input({ edit: 'savings|goals|target_amount', key: { id: g.id }, value: g.target_amount, type: 'money', disabled: !canEdit }))}</div>
         <div style="flex:1;min-width:160px;">${field('К дате', input({ edit: 'savings|goals|deadline', key: { id: g.id }, value: g.deadline, type: 'date', disabled: !canEdit }))}</div>
-        ${canEdit && showCycles ? `<div>${field(' ', button({ action: 'make-cycle', value: `goal:${g.id}`, label: 'Сделать периодической',
-          title: 'Копить эту сумму к дате и повторять' }))}</div>` : ''}
-      </div>` : ''}
+        ${canEdit && showCycles ? `<div class="row goal-actions">${button({ action: 'make-cycle', value: `goal:${g.id}`, label: 'Сделать периодической',
+          title: 'Копить эту сумму к дате и повторять' })}</div>` : ''}
+      </div>
+      <div class="small-note">Или разбейте цель на этапы ниже — тогда сумма сложится из них.</div>` : ''}
     ${canEdit && g.completed && balance > 0.5 ? `<div class="row wrap" style="gap:8px;margin-top:12px;">
       ${button({ action: 'redistribute', value: g.id, label: `Раздать остаток ${fmt.money(balance, g.currency_code)} другим целям` })}</div>` : ''}
 
