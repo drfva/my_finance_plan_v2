@@ -30,6 +30,28 @@
         getSession: async () => ({ data: { session: { user: { id: 'u' } } } }),
         getUser: async () => ({ data: { user: { email: 'demo@example.com' } } }),
         signOut: async () => {},
+        updateUser: async () => ({ data: {}, error: null }),
+        // как в реальной библиотеке: ключ заводится через auth.registerPasskey()
+        ...(new URLSearchParams(location.search).get('passkey') === 'v1' ? {
+          registerPasskey: async ({ friendlyName }) => {
+            window.__keys = [...(window.__keys ?? []), { id: 'k' + Date.now(), friendly_name: friendlyName, created_at: '2026-09-22' }];
+            return { data: {}, error: null };
+          },
+        } : {}),
+        // заглушка ключей: ?passkey=list — есть только список, ?passkey=full — и добавление
+        passkey: new URLSearchParams(location.search).get('passkey') ? {
+          list: async () => ({ data: window.__keys ?? [] }),
+          ...(new URLSearchParams(location.search).get('passkey') === 'full' ? {
+            enroll: async ({ friendlyName }) => {
+              window.__keys = [...(window.__keys ?? []), { id: 'k' + Date.now(), friendly_name: friendlyName, created_at: '2026-09-22' }];
+              return { data: {}, error: null };
+            },
+            delete: async ({ passkeyId }) => {
+              window.__keys = (window.__keys ?? []).filter(k => k.id !== passkeyId);
+              return { data: {}, error: null };
+            },
+          } : {}),
+        } : undefined,
       },
       rpc: async (name) => {
         if (name === 'bootstrap_user' || name === 'state_get') return { data: state, error: null };

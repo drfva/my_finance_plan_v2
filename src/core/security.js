@@ -10,11 +10,30 @@ export function createSecurity(client, onChange = () => {}) {
   const state = { user: null, passkeys: null, loading: false, msg: null };
 
   const say = (text, ok = false) => { state.msg = { text, ok }; onChange(); };
-  const api = () => client?.auth?.passkey ?? null;
+  const auth = () => client?.auth ?? null;
+  const api = () => auth()?.passkey ?? null;
+
+  /* В разных версиях supabase-js ключи заводятся по-разному: auth.registerPasskey()
+     или auth.passkey.enroll(). Берём то, что есть, иначе говорим об этом прямо. */
+  const enrollFn = () => {
+    const a = auth();
+    if (!a) return null;
+    if (typeof a.registerPasskey === 'function') return name => a.registerPasskey({ friendlyName: name });
+    if (typeof api()?.enroll === 'function') return name => api().enroll({ friendlyName: name });
+    if (typeof api()?.register === 'function') return name => api().register({ friendlyName: name });
+    return null;
+  };
+  const deleteFn = () => {
+    const a = auth();
+    if (typeof api()?.delete === 'function') return id => api().delete({ passkeyId: id });
+    if (typeof a?.unenrollPasskey === 'function') return id => a.unenrollPasskey({ passkeyId: id });
+    return null;
+  };
+  const listFn = () => (typeof api()?.list === 'function' ? () => api().list() : null);
 
   const supported = () => Boolean(
-    typeof window !== 'undefined' && window.PublicKeyCredential
-    && api() && typeof api().list === 'function',
+    typeof window !== 'undefined' && window.PublicKeyCredential && auth()
+    && (enrollFn() || listFn() || typeof auth().signInWithPasskey === 'function'),
   );
 
   async function loadUser() {
@@ -25,10 +44,11 @@ export function createSecurity(client, onChange = () => {}) {
   }
 
   async function loadPasskeys() {
-    if (!supported() || state.loading || state.passkeys !== null) return;
+    const list = listFn();
+    if (!supported() || !list || state.loading || state.passkeys !== null) return;
     state.loading = true;
     try {
-      const r = await api().list();
+      const r = await list();
       state.passkeys = r?.data ?? [];
     } catch (e) {
       state.passkeys = [];
@@ -59,28 +79,40 @@ export function createSecurity(client, onChange = () => {}) {
         : `На ${email} отправлено письмо. Пока не перейдёте по ссылке, вход остаётся по старому адресу.`, !r?.error);
     },
 
+    canAdd: () => Boolean(enrollFn()),
+    hasList: () => Boolean(listFn()),
+
     async addPasskey(name) {
-      if (!supported() || typeof api().enroll !== 'function') {
-        return say('Эта версия библиотеки Supabase не умеет добавлять ключи.');
+      const enroll = enrollFn();
+      if (!enroll) {
+        return say('Эта версия библиотеки Supabase не умеет добавлять ключи: обновите supabase-js '
+          + 'или включите passkey в настройках проекта Supabase.');
       }
-      say('Ждём подтверждения на устройстве…', true);
+      say('Подтвердите на устройстве…', true);
       try {
-        const r = await api().enroll({ friendlyName: name || 'Это устройство' });
+        const r = await enroll(name || 'Это устройство');
         if (r?.error) return say('Не получилось добавить ключ: ' + r.error.message);
         state.passkeys = null;
-        say('Ключ добавлен — теперь можно входить по Face ID или Touch ID.', true);
+        say('Готово: теперь можно входить по Face ID или Touch ID.', true);
         loadPasskeys();
       } catch (e) {
-        say('Не получилось добавить ключ: ' + (e?.message ?? e));
+        // отмена на устройстве прилетает как исключение — это не ошибка приложения
+        const msg = e?.name === 'NotAllowedError' ? 'Подтверждение отменено.' : (e?.message ?? String(e));
+        say('Не получилось добавить ключ: ' + msg);
       }
     },
 
     async deletePasskey(id) {
-      if (!supported() || typeof api().delete !== 'function') return say('Удаление ключей недоступно.');
-      const r = await api().delete({ passkeyId: id });
-      state.passkeys = null;
-      say(r?.error ? 'Не получилось удалить: ' + r.error.message : 'Ключ удалён.', !r?.error);
-      loadPasskeys();
+      const del = deleteFn();
+      if (!del) return say('Эта версия библиотеки Supabase не умеет удалять ключи.');
+      try {
+        const r = await del(id);
+        state.passkeys = null;
+        say(r?.error ? 'Не получилось удалить: ' + r.error.message : 'Ключ удалён.', !r?.error);
+        loadPasskeys();
+      } catch (e) {
+        say('Не получилось удалить: ' + (e?.message ?? e));
+      }
     },
   };
 }

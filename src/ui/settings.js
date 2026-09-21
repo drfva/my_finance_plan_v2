@@ -212,6 +212,9 @@ function securityCard(ctx) {
   let keys;
   if (!sec.supported()) {
     keys = '<div class="small-note">Это устройство или версия библиотеки не поддерживает вход по биометрии.</div>';
+  } else if (!sec.hasList()) {
+    keys = '<div class="small-note">Список ключей эта версия библиотеки не отдаёт — добавить ключ можно, '
+      + 'а посмотреть и удалить их получится в панели Supabase.</div>';
   } else if (st.passkeys === null) {
     keys = '<div class="small-note">Загружаем список ключей…</div>';
   } else if (!st.passkeys.length) {
@@ -247,7 +250,7 @@ function securityCard(ctx) {
       <h3 style="font-size:15px;margin:18px 0 8px;">Вход по Face ID / Touch ID</h3>
       <div class="small-note" style="margin-top:0;margin-bottom:8px;">Пароль остаётся запасным входом: если устройство потеряется, войти можно будет по нему.</div>
       ${keys}
-      ${sec.supported() ? `<div style="margin-top:10px;">${button({ action: 'passkey-add', label: '+ добавить Face ID / Touch ID' })}</div>` : ''}
+      ${sec.supported() && sec.canAdd() ? `<div style="margin-top:10px;">${button({ action: 'passkey-add', label: '+ добавить Face ID / Touch ID' })}</div>` : ''}
 
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line);">
         ${button({ action: 'sign-out-account', label: 'Выйти из аккаунта', cls: 'ghost small' })}</div>`,
