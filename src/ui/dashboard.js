@@ -30,8 +30,13 @@ const sumOf = obj => Object.values(obj ?? {}).reduce((s, x) => s + x, 0);
 
 function incomeView(ctx, rows) {
   const { fmt, year } = ctx;
-  const slots = [...new Set(rows.map(r => r.period.slot_order))].sort((a, b) => a - b);
+  const slots = [...new Set(rows.filter(r => r.period.slot_order).map(r => r.period.slot_order))].sort((a, b) => a - b);
   const slotTitle = o => rows.find(r => r.period.slot_order === o)?.period.title || `Выплата ${o}`;
+
+  const sum = (list, fn) => list.reduce((acc, r) => acc + (fn(r) || 0), 0);
+  const hasOneOff = rows.some(r => !r.period.slot_order);
+  const hasVacation = sum(rows, r => r.income.vacationPay) > 0.5;
+  const hasExtra = sum(rows, r => r.income.extraIncome) > 0.5;
 
   const months = new Map();
   for (const r of rows) {
@@ -53,52 +58,71 @@ function incomeView(ctx, rows) {
     return [...by].sort((a, b) => a[0] - b[0]).map(([rate, amount]) => ({ rate, amount }));
   };
 
-  let gTotal = 0; let tTotal = 0; let nTotal = 0; let vacTotal = 0;
-  const bySlotTotal = new Map();
+  const money = v => `<td class="num">${v > 0.5 ? esc(fmt.money(v)) : ''}</td>`;
+  const totals = { gross: 0, tax: 0, net: 0, salary: 0, vacation: 0, extra: 0, oneOff: 0 };
+  const bySlot = new Map();
+
   const body = [...months.entries()].sort().map(([m, list]) => {
-    const gross = list.reduce((s, r) => s + (r.income.gross ?? 0), 0);
-    const tax = list.reduce((s, r) => s + (r.income.tax ?? 0), 0);
-    const net = list.reduce((s, r) => s + r.totalIncome, 0);
-    const parts = mergeParts(list.flatMap(r => r.income.taxParts ?? []));
-    gTotal += gross; tTotal += tax; nTotal += net;
-    vacTotal += list.reduce((s, r) => s + (r.income.vacationPay ?? 0), 0);
-    const note = list.map(r => `${esc((r.period.title || 'выплата').toLowerCase())} ${esc(fmt.date(r.period.pay_date, 'dayMonth'))} · ${esc(fmt.money(r.totalIncome))}`).join('; ');
-    const cells = slots.map(o => {
-      const own = list.filter(r => r.period.slot_order === o).reduce((s, r) => s + r.totalIncome, 0);
-      bySlotTotal.set(o, (bySlotTotal.get(o) ?? 0) + own);
-      return `<td class="num">${own ? esc(fmt.money(own)) : ''}</td>`;
+    const gross = sum(list, r => r.income.gross);
+    const tax = sum(list, r => r.income.tax);
+    const net = sum(list, r => r.totalIncome);
+    const salary = sum(list, r => r.income.salary);
+    const vacation = sum(list, r => r.income.vacationPay);
+    const extra = sum(list, r => r.income.extraIncome);
+    const oneOff = sum(list.filter(r => !r.period.slot_order), r => r.totalIncome);
+    totals.gross += gross; totals.tax += tax; totals.net += net;
+    totals.salary += salary; totals.vacation += vacation; totals.extra += extra; totals.oneOff += oneOff;
+
+    const note = list.map(r => `${esc((r.period.title || 'разовая').toLowerCase())} ${esc(fmt.date(r.period.pay_date, 'dayMonth'))} · ${esc(fmt.money(r.totalIncome))}`).join('; ');
+    const slotCells = slots.map(o => {
+      const own = sum(list.filter(r => r.period.slot_order === o), r => r.totalIncome);
+      bySlot.set(o, (bySlot.get(o) ?? 0) + own);
+      return money(own);
     }).join('');
+
     return `<tr>
       <td><b>${esc(fmt.month(m, { withYear: false }))}</b><div class="small-note">${note}</div></td>
-      ${cells}
+      ${slotCells}
+      ${hasOneOff ? money(oneOff) : ''}
+      ${money(salary)}
+      ${hasVacation ? money(vacation) : ''}
+      ${hasExtra ? money(extra) : ''}
       <td class="num">${esc(fmt.money(gross))}</td>
-      ${rateCell(parts)}
+      ${rateCell(mergeParts(list.flatMap(r => r.income.taxParts ?? [])))}
       <td class="num">${esc(fmt.money(tax))}</td>
       <td class="num"><b>${esc(fmt.money(net))}</b></td>
     </tr>`;
   });
 
-  const allParts = mergeParts(rows.flatMap(r => r.income.taxParts ?? []));
   const foot = `<tr>
-    <td><b>Итого за год</b>${vacTotal ? `<div class="small-note">в том числе отпускные ${esc(fmt.money(vacTotal))}</div>` : ''}</td>
-    ${slots.map(o => `<td class="num">${esc(fmt.money(bySlotTotal.get(o) ?? 0))}</td>`).join('')}
-    <td class="num">${esc(fmt.money(gTotal))}</td>
-    ${rateCell(allParts)}
-    <td class="num">${esc(fmt.money(tTotal))}</td>
-    <td class="num"><b>${esc(fmt.money(nTotal))}</b></td>
+    <td><b>Итого за год</b></td>
+    ${slots.map(o => `<td class="num">${esc(fmt.money(bySlot.get(o) ?? 0))}</td>`).join('')}
+    ${hasOneOff ? `<td class="num">${esc(fmt.money(totals.oneOff))}</td>` : ''}
+    <td class="num">${esc(fmt.money(totals.salary))}</td>
+    ${hasVacation ? `<td class="num">${esc(fmt.money(totals.vacation))}</td>` : ''}
+    ${hasExtra ? `<td class="num">${esc(fmt.money(totals.extra))}</td>` : ''}
+    <td class="num">${esc(fmt.money(totals.gross))}</td>
+    ${rateCell(mergeParts(rows.flatMap(r => r.income.taxParts ?? [])))}
+    <td class="num">${esc(fmt.money(totals.tax))}</td>
+    <td class="num"><b>${esc(fmt.money(totals.net))}</b></td>
   </tr>`;
+
+  const head = ['Месяц',
+    ...slots.map(o => ({ title: slotTitle(o), cls: 'num' })),
+    ...(hasOneOff ? [{ title: 'Разовые', cls: 'num' }] : []),
+    { title: 'За отработанные', cls: 'num' },
+    ...(hasVacation ? [{ title: 'Отпускные', cls: 'num' }] : []),
+    ...(hasExtra ? [{ title: 'Доп. выплаты', cls: 'num' }] : []),
+    { title: 'Начислено', cls: 'num' }, { title: 'Ставка', cls: 'num' },
+    { title: 'Налог', cls: 'num' }, { title: 'На руки', cls: 'num' }];
 
   return card({
     title: `Доход по месяцам ${year}`,
     note: 'Месяц — расчётный период: аванс приходит в нём, зарплата за него — в следующем. '
-      + 'Начислено и налог считаются нарастающим итогом за календарный год выплаты.',
+      + 'Слева — сколько пришло каждой выплатой, дальше то же самое по источникам: оклад за отработанные дни, '
+      + 'отпускные и разовые доходы. Начислено и налог считаются нарастающим итогом за календарный год выплаты.',
     body: body.length
-      ? table({
-        head: ['Месяц', ...slots.map(o => ({ title: slotTitle(o), cls: 'num' })),
-          { title: 'Начислено', cls: 'num' }, { title: 'Ставка', cls: 'num' },
-          { title: 'Налог', cls: 'num' }, { title: 'На руки', cls: 'num' }],
-        rows: body, foot,
-      })
+      ? table({ head, rows: body, foot })
       : '<div class="muted">Выплат в этом году нет.</div>',
   });
 }

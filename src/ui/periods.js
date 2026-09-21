@@ -26,7 +26,8 @@ function head(ctx, r) {
   const pills = [
     p.calc_mode === 'manual' ? pill('вручную') : '',
     p.locked ? pill('🔒 зафиксирована') : '',
-    r.vacationPay ? pill('отпускные') : '',
+    r.income.vacationPay > 0.5 ? pill(`отпускные ${fmt.money(r.income.vacationPay)}`) : '',
+    r.income.extraIncome > 0.5 ? pill(`разовый доход ${fmt.money(r.income.extraIncome)}`) : '',
     debts > 0.5 ? pill(`долги ${fmt.money(debts)}`) : '',
     r.free < -0.5 ? pill('дефицит', 'danger') : (r.unallocated < -0.5 ? pill(`не хватает ${fmt.money(-r.unallocated)}`, 'warn') : ''),
     r.unallocated > 0.5 ? pill(`+${fmt.money(r.unallocated)} свободно`, 'ok') : '',
@@ -122,14 +123,15 @@ function body(ctx, r) {
                ? button({ action: 'fill-income', value: p.id, label: 'подставить по формуле', cls: 'ghost small' }) : ''}`
           : 'оклада на этот период нет'}</div>
         ${r.income.vacationPay > 0.5 ? `<div class="small-note">+ отпускные ${esc(fmt.money(r.income.vacationPay))}
-          за ${r.income.vacations.reduce((sum, x) => sum + x.days, 0)} дн. — считаются отдельно, на вкладке «Отпуска»</div>` : ''}
+          за ${r.income.vacations.reduce((sum, x) => sum + x.days, 0)} дн., считаются на вкладке «Отпуска»</div>` : ''}
+        ${r.income.extraIncome > 0.5 ? `<div class="small-note">+ разовый доход ${esc(fmt.money(r.income.extraIncome))}</div>` : ''}
       </div>
       ${field('Комментарий', input({ edit: 'income|periods|note', key: { id: p.id }, value: p.note, disabled: !canEdit }))}
     </div>
 
-    ${r.vacationPay ? `<div class="small-note">Отпускные в этой выплате: ${r.vacations.map(v =>
+    ${r.income.vacationPay ? `<div class="small-note">Отпускные в этой выплате: ${r.income.vacations.map(v =>
       `${esc((state.income?.vacations ?? []).find(x => x.id === v.vacation_id)?.title || 'отпуск')} — ${esc(fmt.money(v.amount))} (${v.days} дн.)`).join(', ')}</div>` : ''}
-    ${r.extraIncome ? `<div class="small-note">Разовый доход: ${esc(fmt.money(r.extraIncome))}</div>` : ''}
+    ${r.income.extraIncome ? `<div class="small-note">Разовый доход: ${esc(fmt.money(r.income.extraIncome))}</div>` : ''}
 
     <div class="grid cols-2" style="margin-top:20px;">
       ${card({
