@@ -1,0 +1,9 @@
+{
+  "name": "finance",
+  "private": true,
+  "type": "module",
+  "description": "Финансы v2. Сборка не нужна: GitHub Pages отдаёт файлы как есть. package.json нужен только для тестов.",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}

@@ -1,0 +1,1880 @@
+{
+ "note": "План старой версии (DEFAULT_STATE + карта, рассрочка, подушки, перевод, фиксация) в формате v2 и результат её simulate()",
+ "state": {
+  "ref": {
+   "setting_defaults": [
+    {
+     "key": "base_currency",
+     "value": "RUB",
+     "scope": "account"
+    },
+    {
+     "key": "calendar_code",
+     "value": "ru",
+     "scope": "account"
+    },
+    {
+     "key": "avg_days_in_month",
+     "value": 29.3,
+     "scope": "account"
+    },
+    {
+     "key": "rounding",
+     "value": 1,
+     "scope": "account"
+    },
+    {
+     "key": "planned_spend_window_days",
+     "value": 45,
+     "scope": "account"
+    },
+    {
+     "key": "locale",
+     "value": "ru-RU",
+     "scope": "user"
+    }
+   ],
+   "calendar_days": [
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 1,
+     "month": 1
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 2,
+     "month": 1
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 3,
+     "month": 1
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 4,
+     "month": 1
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 5,
+     "month": 1
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 6,
+     "month": 1
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 7,
+     "month": 1
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 8,
+     "month": 1
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 23,
+     "month": 2
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 8,
+     "month": 3
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 1,
+     "month": 5
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 9,
+     "month": 5
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 12,
+     "month": 6
+    },
+    {
+     "calendar_code": "ru",
+     "rule": "fixed",
+     "kind": "holiday",
+     "day": 4,
+     "month": 11
+    }
+   ],
+   "allocation_stages": [
+    {
+     "code": "categories",
+     "title": "categories",
+     "default_priority": 1
+    },
+    {
+     "code": "gifts",
+     "title": "gifts",
+     "default_priority": 2
+    },
+    {
+     "code": "installments",
+     "title": "installments",
+     "default_priority": 3
+    },
+    {
+     "code": "credits",
+     "title": "credits",
+     "default_priority": 4
+    },
+    {
+     "code": "buckets",
+     "title": "buckets",
+     "default_priority": 5
+    },
+    {
+     "code": "reserves",
+     "title": "reserves",
+     "default_priority": 6
+    }
+   ],
+   "goal_kinds": [
+    {
+     "code": "bucket",
+     "stage_code": "buckets"
+    },
+    {
+     "code": "reserve",
+     "stage_code": "reserves"
+    },
+    {
+     "code": "gifts",
+     "stage_code": "gifts"
+    }
+   ],
+   "currencies": [
+    {
+     "code": "RUB",
+     "symbol": "₽"
+    }
+   ]
+  },
+  "user": {
+   "settings": {}
+  },
+  "account": {
+   "id": "acc",
+   "can_edit": true,
+   "role": "owner"
+  },
+  "settings": {
+   "account_settings": {},
+   "allocation_rules": [
+    {
+     "stage_code": "categories",
+     "priority": 1,
+     "enabled": true,
+     "params": {}
+    },
+    {
+     "stage_code": "installments",
+     "priority": 2,
+     "enabled": true,
+     "params": {}
+    },
+    {
+     "stage_code": "credits",
+     "priority": 3,
+     "enabled": true,
+     "params": {}
+    },
+    {
+     "stage_code": "gifts",
+     "priority": 4,
+     "enabled": true,
+     "params": {}
+    },
+    {
+     "stage_code": "buckets",
+     "priority": 5,
+     "enabled": true,
+     "params": {}
+    },
+    {
+     "stage_code": "reserves",
+     "priority": 6,
+     "enabled": true,
+     "params": {}
+    }
+   ],
+   "fx_rates": []
+  },
+  "income": {
+   "plan_years": [
+    {
+     "year": 2026
+    },
+    {
+     "year": 2027
+    }
+   ],
+   "payout_slots": [
+    {
+     "year": 2026,
+     "sort_order": 1,
+     "title": "Аванс",
+     "pay_day": 20,
+     "month_offset": 0,
+     "window_from_day": 1,
+     "window_to_day": 15,
+     "shift_rule": "back"
+    },
+    {
+     "year": 2026,
+     "sort_order": 2,
+     "title": "Зарплата",
+     "pay_day": 5,
+     "month_offset": 1,
+     "window_from_day": 16,
+     "window_to_day": 31,
+     "shift_rule": "back"
+    },
+    {
+     "year": 2027,
+     "sort_order": 1,
+     "title": "Аванс",
+     "pay_day": 20,
+     "month_offset": 0,
+     "window_from_day": 1,
+     "window_to_day": 15,
+     "shift_rule": "back"
+    },
+    {
+     "year": 2027,
+     "sort_order": 2,
+     "title": "Зарплата",
+     "pay_day": 5,
+     "month_offset": 1,
+     "window_from_day": 16,
+     "window_to_day": 31,
+     "shift_rule": "back"
+    }
+   ],
+   "salary_rates": [
+    {
+     "id": "r0",
+     "effective_from": "2027-01-01",
+     "amount": 230000,
+     "is_gross": true
+    }
+   ],
+   "tax_scales": [
+    {
+     "id": "ndfl",
+     "valid_from_year": 2000,
+     "cumulative": true
+    }
+   ],
+   "tax_brackets": [
+    {
+     "scale_id": "ndfl",
+     "sort_order": 1,
+     "up_to": 2400000,
+     "rate": 13
+    },
+    {
+     "scale_id": "ndfl",
+     "sort_order": 2,
+     "up_to": 5000000,
+     "rate": 15
+    },
+    {
+     "scale_id": "ndfl",
+     "sort_order": 3,
+     "up_to": 20000000,
+     "rate": 18
+    },
+    {
+     "scale_id": "ndfl",
+     "sort_order": 4,
+     "up_to": 50000000,
+     "rate": 20
+    },
+    {
+     "scale_id": "ndfl",
+     "sort_order": 5,
+     "up_to": null,
+     "rate": 22
+    }
+   ],
+   "periods": [
+    {
+     "id": "p1",
+     "year": 2026,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-01-05",
+     "window_start": "2026-12-16",
+     "window_end": "2026-12-31",
+     "calc_mode": "manual",
+     "income_net": 97750,
+     "note": "Фактически приходит 30.12.2026",
+     "locked": true
+    },
+    {
+     "id": "p2",
+     "year": 2027,
+     "slot_order": 1,
+     "title": "",
+     "pay_date": "2027-01-20",
+     "window_start": "2027-01-01",
+     "window_end": "2027-01-15",
+     "calc_mode": "auto",
+     "income_net": 66700,
+     "note": "",
+     "locked": true
+    },
+    {
+     "id": "p3",
+     "year": 2027,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-02-05",
+     "window_start": "2027-01-16",
+     "window_end": "2027-01-31",
+     "calc_mode": "auto",
+     "income_net": 133400,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p4",
+     "year": 2027,
+     "slot_order": 1,
+     "title": "",
+     "pay_date": "2027-02-20",
+     "window_start": "2027-02-01",
+     "window_end": "2027-02-15",
+     "calc_mode": "auto",
+     "income_net": 115847,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p5",
+     "year": 2027,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-03-05",
+     "window_start": "2027-02-16",
+     "window_end": "2027-02-28",
+     "calc_mode": "auto",
+     "income_net": 84252,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p6",
+     "year": 2027,
+     "slot_order": 1,
+     "title": "",
+     "pay_date": "2027-03-19",
+     "window_start": "2027-03-01",
+     "window_end": "2027-03-15",
+     "calc_mode": "auto",
+     "income_net": 90954,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p7",
+     "year": 2027,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-04-05",
+     "window_start": "2027-03-16",
+     "window_end": "2027-03-31",
+     "calc_mode": "auto",
+     "income_net": 109145,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p8",
+     "year": 2027,
+     "slot_order": 1,
+     "title": "",
+     "pay_date": "2027-04-20",
+     "window_start": "2027-04-01",
+     "window_end": "2027-04-15",
+     "calc_mode": "auto",
+     "income_net": 100050,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p9",
+     "year": 2027,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-05-05",
+     "window_start": "2027-04-16",
+     "window_end": "2027-04-30",
+     "calc_mode": "auto",
+     "income_net": 54500,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p10",
+     "year": 2027,
+     "slot_order": 1,
+     "title": "",
+     "pay_date": "2027-05-20",
+     "window_start": "2027-05-01",
+     "window_end": "2027-05-15",
+     "calc_mode": "auto",
+     "income_net": 84250,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p11",
+     "year": 2027,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-06-05",
+     "window_start": "2027-05-16",
+     "window_end": "2027-05-31",
+     "calc_mode": "auto",
+     "income_net": 115800,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p12",
+     "year": 2027,
+     "slot_order": 1,
+     "title": "",
+     "pay_date": "2027-06-20",
+     "window_start": "2027-06-01",
+     "window_end": "2027-06-15",
+     "calc_mode": "auto",
+     "income_net": 95200,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p13",
+     "year": 2027,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-07-05",
+     "window_start": "2027-06-16",
+     "window_end": "2027-06-30",
+     "calc_mode": "auto",
+     "income_net": 104800,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p14",
+     "year": 2027,
+     "slot_order": 1,
+     "title": "",
+     "pay_date": "2027-07-20",
+     "window_start": "2027-07-01",
+     "window_end": "2027-07-15",
+     "calc_mode": "auto",
+     "income_net": 100050,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p15",
+     "year": 2027,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-08-05",
+     "window_start": "2027-07-16",
+     "window_end": "2027-07-31",
+     "calc_mode": "auto",
+     "income_net": 54500,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p16",
+     "year": 2027,
+     "slot_order": 1,
+     "title": "",
+     "pay_date": "2027-08-20",
+     "window_start": "2027-08-01",
+     "window_end": "2027-08-15",
+     "calc_mode": "auto",
+     "income_net": 45500,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p17",
+     "year": 2027,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-09-05",
+     "window_start": "2027-08-16",
+     "window_end": "2027-08-31",
+     "calc_mode": "auto",
+     "income_net": 109000,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p18",
+     "year": 2027,
+     "slot_order": 1,
+     "title": "",
+     "pay_date": "2027-09-20",
+     "window_start": "2027-09-01",
+     "window_end": "2027-09-15",
+     "calc_mode": "auto",
+     "income_net": 100050,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p19",
+     "year": 2027,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-10-05",
+     "window_start": "2027-09-16",
+     "window_end": "2027-09-30",
+     "calc_mode": "auto",
+     "income_net": 100050,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p20",
+     "year": 2027,
+     "slot_order": 1,
+     "title": "",
+     "pay_date": "2027-10-20",
+     "window_start": "2027-10-01",
+     "window_end": "2027-10-15",
+     "calc_mode": "auto",
+     "income_net": 104800,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p21",
+     "year": 2027,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-11-05",
+     "window_start": "2027-10-16",
+     "window_end": "2027-10-31",
+     "calc_mode": "auto",
+     "income_net": 95200,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p22",
+     "year": 2027,
+     "slot_order": 1,
+     "title": "",
+     "pay_date": "2027-11-20",
+     "window_start": "2027-11-01",
+     "window_end": "2027-11-15",
+     "calc_mode": "auto",
+     "income_net": 90000,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p23",
+     "year": 2027,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-12-05",
+     "window_start": "2027-11-16",
+     "window_end": "2027-11-30",
+     "calc_mode": "auto",
+     "income_net": 110000,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p24",
+     "year": 2027,
+     "slot_order": 1,
+     "title": "",
+     "pay_date": "2027-12-20",
+     "window_start": "2027-12-01",
+     "window_end": "2027-12-15",
+     "calc_mode": "auto",
+     "income_net": 97750,
+     "note": "",
+     "locked": false
+    },
+    {
+     "id": "p25",
+     "year": 2027,
+     "slot_order": 2,
+     "title": "",
+     "pay_date": "2027-12-31",
+     "window_start": "2027-12-16",
+     "window_end": "2027-12-31",
+     "calc_mode": "auto",
+     "income_net": 97750,
+     "note": "Выплата раньше срока из-за новогодних праздников",
+     "locked": false
+    }
+   ],
+   "income_history": [
+    {
+     "year": 2026,
+     "month": 1,
+     "amount": 200000
+    },
+    {
+     "year": 2026,
+     "month": 2,
+     "amount": 200000
+    },
+    {
+     "year": 2026,
+     "month": 3,
+     "amount": 200000
+    },
+    {
+     "year": 2026,
+     "month": 4,
+     "amount": 200000
+    },
+    {
+     "year": 2026,
+     "month": 5,
+     "amount": 200000
+    },
+    {
+     "year": 2026,
+     "month": 6,
+     "amount": 200000
+    },
+    {
+     "year": 2026,
+     "month": 7,
+     "amount": 200000
+    },
+    {
+     "year": 2026,
+     "month": 8,
+     "amount": 200000
+    },
+    {
+     "year": 2026,
+     "month": 9,
+     "amount": 200000
+    },
+    {
+     "year": 2026,
+     "month": 10,
+     "amount": 200000
+    },
+    {
+     "year": 2026,
+     "month": 11,
+     "amount": 200000
+    },
+    {
+     "year": 2026,
+     "month": 12,
+     "amount": 200000
+    }
+   ],
+   "vacations": [
+    {
+     "id": "vac1",
+     "title": "Отпуск (апрель–май)",
+     "start_date": "2027-04-26",
+     "end_date": "2027-05-02",
+     "pay_amount": 51500,
+     "pay_manual": true
+    },
+    {
+     "id": "vac2",
+     "title": "Отпуск (август)",
+     "start_date": "2027-08-01",
+     "end_date": "2027-08-16",
+     "pay_amount": 102000,
+     "pay_manual": true
+    }
+   ],
+   "sick_leaves": [],
+   "extra_incomes": [],
+   "account_calendar_days": [
+    {
+     "date": "2027-01-01",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-01-02",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-01-03",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-01-04",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-01-05",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-01-06",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-01-07",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-01-08",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-02-23",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-03-08",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-05-01",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-05-09",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-06-12",
+     "kind": "holiday",
+     "title": ""
+    },
+    {
+     "date": "2027-11-04",
+     "kind": "holiday",
+     "title": ""
+    }
+   ],
+   "working_day_overrides": []
+  },
+  "expenses": {
+   "expense_categories": [
+    {
+     "id": "cat-life",
+     "title": "Жизнь",
+     "mode": "fixed_month",
+     "monthly_amount": 29000,
+     "percent_value": 0,
+     "split_mode": "even",
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 0
+    },
+    {
+     "id": "cat-fixed",
+     "title": "Fixed bills",
+     "mode": "fixed_month",
+     "monthly_amount": 9500,
+     "percent_value": 0,
+     "split_mode": "even",
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 1
+    },
+    {
+     "id": "cat-beauty",
+     "title": "Beauty",
+     "mode": "fixed_month",
+     "monthly_amount": 20000,
+     "percent_value": 0,
+     "split_mode": "even",
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 2
+    },
+    {
+     "id": "cat-household",
+     "title": "Household",
+     "mode": "fixed_month",
+     "monthly_amount": 4000,
+     "percent_value": 0,
+     "split_mode": "even",
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 3
+    },
+    {
+     "id": "cat-health",
+     "title": "Health",
+     "mode": "fixed_month",
+     "monthly_amount": 3000,
+     "percent_value": 0,
+     "split_mode": "even",
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 4
+    },
+    {
+     "id": "cat-pet",
+     "title": "Pet",
+     "mode": "fixed_month",
+     "monthly_amount": 9500,
+     "percent_value": 0,
+     "split_mode": "even",
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 5
+    },
+    {
+     "id": "cat-joy",
+     "title": "Joy",
+     "mode": "fixed_month",
+     "monthly_amount": 15000,
+     "percent_value": 0,
+     "split_mode": "even",
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 6
+    },
+    {
+     "id": "cat-sport",
+     "title": "Sport",
+     "mode": "fixed_month",
+     "monthly_amount": 21000,
+     "percent_value": 0,
+     "split_mode": "even",
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 7
+    },
+    {
+     "id": "cat-ski",
+     "title": "Горные лыжи",
+     "mode": "fixed_month",
+     "monthly_amount": 12000,
+     "percent_value": 0,
+     "split_mode": "even",
+     "season_from": "12-01",
+     "season_to": "03-20",
+     "sort_order": 8
+    },
+    {
+     "id": "cat-gym",
+     "title": "Gym Year",
+     "mode": "fixed_month",
+     "monthly_amount": 1500,
+     "percent_value": 0,
+     "split_mode": "even",
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 9
+    },
+    {
+     "id": "cat-presents",
+     "title": "Presents",
+     "mode": "fixed_month",
+     "monthly_amount": 8000,
+     "percent_value": 0,
+     "split_mode": "even",
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 10
+    }
+   ],
+   "expense_items": [
+    {
+     "id": "cat-life-i0",
+     "category_id": "cat-life",
+     "title": "Продукты",
+     "amount": 20000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 0
+    },
+    {
+     "id": "cat-life-i1",
+     "category_id": "cat-life",
+     "title": "Табак",
+     "amount": 3000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 1
+    },
+    {
+     "id": "cat-life-i2",
+     "category_id": "cat-life",
+     "title": "Транспорт",
+     "amount": 3000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 2
+    },
+    {
+     "id": "cat-fixed-i0",
+     "category_id": "cat-fixed",
+     "title": "Связь",
+     "amount": 1000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 0
+    },
+    {
+     "id": "cat-fixed-i1",
+     "category_id": "cat-fixed",
+     "title": "Интернет",
+     "amount": 1000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 1
+    },
+    {
+     "id": "cat-fixed-i2",
+     "category_id": "cat-fixed",
+     "title": "ЖКХ",
+     "amount": 7000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 2
+    },
+    {
+     "id": "cat-fixed-i3",
+     "category_id": "cat-fixed",
+     "title": "Подписки",
+     "amount": 1000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 3
+    },
+    {
+     "id": "cat-beauty-i0",
+     "category_id": "cat-beauty",
+     "title": "Лазер",
+     "amount": 5000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 0
+    },
+    {
+     "id": "cat-beauty-i1",
+     "category_id": "cat-beauty",
+     "title": "Уход",
+     "amount": 2000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 1
+    },
+    {
+     "id": "cat-beauty-i2",
+     "category_id": "cat-beauty",
+     "title": "Косметика",
+     "amount": 1200,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 2
+    },
+    {
+     "id": "cat-beauty-i3",
+     "category_id": "cat-beauty",
+     "title": "Одежда",
+     "amount": 6000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 3
+    },
+    {
+     "id": "cat-beauty-i4",
+     "category_id": "cat-beauty",
+     "title": "Стрижка",
+     "amount": 1500,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 4
+    },
+    {
+     "id": "cat-beauty-i5",
+     "category_id": "cat-beauty",
+     "title": "Маникюр",
+     "amount": 4000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 5
+    },
+    {
+     "id": "cat-health-i0",
+     "category_id": "cat-health",
+     "title": "Общее",
+     "amount": 3000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 0
+    },
+    {
+     "id": "cat-health-i1",
+     "category_id": "cat-health",
+     "title": "Психотерапевт",
+     "amount": 8000,
+     "season_from": "10-01",
+     "season_to": "03-31",
+     "sort_order": 1
+    },
+    {
+     "id": "cat-pet-i0",
+     "category_id": "cat-pet",
+     "title": "Корм",
+     "amount": 4000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 0
+    },
+    {
+     "id": "cat-pet-i1",
+     "category_id": "cat-pet",
+     "title": "Приют",
+     "amount": 2000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 1
+    },
+    {
+     "id": "cat-pet-i2",
+     "category_id": "cat-pet",
+     "title": "Наполнитель",
+     "amount": 1500,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 2
+    },
+    {
+     "id": "cat-pet-i3",
+     "category_id": "cat-pet",
+     "title": "Ветеринар",
+     "amount": 2500,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 3
+    },
+    {
+     "id": "cat-sport-i0",
+     "category_id": "cat-sport",
+     "title": "Тренер",
+     "amount": 15000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 0
+    },
+    {
+     "id": "cat-sport-i1",
+     "category_id": "cat-sport",
+     "title": "Танцы",
+     "amount": 4000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 1
+    },
+    {
+     "id": "cat-sport-i2",
+     "category_id": "cat-sport",
+     "title": "Бассейн",
+     "amount": 2000,
+     "season_from": null,
+     "season_to": null,
+     "sort_order": 2
+    }
+   ],
+   "expense_period_overrides": []
+  },
+  "debts": {
+   "credit_cards": [
+    {
+     "id": "card1",
+     "title": "Карта",
+     "credit_limit": 100000,
+     "grace_days": 55,
+     "currency_code": "RUB",
+     "sort_order": 0
+    }
+   ],
+   "credit_card_ops": [
+    {
+     "id": "o1",
+     "card_id": "card1",
+     "op_date": "2027-02-10",
+     "amount": 60000,
+     "kind": "spend",
+     "title": ""
+    },
+    {
+     "id": "o2",
+     "card_id": "card1",
+     "op_date": "2027-03-01",
+     "amount": 15000,
+     "kind": "spend",
+     "title": ""
+    },
+    {
+     "id": "o3",
+     "card_id": "card1",
+     "op_date": "2027-05-10",
+     "amount": 20000,
+     "kind": "payment",
+     "title": ""
+    },
+    {
+     "id": "o4",
+     "card_id": "card1",
+     "op_date": "2027-07-01",
+     "amount": 30000,
+     "kind": "spend",
+     "title": ""
+    }
+   ],
+   "credit_payment_overrides": [
+    {
+     "period_id": "p9",
+     "card_id": "card1",
+     "amount": 1000
+    }
+   ],
+   "installments": [
+    {
+     "id": "i1",
+     "title": "Телефон",
+     "total": 60000,
+     "parts": 6,
+     "every_n": 2,
+     "period_unit": "week",
+     "first_date": "2027-03-03"
+    }
+   ],
+   "installment_payments": [
+    {
+     "id": "ip0",
+     "installment_id": "i1",
+     "pay_date": "2027-03-03",
+     "amount": 10000,
+     "paid": false,
+     "sort_order": 0
+    },
+    {
+     "id": "ip1",
+     "installment_id": "i1",
+     "pay_date": "2027-03-17",
+     "amount": 10000,
+     "paid": false,
+     "sort_order": 1
+    },
+    {
+     "id": "ip2",
+     "installment_id": "i1",
+     "pay_date": "2027-03-31",
+     "amount": 10000,
+     "paid": false,
+     "sort_order": 2
+    },
+    {
+     "id": "ip3",
+     "installment_id": "i1",
+     "pay_date": "2027-04-14",
+     "amount": 10000,
+     "paid": false,
+     "sort_order": 3
+    },
+    {
+     "id": "ip4",
+     "installment_id": "i1",
+     "pay_date": "2027-04-28",
+     "amount": 10000,
+     "paid": false,
+     "sort_order": 4
+    },
+    {
+     "id": "ip5",
+     "installment_id": "i1",
+     "pay_date": "2027-05-12",
+     "amount": 10000,
+     "paid": false,
+     "sort_order": 5
+    }
+   ]
+  },
+  "savings": {
+   "goals": [
+    {
+     "id": "goal-travel",
+     "title": "Путешествия",
+     "kind_code": "bucket",
+     "currency_code": "RUB",
+     "priority": 1,
+     "target_amount": 315000,
+     "deadline": null,
+     "starting_balance": 0,
+     "pace_amount": 0,
+     "completed": false
+    },
+    {
+     "id": "goal-implant",
+     "title": "Имплант",
+     "kind_code": "bucket",
+     "currency_code": "RUB",
+     "priority": 2,
+     "target_amount": 60000,
+     "deadline": null,
+     "starting_balance": 0,
+     "pace_amount": 0,
+     "completed": false
+    },
+    {
+     "id": "goal-cushion",
+     "title": "Подушка безопасности",
+     "kind_code": "reserve",
+     "currency_code": "RUB",
+     "priority": 3,
+     "target_amount": 100000,
+     "deadline": "2027-12-31",
+     "starting_balance": 0,
+     "pace_amount": 5000,
+     "completed": false
+    },
+    {
+     "id": "goal-currency",
+     "title": "Валюта",
+     "kind_code": "reserve",
+     "currency_code": "RUB",
+     "priority": 4,
+     "target_amount": 50000,
+     "deadline": "2027-12-31",
+     "starting_balance": 0,
+     "pace_amount": 3000,
+     "completed": false
+    },
+    {
+     "id": "goal-iphone",
+     "title": "Айфон",
+     "kind_code": "bucket",
+     "currency_code": "RUB",
+     "priority": 5,
+     "target_amount": 150000,
+     "deadline": "2027-02-05",
+     "starting_balance": 150000,
+     "pace_amount": 0,
+     "completed": false
+    }
+   ],
+   "goal_milestones": [
+    {
+     "id": "sub-travel-1",
+     "goal_id": "goal-travel",
+     "title": "К 1 апреля",
+     "target": 150000,
+     "deadline": "2027-04-01",
+     "source": "manual",
+     "source_ref": null,
+     "occurrence_key": null,
+     "user_edited": false,
+     "sort_order": 0
+    },
+    {
+     "id": "sub-travel-2",
+     "goal_id": "goal-travel",
+     "title": "К 31 июля",
+     "target": 315000,
+     "deadline": "2027-07-31",
+     "source": "manual",
+     "source_ref": null,
+     "occurrence_key": null,
+     "user_edited": false,
+     "sort_order": 1
+    }
+   ],
+   "goal_transactions": [
+    {
+     "id": "goal-travel-w0",
+     "goal_id": "goal-travel",
+     "date": "2027-04-05",
+     "amount": 150000,
+     "kind": "spend",
+     "title": "Поездка (апрель)",
+     "counterparty_id": null,
+     "milestone_id": null,
+     "source": "manual",
+     "occurrence_key": null,
+     "user_edited": false
+    },
+    {
+     "id": "goal-travel-w1",
+     "goal_id": "goal-travel",
+     "date": "2027-07-20",
+     "amount": 315000,
+     "kind": "spend",
+     "title": "Поездка (июль)",
+     "counterparty_id": null,
+     "milestone_id": null,
+     "source": "manual",
+     "occurrence_key": null,
+     "user_edited": false
+    },
+    {
+     "id": "goal-implant-w0",
+     "goal_id": "goal-implant",
+     "date": "2027-05-01",
+     "amount": 20000,
+     "kind": "transfer_in",
+     "title": "перевод",
+     "counterparty_id": null,
+     "milestone_id": null,
+     "source": "manual",
+     "occurrence_key": null,
+     "user_edited": false
+    },
+    {
+     "id": "goal-currency-w0",
+     "goal_id": "goal-currency",
+     "date": "2027-05-01",
+     "amount": 20000,
+     "kind": "spend",
+     "title": "перевод",
+     "counterparty_id": null,
+     "milestone_id": null,
+     "source": "manual",
+     "occurrence_key": null,
+     "user_edited": false
+    }
+   ],
+   "goal_cycles": [],
+   "goal_cycle_skips": [],
+   "savings_period_overrides": [
+    {
+     "period_id": "p2",
+     "goal_id": "goal-travel",
+     "amount": 30000
+    }
+   ]
+  },
+  "gifts": {
+   "gift_events": [],
+   "gift_event_amounts": []
+  },
+  "facts": {
+   "expense_facts": []
+  }
+ },
+ "milestoneDates": {
+  "goal-travel": [
+   "2027-06-20",
+   "2027-11-20"
+  ],
+  "goal-implant": [
+   null
+  ],
+  "goal-cushion": [
+   "2027-12-31"
+  ],
+  "goal-currency": [
+   null
+  ],
+  "goal-iphone": [
+   "pre"
+  ]
+ },
+ "expected": [
+  {
+   "id": "p1",
+   "income": 97750,
+   "expenses": 69100,
+   "unallocated": 28650,
+   "allocations": {},
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 0,
+    "goal-implant": 0,
+    "goal-cushion": 0,
+    "goal-currency": 0,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p2",
+   "income": 66700,
+   "expenses": 69100,
+   "unallocated": -32400,
+   "allocations": {
+    "goal-travel": 30000
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 30000,
+    "goal-implant": 0,
+    "goal-cushion": 0,
+    "goal-currency": 0,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p3",
+   "income": 133400,
+   "expenses": 69100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 56300,
+    "goal-cushion": 5000,
+    "goal-currency": 3000
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 86300,
+    "goal-implant": 0,
+    "goal-cushion": 5000,
+    "goal-currency": 3000,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p4",
+   "income": 115847,
+   "expenses": 79100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 18798
+   },
+   "debtPayments": {
+    "card1": 17949
+   },
+   "balances": {
+    "goal-travel": 105098,
+    "goal-implant": 0,
+    "goal-cushion": 5000,
+    "goal-currency": 3000,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p5",
+   "income": 84252,
+   "expenses": 79100,
+   "unallocated": 0,
+   "allocations": {},
+   "debtPayments": {
+    "card1": 5152
+   },
+   "balances": {
+    "goal-travel": 105098,
+    "goal-implant": 0,
+    "goal-cushion": 5000,
+    "goal-currency": 3000,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p6",
+   "income": 90954,
+   "expenses": 79100,
+   "unallocated": 0,
+   "allocations": {},
+   "debtPayments": {
+    "card1": 11854
+   },
+   "balances": {
+    "goal-travel": 105098,
+    "goal-implant": 0,
+    "goal-cushion": 5000,
+    "goal-currency": 3000,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p7",
+   "income": 109145,
+   "expenses": 69100,
+   "unallocated": 0,
+   "allocations": {},
+   "debtPayments": {
+    "card1": 40045
+   },
+   "balances": {
+    "goal-travel": -44902,
+    "goal-implant": 0,
+    "goal-cushion": 5000,
+    "goal-currency": 3000,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p8",
+   "income": 100050,
+   "expenses": 69100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 30950
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": -13952,
+    "goal-implant": 0,
+    "goal-cushion": 5000,
+    "goal-currency": 3000,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p9",
+   "income": 91286,
+   "expenses": 69100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 22186
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 8234,
+    "goal-implant": 20000,
+    "goal-cushion": 5000,
+    "goal-currency": -17000,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p10",
+   "income": 98964,
+   "expenses": 59100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 39864
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 48098,
+    "goal-implant": 20000,
+    "goal-cushion": 5000,
+    "goal-currency": -17000,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p11",
+   "income": 115800,
+   "expenses": 59100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 56700
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 104798,
+    "goal-implant": 20000,
+    "goal-cushion": 5000,
+    "goal-currency": -17000,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p12",
+   "income": 95200,
+   "expenses": 59100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 25742.86,
+    "goal-cushion": 6785.71,
+    "goal-currency": 3571.43
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 130540.86,
+    "goal-implant": 20000,
+    "goal-cushion": 11785.71,
+    "goal-currency": -13428.57,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p13",
+   "income": 104800,
+   "expenses": 59100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 38200
+   },
+   "debtPayments": {
+    "card1": 7500
+   },
+   "balances": {
+    "goal-travel": 168740.86,
+    "goal-implant": 20000,
+    "goal-cushion": 11785.71,
+    "goal-currency": -13428.57,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p14",
+   "income": 100050,
+   "expenses": 59100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 33450
+   },
+   "debtPayments": {
+    "card1": 7500
+   },
+   "balances": {
+    "goal-travel": -112809.14,
+    "goal-implant": 20000,
+    "goal-cushion": 11785.71,
+    "goal-currency": -13428.57,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p15",
+   "income": 54500,
+   "expenses": 59100,
+   "unallocated": -4600,
+   "allocations": {},
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": -112809.14,
+    "goal-implant": 20000,
+    "goal-cushion": 11785.71,
+    "goal-currency": -13428.57,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p16",
+   "income": 141125,
+   "expenses": 59100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 67025
+   },
+   "debtPayments": {
+    "card1": 15000
+   },
+   "balances": {
+    "goal-travel": -45784.14,
+    "goal-implant": 20000,
+    "goal-cushion": 11785.71,
+    "goal-currency": -13428.57,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p17",
+   "income": 115375,
+   "expenses": 59100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 56275
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 10490.86,
+    "goal-implant": 20000,
+    "goal-cushion": 11785.71,
+    "goal-currency": -13428.57,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p18",
+   "income": 100050,
+   "expenses": 59100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 40950
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 51440.86,
+    "goal-implant": 20000,
+    "goal-cushion": 11785.71,
+    "goal-currency": -13428.57,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p19",
+   "income": 100050,
+   "expenses": 63100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 36950
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 88390.86,
+    "goal-implant": 20000,
+    "goal-cushion": 11785.71,
+    "goal-currency": -13428.57,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p20",
+   "income": 104800,
+   "expenses": 63100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 41700
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 130090.86,
+    "goal-implant": 20000,
+    "goal-cushion": 11785.71,
+    "goal-currency": -13428.57,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p21",
+   "income": 95200,
+   "expenses": 63100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 32100
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 162190.86,
+    "goal-implant": 20000,
+    "goal-cushion": 11785.71,
+    "goal-currency": -13428.57,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p22",
+   "income": 90000,
+   "expenses": 63100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-travel": 6550,
+    "goal-cushion": 20350
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 168740.86,
+    "goal-implant": 20000,
+    "goal-cushion": 32135.71,
+    "goal-currency": -13428.57,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p23",
+   "income": 110000,
+   "expenses": 69100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-cushion": 22621.43,
+    "goal-currency": 15476.19,
+    "goal-implant": 2802.38
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 168740.86,
+    "goal-implant": 22802.38,
+    "goal-cushion": 54757.14,
+    "goal-currency": 2047.62,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p24",
+   "income": 97750,
+   "expenses": 69100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-cushion": 22621.43,
+    "goal-currency": 6028.57
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 168740.86,
+    "goal-implant": 22802.38,
+    "goal-cushion": 77378.57,
+    "goal-currency": 8076.19,
+    "goal-iphone": 150000
+   }
+  },
+  {
+   "id": "p25",
+   "income": 97750,
+   "expenses": 69100,
+   "unallocated": 0,
+   "allocations": {
+    "goal-cushion": 22621.43,
+    "goal-currency": 6028.57
+   },
+   "debtPayments": {},
+   "balances": {
+    "goal-travel": 168740.86,
+    "goal-implant": 22802.38,
+    "goal-cushion": 100000,
+    "goal-currency": 14104.76,
+    "goal-iphone": 150000
+   }
+  }
+ ]
+}
