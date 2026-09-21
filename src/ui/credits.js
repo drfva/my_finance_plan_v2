@@ -60,10 +60,10 @@ export function render(ctx) {
     return card({
       body: `
         <div class="row between wrap" style="gap:10px;">
-          <div style="flex:2;min-width:180px;">${input({ edit: 'debts|credit_cards|title', key: { id: c.id }, value: c.title, disabled: !canEdit })}</div>
-          ${field('Лимит', input({ edit: 'debts|credit_cards|credit_limit', key: { id: c.id }, value: c.credit_limit, type: 'money', disabled: !canEdit }))}
-          ${field('Льготный период, дней', input({ edit: 'debts|credit_cards|grace_days', key: { id: c.id }, value: c.grace_days, type: 'int', disabled: !canEdit }))}
-          ${field('Валюта', select({ edit: 'debts|credit_cards|currency_code', key: { id: c.id }, value: c.currency_code, options: currencies, disabled: !canEdit }))}
+          <div style="flex:2;min-width:180px;">${input({ edit: 'debts|credit_cards|title', key: { id: c.id }, value: c.title, placeholder: 'Название карты', disabled: !canEdit })}</div>
+          <div style="width:150px;">${input({ edit: 'debts|credit_cards|credit_limit', key: { id: c.id }, value: c.credit_limit, type: 'money', placeholder: 'Лимит', disabled: !canEdit })}</div>
+          <div style="width:170px;">${input({ edit: 'debts|credit_cards|grace_days', key: { id: c.id }, value: c.grace_days, type: 'int', placeholder: 'Льготный период, дней', disabled: !canEdit })}</div>
+          <div style="width:110px;">${select({ edit: 'debts|credit_cards|currency_code', key: { id: c.id }, value: c.currency_code, options: currencies, disabled: !canEdit })}</div>
           ${canEdit ? delButton({ domain: 'debts', table: 'credit_cards', key: { id: c.id }, confirm: `Удалить карту «${c.title}» с операциями и погашениями?` }) : ''}
         </div>
         <div class="debt-stats row wrap" style="margin-top:10px;">

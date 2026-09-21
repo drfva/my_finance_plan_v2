@@ -36,7 +36,7 @@ function transferForm(ctx, goal) {
   const { state, ui, canEdit } = ctx;
   if (!canEdit) return '';
   const draft = ui.draft.transfer?.goal_id === goal.id ? ui.draft.transfer : null;
-  if (!draft) return button({ action: 'transfer-open', value: goal.id, label: 'Перевести в другую цель' });
+  if (!draft) return '';
   const targets = (state.savings?.goals ?? []).filter(g => g.id !== goal.id)
     .map(g => ({ value: g.id, label: `${g.title} · ${KIND_TITLES[g.kind_code] ?? g.kind_code}` }));
   if (!targets.length) return '<div class="small-note">Других целей нет — переводить некуда.</div>';
@@ -62,7 +62,7 @@ function cyclesBlock(ctx, goal) {
 
   const rows = cycles.map(c => {
     const dates = cycleDates(c, planEnd, cfg.list('period_units'));
-    return `<div class="card" style="background:var(--surface-2);margin-bottom:10px;">
+    return `<div class="card cycle-card">
       <div class="row wrap" style="gap:12px;align-items:start;">
         ${field('Название', input({ edit: 'savings|goal_cycles|title', key: { id: c.id }, value: c.title, disabled: !canEdit }))}
         ${field('Сумма к дате', input({ edit: 'savings|goal_cycles|amount', key: { id: c.id }, value: c.amount, type: 'money', disabled: !canEdit }))}
@@ -72,15 +72,15 @@ function cyclesBlock(ctx, goal) {
         ${field('Сколько раз', input({ edit: 'savings|goal_cycles|repeats', key: { id: c.id }, value: c.repeats, type: 'int', empty: 'null', placeholder: 'без конца', disabled: !canEdit, style: 'max-width:110px;' }))}
         ${canEdit ? delButton({ domain: 'savings', table: 'goal_cycles', key: { id: c.id }, confirm: 'Удалить повторяющееся накопление вместе с созданными этапами и тратами?' }) : ''}
       </div>
-      <div class="row wrap" style="gap:14px;margin-top:8px;">
-        <label class="small-note" style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;">
+      <div class="row wrap" style="gap:14px;margin-top:12px;">
+        <label class="small-note" style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;margin:0;">
           ${checkbox({ edit: 'savings|goal_cycles|auto_spend', key: { id: c.id }, value: c.auto_spend !== false, disabled: !canEdit })}
           тратить накопленное в ту же дату</label>
-        <label class="small-note" style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;">
+        <label class="small-note" style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;margin:0;">
           ${checkbox({ edit: 'savings|goal_cycles|enabled', key: { id: c.id }, value: c.enabled !== false, disabled: !canEdit })}
           включено</label>
       </div>
-      <div class="small-note" style="margin-top:6px;">
+      <div class="small-note" style="margin-top:10px;">
         ${dates.length ? `Создаёт этапы: ${dates.slice(0, 4).map(d => esc(fmt.date(d))).join(', ')}${dates.length > 4 ? ' …' : ''}`
           : 'Пока ничего не создаёт: дата начала за пределами плана.'}
       </div>
@@ -154,16 +154,22 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
   const msRows = milestones.slice().sort((a, b) => ((a.deadline || '9999') < (b.deadline || '9999') ? -1 : 1)).map(m => {
     const { label, cls } = milestoneStatus(ctx, g, m);
     const generated = m.source && m.source !== 'manual';
-    return `<div class="item-row" style="grid-template-columns:1.4fr 1fr 1fr auto auto auto;align-items:end;">
-      ${field('Этап', input({ edit: 'savings|goal_milestones|title', key: { id: m.id }, value: m.title, disabled: !canEdit }))}
-      ${field('Сколько накопить', input({ edit: 'savings|goal_milestones|target', key: { id: m.id }, value: m.target, type: 'money', disabled: !canEdit, defaults: { user_edited: true } }))}
-      ${field('К дате', input({ edit: 'savings|goal_milestones|deadline', key: { id: m.id }, value: m.deadline, type: 'date', disabled: !canEdit }))}
-      <div>${pill(label, cls)}</div>
-      ${canEdit && showCycles && !generated ? button({ action: 'make-cycle', value: `ms:${m.id}`, label: '⟳', cls: 'ghost small',
-        title: 'Сделать периодическим: повторять этот этап через равные промежутки' }) : ''}
+    const spent = (state.savings?.goal_transactions ?? []).some(t => t.milestone_id === m.id);
+    return `<div class="ms-row">
+      ${input({ edit: 'savings|goal_milestones|title', key: { id: m.id }, value: m.title, placeholder: 'Этап', disabled: !canEdit })}
+      ${input({ edit: 'savings|goal_milestones|target', key: { id: m.id }, value: m.target, type: 'money',
+        placeholder: 'Сколько накопить', disabled: !canEdit, defaults: { user_edited: true } })}
+      ${input({ edit: 'savings|goal_milestones|deadline', key: { id: m.id }, value: m.deadline, type: 'date', disabled: !canEdit })}
       ${canEdit ? delButton({ domain: 'savings', table: 'goal_milestones', key: { id: m.id } }) : ''}
-      ${generated ? `<div class="small-note" style="grid-column:1/-1;margin:-4px 0 8px;">создан ${m.source === 'gift' ? 'из праздника' : 'повторяющимся накоплением'}${m.user_edited ? ', правка сохранена' : ''}
-        ${canEdit && !m.user_edited ? button({ action: 'edit-generated', value: m.id, label: 'открепить от шаблона', cls: 'ghost small' }) : ''}</div>` : ''}
+      <div class="ms-foot row wrap">
+        ${pill(label, cls)}
+        ${canEdit && showCycles && !generated ? button({ action: 'make-cycle', value: `ms:${m.id}`, label: 'сделать периодичным', cls: 'ghost small',
+          title: 'Повторять этот этап через равные промежутки' }) : ''}
+        ${canEdit && !spent ? button({ action: 'ms-spend', value: m.id, label: 'создать трату', cls: 'ghost small',
+          title: 'Списать накопленное в дату этапа' }) : ''}
+        ${generated ? `<span class="small-note" style="margin:0;">создан ${m.source === 'gift' ? 'из праздника' : 'повторяющимся накоплением'}${m.user_edited ? ', правка сохранена' : ''}</span>
+          ${canEdit && !m.user_edited ? button({ action: 'edit-generated', value: m.id, label: 'открепить от шаблона', cls: 'ghost small' }) : ''}` : ''}
+      </div>
     </div>`;
   }).join('');
 
@@ -204,9 +210,12 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
     <div class="row wrap" style="gap:12px;margin-top:12px;align-items:start;">
       <div style="width:120px;">${field('Валюта', select({ edit: 'savings|goals|currency_code', key: { id: g.id }, value: g.currency_code, options: currencies, disabled: !canEdit }))}</div>
       <div style="width:160px;">${field('Начальный остаток', input({ edit: 'savings|goals|starting_balance', key: { id: g.id }, value: g.starting_balance, type: 'money', disabled: !canEdit }))}</div>
-      ${canEdit ? `<div>${field(' ', button({ action: 'goal-close', value: g.id, label: g.completed ? 'Вернуть в работу' : 'Закрыть цель',
-        cls: g.completed ? 'ghost small' : 'small',
-        title: g.completed ? 'Цель снова участвует в распределении' : 'Цель перестанет получать деньги: в будущих выплатах её не будет, в зафиксированных останется' }))}</div>` : ''}
+      ${canEdit ? `<div class="row wrap goal-actions" style="gap:8px;">
+        ${button({ action: 'goal-close', value: g.id, label: g.completed ? 'Вернуть в работу' : 'Закрыть цель',
+          cls: g.completed ? 'ghost small' : 'small',
+          title: g.completed ? 'Цель снова участвует в распределении' : 'Цель перестанет получать деньги: в будущих выплатах её не будет, в зафиксированных останется' })}
+        ${button({ action: 'transfer-open', value: g.id, label: 'Перевести в другую цель', cls: 'ghost small' })}
+      </div>` : ''}
     </div>
     ${extraFields}
     ${!milestones.length ? `<div class="row wrap" style="gap:12px;margin-top:10px;align-items:start;">
@@ -221,8 +230,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
     ${sub(ctx, `goal:${g.id}`, `Этапы${milestones.length ? ` · ${milestones.length}` : ''}`,
       canEdit ? addButton({ domain: 'savings', table: 'goal_milestones', label: '+ этап',
         row: { id: uid('ms'), goal_id: g.id, title: 'Новый этап', target: 0, deadline: null, source: 'manual', user_edited: false, sort_order: milestones.length + 1 } }) : '',
-      `<div class="small-note" style="margin-top:0;">Этапы — приросты: следующий начинается с нуля, общая сумма цели складывается из них.
-         ⟳ у этапа делает его повторяющимся.</div>
+      `<div class="small-note" style="margin-top:0;">Этапы — приросты: следующий начинается с нуля, общая сумма цели складывается из них.</div>
        ${msRows || '<div class="small-note">Этапов нет — цель копится одной суммой.</div>'}`)}
 
     ${sub(ctx, `goal-tx:${g.id}`, `Движения и переводы${txs.length ? ` · ${txs.length}` : ''}`,
@@ -230,7 +238,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
         row: { id: uid('tx'), goal_id: g.id, date: ctx.today, amount: 0, kind: 'spend', title: '', source: 'manual', user_edited: false } }) : '',
       `<div class="small-note" style="margin-top:0;">Траты из копилки, пополнения со стороны и переводы между целями.</div>
        ${txRows || '<div class="small-note">Движений пока нет.</div>'}
-       <div class="row wrap" style="gap:8px;margin-top:10px;">${transferForm(ctx, g)}</div>`)}
+       ${transferForm(ctx, g)}`)}
 
     ${showCycles ? sub(ctx, `goal-cyc:${g.id}`, `Повторяющиеся накопления${cycleCount ? ` · ${cycleCount}` : ''}`, '', cyclesBlock(ctx, g)) : ''}
   </div>`;
@@ -298,6 +306,23 @@ export function handle(ev, ctx) {
     return true;
   }
 
+  // трата по этапу: списываем накопленное в дату этапа
+  const spend = ev.target.closest('[data-ms-spend]');
+  if (spend) {
+    const id = spend.dataset.msSpend;
+    const m = (ctx.state.savings?.goal_milestones ?? []).find(x => x.id === id);
+    if (!m) return false;
+    store.update('savings', d => {
+      (d.goal_transactions ?? (d.goal_transactions = [])).push({
+        id: uid('tx'), goal_id: m.goal_id, date: m.deadline || ctx.today, amount: Number(m.target) || 0,
+        kind: 'spend', title: m.title || 'Трата', counterparty_id: null, milestone_id: m.id,
+        source: 'manual', user_edited: true,
+      });
+    });
+    ui.open.add(`goal-tx:${m.goal_id}`);
+    return true;
+  }
+
   const unpin = ev.target.closest('[data-edit-generated]');
   if (unpin) {
     store.update('savings', d => {
@@ -312,6 +337,7 @@ export function handle(ev, ctx) {
     const goalId = open.dataset.transferOpen;
     const first = (ctx.state.savings?.goals ?? []).find(g => g.id !== goalId);
     ui.draft.transfer = { goal_id: goalId, to: first?.id ?? '', amount: '', date: ctx.today, title: 'Перевод' };
+    ui.open.add(`goal-tx:${goalId}`);   // форма живёт в разделе движений — открываем его
     return true;
   }
 

@@ -76,7 +76,6 @@ function incomeView(ctx, rows) {
       <td><b>${esc(fmt.month(m, { withYear: false }))}</b><div class="small-note">${note}</div></td>
       ${slotCells}
       ${hasOneOff ? money(oneOff) : ''}
-      ${money(salary)}
       ${hasVacation ? money(vacation) : ''}
       ${hasExtra ? money(extra) : ''}
       <td class="num">${esc(fmt.money(gross))}</td>
@@ -90,7 +89,6 @@ function incomeView(ctx, rows) {
     <td><b>Итого за год</b></td>
     ${slots.map(o => `<td class="num">${esc(fmt.money(bySlot.get(o) ?? 0))}</td>`).join('')}
     ${hasOneOff ? `<td class="num">${esc(fmt.money(totals.oneOff))}</td>` : ''}
-    <td class="num">${esc(fmt.money(totals.salary))}</td>
     ${hasVacation ? `<td class="num">${esc(fmt.money(totals.vacation))}</td>` : ''}
     ${hasExtra ? `<td class="num">${esc(fmt.money(totals.extra))}</td>` : ''}
     <td class="num">${esc(fmt.money(totals.gross))}</td>
@@ -102,7 +100,6 @@ function incomeView(ctx, rows) {
   const head = ['Месяц',
     ...slots.map(o => ({ title: slotTitle(o), cls: 'num' })),
     ...(hasOneOff ? [{ title: 'Разовые', cls: 'num' }] : []),
-    { title: 'За отработанные', cls: 'num' },
     ...(hasVacation ? [{ title: 'Отпускные', cls: 'num' }] : []),
     ...(hasExtra ? [{ title: 'Доп. выплаты', cls: 'num' }] : []),
     { title: 'Начислено', cls: 'num' }, { title: 'Ставка', cls: 'num' },
@@ -111,8 +108,8 @@ function incomeView(ctx, rows) {
   return card({
     title: `Доход по месяцам ${year}`,
     note: 'Месяц — расчётный период: аванс приходит в нём, зарплата за него — в следующем. '
-      + 'Слева — сколько пришло каждой выплатой, дальше то же самое по источникам: оклад за отработанные дни, '
-      + 'отпускные и разовые доходы. Начислено и налог считаются нарастающим итогом за календарный год выплаты.',
+      + 'Слева — сколько пришло каждой выплатой, дальше отпускные и разовые доходы отдельно. '
+      + 'Начислено и налог считаются нарастающим итогом за календарный год выплаты.',
     body: body.length
       ? table({ head, rows: body, foot })
       : '<div class="muted">Выплат в этом году нет.</div>',

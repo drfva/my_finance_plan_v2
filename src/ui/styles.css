@@ -246,7 +246,7 @@ input:disabled,select:disabled{background:var(--surface-3);color:var(--muted);cu
 .goal-title{flex:1;min-width:180px;background:transparent;border:1px solid transparent;box-shadow:none;
   font-family:var(--font-display);font-size:17px;font-weight:800;color:var(--ink);padding:6px 8px;margin:-6px -8px;}
 .goal-title:hover:not(:disabled){border-color:var(--line);}
-.goal-title:focus{border-color:var(--accent);background:var(--surface-2);}
+.goal-title:focus{border-color:var(--accent);background:transparent;}
 
 /* Свои дни календаря: дата с крестиком */
 .day-pill{display:inline-flex;align-items:center;gap:4px;background:var(--surface-3);border-radius:999px;
@@ -256,3 +256,13 @@ input:disabled,select:disabled{background:var(--surface-3);color:var(--muted);cu
 
 /* Своя сумма вместо расчётной: поле подсвечено, отдельная колонка не нужна */
 input.own{border-color:var(--accent);box-shadow:inset 2px 0 0 var(--accent);font-weight:700;}
+
+/* Этап копилки: поля без подписей, статус и кнопки — под ними */
+.ms-row{display:grid;grid-template-columns:1.6fr 1fr 150px auto;gap:10px;align-items:center;
+  padding:12px 0;border-bottom:1px solid var(--line);}
+.ms-row:last-child{border-bottom:none;}
+.ms-foot{grid-column:1 / -1;gap:8px;align-items:center;margin-top:-2px;}
+@media (max-width:720px){.ms-row{grid-template-columns:1fr 1fr auto;}.ms-row > input[type="date"]{grid-column:1 / 3;}}
+.goal-actions{align-items:center;}
+.cycle-card{background:var(--surface-2);margin-bottom:12px;padding:16px 18px;}
+.cycle-card .field{margin:0;}
