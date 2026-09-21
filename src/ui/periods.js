@@ -35,10 +35,12 @@ function head(ctx, r) {
   ].filter(Boolean).join(' ');
   return `<div class="period-head" data-toggle="period:${esc(p.id)}">
     <div class="period-date"><b>${esc(fmt.date(p.pay_date))}</b><div class="small-note">${esc(p.title || (p.slot_order ? `выплата ${p.slot_order}` : 'разовая'))} · за ${esc(fmt.date(p.window_start, 'dayMonth'))}–${esc(fmt.date(p.window_end, 'dayMonth'))}</div></div>
-    <div class="row wrap" style="gap:6px;flex:1;">${pills}</div>
-    <div class="num">${esc(fmt.money(r.totalIncome))}</div>
-    <div class="num muted">−${esc(fmt.money(r.categoriesTotal + r.installmentsTotal))}</div>
-    <div class="num"><b>${esc(fmt.money(r.free))}</b></div>
+    <div class="row wrap period-pills" style="gap:6px;flex:1;">${pills}</div>
+    <div class="period-sums">
+      <span class="num" title="Доход выплаты">${esc(fmt.money(r.totalIncome))}</span>
+      <span class="num muted" title="Расходы и рассрочки">−${esc(fmt.money(r.categoriesTotal + r.installmentsTotal))}</span>
+      <span class="num" title="Остаток после расходов"><b>${esc(fmt.money(r.free))}</b></span>
+    </div>
     <span class="chev">›</span>
   </div>`;
 }

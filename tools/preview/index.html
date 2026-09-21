@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Предпросмотр</title>
+<link rel="stylesheet" href="../../src/ui/styles.css">
+</head><body>
+<!-- Предпросмотр вёрстки без базы: подменяем клиента Supabase готовым состоянием.
+     Открывается локально, в приложение не входит. -->
+<div id="root"></div>
+<div id="login-screen" style="display:none;"></div>
+<script>
+  window.APP_CONFIG = { env: 'dev', url: '', key: '' };
+</script>
+<script type="module">
+  const state = await (await fetch('./state.json')).json();
+  window.supabase = {
+    createClient: () => ({
+      auth: {
+        getSession: async () => ({ data: { session: { user: { id: 'u' } } } }),
+        getUser: async () => ({ data: { user: { email: 'demo@example.com' } } }),
+        signOut: async () => {},
+      },
+      rpc: async (name) => {
+        if (name === 'bootstrap_user' || name === 'state_get') return { data: state, error: null };
+        return { data: { tables: {} }, error: null };
+      },
+    }),
+  };
+  await import('../../src/main.js');
+</script>
+</body></html>

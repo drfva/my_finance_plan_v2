@@ -268,3 +268,104 @@ input.own{border-color:var(--accent);box-shadow:inset 2px 0 0 var(--accent);font
 .cycle-card{background:var(--surface-2);margin-bottom:12px;padding:16px 18px;}
 .cycle-card .field{margin:0;}
 .pill-value{display:flex;align-items:center;min-height:40px;font-weight:800;font-family:var(--font-mono);}
+
+/* ---------------------------------------------------------------------
+   Телефоны. Карточки и таблицы собраны под узкий экран: подписи не рвутся,
+   поля растягиваются на всю ширину, широкие таблицы прокручиваются вбок
+   и показывают тень у края, чтобы было видно, что есть продолжение.
+--------------------------------------------------------------------- */
+
+.period-sums{display:flex;align-items:center;gap:14px;margin-left:auto;}
+
+/* подсказка о боковой прокрутке у широких таблиц */
+.table-scroll{
+  background:
+    linear-gradient(to right, var(--surface) 30%, rgba(0,0,0,0)),
+    linear-gradient(to left, var(--surface) 30%, rgba(0,0,0,0)) 100% 0,
+    radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.16), rgba(0,0,0,0)),
+    radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.16), rgba(0,0,0,0)) 100% 0;
+  background-repeat:no-repeat;
+  background-size:40px 100%, 40px 100%, 14px 100%, 14px 100%;
+  background-attachment:local, local, scroll, scroll;
+  -webkit-overflow-scrolling:touch;
+}
+.period-body .table-scroll,.goal-card .table-scroll,.cat-card .table-scroll{
+  background-image:
+    linear-gradient(to right, var(--surface-2) 30%, rgba(0,0,0,0)),
+    linear-gradient(to left, var(--surface-2) 30%, rgba(0,0,0,0)),
+    radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.16), rgba(0,0,0,0)),
+    radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.16), rgba(0,0,0,0));
+}
+
+@media (max-width:760px){
+  /* шапка: имя плана и вкладки крупнее пальца, лишнее скрыто */
+  .topbar{padding:12px 14px 10px;}
+  .topbar-inner{gap:8px;}
+  .brand h1,.brand h2{font-size:18px!important;}
+  .today-date{display:none;}
+  nav.tabs{margin-top:10px;padding:4px;gap:4px;scrollbar-width:none;}
+  nav.tabs::-webkit-scrollbar{display:none;}
+  nav.tabs button{padding:8px 14px;font-size:13.5px;}
+
+  main{padding:16px 14px 40px;gap:18px;}
+  .card{padding:16px;border-radius:18px;}
+  .card-title{margin-bottom:14px;gap:8px;flex-wrap:wrap;}
+  .card-title h2{font-size:17px!important;}
+  .info-box{padding:14px 16px;font-size:13.5px;}
+  h2{font-size:20px;}
+
+  /* поля во всю ширину: подписи не рвутся, iOS не зумит при фокусе */
+  input,select{font-size:16px;padding:10px 12px;}
+  .row.wrap > div[style*="width:"],
+  .row.wrap > div[style*="min-width:"]{width:100%!important;flex:1 1 100%!important;}
+  .goal-card .goal-title{flex:1 1 100%;font-size:16px;}
+  .goal-head{gap:8px;}
+  .goal-actions{width:100%;}
+  .goal-actions button{flex:1;}
+
+  /* плитки обзора — по две в ряд, так виднее цифры */
+  .grid.cols-4{grid-template-columns:1fr 1fr;gap:10px;}
+  .card.stat{padding:14px 16px;min-height:0;}
+  .stat .v{font-size:19px;}
+  .stat .l{font-size:10.5px;}
+
+  /* выплата: дата и суммы в две строки */
+  .period-head{padding:14px 16px;gap:8px;row-gap:6px;}
+  .period-date{min-width:0;flex:1 1 auto;font-size:15px;}
+  .period-pills{flex:1 1 100%;order:3;}
+  .period-sums{width:100%;order:2;justify-content:space-between;gap:8px;margin-left:0;
+    border-top:1px solid var(--line);padding-top:8px;}
+  .period-body{padding:10px 16px 20px!important;}
+
+  /* таблицы: плотнее и с прокруткой вбок */
+  th,td{padding:10px 8px;font-size:13px;}
+  th{font-size:10.5px;letter-spacing:.04em;}
+  .fact-item td:first-child{padding-left:12px;}
+
+  /* строки-конструкторы в одну колонку */
+  .item-row,.item-row.wd-row,.item-row.op-row,.item-row.ip-row{grid-template-columns:1fr!important;gap:8px;}
+  .ms-row{grid-template-columns:1fr!important;gap:8px;padding:14px 0;}
+  .ms-foot{margin-top:2px;}
+  .sub-section{padding:12px;}
+  .cycle-card{padding:14px;}
+
+  /* модальное окно — почти во весь экран */
+  .modal-back{padding:12px;align-items:flex-start;}
+  .modal{max-width:100%;padding:18px;}
+
+  /* длинные пояснения-«таблетки» переносятся по словам, а не уезжают за экран */
+  .pill{white-space:normal;max-width:100%;line-height:1.4;}
+  .month-tabs{gap:5px;}
+  .month-tabs button{padding:6px 10px;font-size:13px;}
+  .day-pill{font-size:12px;white-space:nowrap;}
+}
+
+@media (max-width:420px){
+  .goal-actions{flex-direction:column;align-items:stretch;}
+  .goal-actions button{width:100%;}
+  .period-sums{flex-wrap:wrap;row-gap:4px;}
+  button{padding:9px 14px;}
+  button.small{padding:7px 12px;font-size:12.5px;}
+  .card{padding:14px;}
+  main{padding:14px 12px 36px;}
+}
