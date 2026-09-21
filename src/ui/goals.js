@@ -213,10 +213,10 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
       </div>`
       : `<div class="small-note">на счету сейчас (${esc(fmt.date(ctx.today))}): <b>${esc(fmt.money(balance, g.currency_code))}</b>.
         Прогноза нет: не задана сумма цели и нет этапов.</div>`}
-    <div class="row wrap" style="gap:12px;margin-top:12px;align-items:start;">
+    <div class="row wrap" style="gap:12px;margin-top:12px;align-items:end;">
       <div style="width:120px;">${field('Валюта', select({ edit: 'savings|goals|currency_code', key: { id: g.id }, value: g.currency_code, options: currencies, disabled: !canEdit }))}</div>
       <div style="width:160px;">${field('Начальный остаток', input({ edit: 'savings|goals|starting_balance', key: { id: g.id }, value: g.starting_balance, type: 'money', disabled: !canEdit }))}</div>
-      ${canEdit ? field(' ', `<div class="row wrap goal-actions" style="gap:8px;">
+      ${canEdit ? (`<div class="row wrap goal-actions" style="gap:8px;">
         ${button({ action: 'goal-close', value: g.id, label: g.completed ? 'Вернуть в работу' : 'Закрыть цель',
           cls: g.completed ? 'ghost small' : 'small',
           title: g.completed ? 'Цель снова участвует в распределении' : 'Цель перестанет получать деньги: в будущих выплатах её не будет, в зафиксированных останется' })}
