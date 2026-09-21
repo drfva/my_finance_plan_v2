@@ -253,55 +253,56 @@ function yearGoalCard(ctx, g, allocated, { withStages, extra = '' }) {
     && !(x.m.deadline && x.m.deadline < ctx.today);
   const mine = withStages ? withForecast.filter(inYear) : [];
 
-  // сумма года: по этапам этого года, а у целей без этапов — вся сумма цели
-  const total = withStages
-    ? (mine.reduce((acc, x) => acc + (Number(x.m.target) || 0), 0)
-      || (list.length ? 0 : goalTotal(g, state.savings?.goal_milestones ?? []) || (Number(g.target_amount) || 0)))
-    : (goalTotal(g, state.savings?.goal_milestones ?? []) || (Number(g.target_amount) || 0));
+  /* Шкала прогресса. Если в этом году что-то закрывается — меряем целью года,
+     иначе общей суммой цели: копилка всё равно копилась, это должно быть видно. */
+  const whole = goalTotal(g, state.savings?.goal_milestones ?? []) || (Number(g.target_amount) || 0);
+  const yearTarget = mine.reduce((acc, x) => acc + (Number(x.m.target) || 0), 0);
+  const total = yearTarget || whole;
+  const basis = yearTarget ? 'цель года' : (withStages ? 'до общей суммы' : 'общая сумма');
+
   const base = goalBalanceAt(sim, g, txs, `${year - 1}-12-31`);
   const added = allocated.get(g.id) ?? 0;
   const end = base + added;
   const pct = v => (total > 0 ? Math.max(0, Math.min(100, Math.round(v / total * 100))) : 0);
   const done = total > 0 && end >= total - 0.5;
 
-  const stages = mine.map(({ m, done, beyondPlan }) => {
-    const label = m.deadline ? (done <= m.deadline ? `в графике (к ${fmt.date(done)})` : `позже срока (к ${fmt.date(done)})`)
-      : `прогноз: к ${fmt.date(done)}${beyondPlan ? ', за пределами плана' : ''}`;
-    const cls = (!m.deadline || done <= m.deadline) ? 'ok' : 'warn';
+  const stages = mine.map(({ m, done: at, beyondPlan }) => {
+    const label = m.deadline ? (at <= m.deadline ? `в графике (к ${fmt.date(at)})` : `позже срока (к ${fmt.date(at)})`)
+      : `прогноз: к ${fmt.date(at)}${beyondPlan ? ', за пределами плана' : ''}`;
+    const cls = (!m.deadline || at <= m.deadline) ? 'ok' : 'warn';
     return `<div class="row between" style="gap:8px;">
       <span>${esc(m.title || 'Этап')} · ${esc(fmt.money(m.target, g.currency_code))}</span>${pill(label, cls)}</div>`;
   }).join('');
 
+  /* Метка в шапке: как идут дела в этом году или когда цель наберётся */
+  const next = withForecast.find(x => x.done && x.done !== 'pre') ?? null;
+  const far = next ? (next.beyondPlan ? { date: next.done } : null) : forecastBeyondPlan(sim, g);
+  const late = mine.some(({ m, done: at }) => m.deadline && at > m.deadline);
   const head = g.completed ? pill('закрыта', 'ok')
+    : mine.length ? pill(late ? 'позже срока' : 'в графике', late ? 'warn' : 'ok')
     : done ? pill('накоплена', 'ok')
-    : added > 0.5 ? pill(`+${fmt.money(added, g.currency_code)} за год`)
+    : far ? pill(`прогноз: ${fmt.date(far.date)}`)
+    : next ? pill(`прогноз: ${fmt.date(next.done)}`)
     : pill('в этом году не пополняется', 'warn');
 
   return `<div class="card goal-card">
-    <div class="row between"><h3>${esc(g.title)}</h3>${head}</div>
+    <div class="row between" style="gap:10px;"><h3>${esc(g.title)}</h3>${head}</div>
     ${total > 0
-      ? `<div class="progress"><i class="year-start" style="width:${pct(base)}%"></i><i style="width:${pct(end)}%"></i></div>
+      ? `<div class="progress${end > total + 0.5 ? ' over' : ''}">
+           <i class="year-start" style="width:${pct(base)}%"></i><i style="width:${pct(end)}%"></i></div>
+         <div class="row between wrap" style="gap:8px;">
+           <span class="small-note" style="margin:0;">${esc(fmt.money(end, g.currency_code))} / ${esc(fmt.money(total, g.currency_code))} (${pct(end)}%)</span>
+           <span class="small-note" style="margin:0;">${esc(basis)}</span>
+         </div>
          <div class="small-note">на начало ${year}: ${esc(fmt.money(base, g.currency_code))} ·
            за год ${added > 0.5 ? '+' : ''}${esc(fmt.money(added, g.currency_code))} ·
-           на конец ${year}: <b>${esc(fmt.money(end, g.currency_code))}</b> из ${esc(fmt.money(total, g.currency_code))}</div>`
+           на счету сейчас: <b>${esc(fmt.money(goalBalanceAt(sim, g, txs, ctx.today), g.currency_code))}</b></div>`
       : `<div class="small-note">на начало ${year}: ${esc(fmt.money(base, g.currency_code))} ·
            за год ${added > 0.5 ? '+' : ''}${esc(fmt.money(added, g.currency_code))} ·
-           на конец ${year}: <b>${esc(fmt.money(end, g.currency_code))}</b>.
-           ${list.length ? `Прогресс не показываем: в ${year} году сроков нет.` : 'Сумма цели не задана.'}</div>`}
+           на счету сейчас: <b>${esc(fmt.money(goalBalanceAt(sim, g, txs, ctx.today), g.currency_code))}</b>. Сумма цели не задана.</div>`}
     ${stages ? `<div style="margin-top:10px;display:grid;gap:6px;">${stages}</div>` : ''}
-    ${!stages && !done ? (() => {
-      // в этом году цель не закрывается: показываем, когда закроется в нынешнем темпе
-      const next = withForecast.find(x => x.done && x.done !== 'pre') ?? null;
-      const far = next?.beyondPlan ? { date: next.done } : (next ? null : forecastBeyondPlan(sim, g));
-      if (next && !next.beyondPlan) {
-        return `<div class="small-note" style="margin-top:10px;">В ${year} году ничего не закрывается: ближайший срок —
-          ${esc(fmt.date(next.done))}.</div>`;
-      }
-      return far
-        ? `<div class="small-note" style="margin-top:10px;">${pill(`прогноз: наберётся к ${esc(fmt.date(far.date))}`)}
-             в нынешнем темпе, за пределами плана.</div>`
-        : `<div class="small-note" style="margin-top:10px;">Прогноза нет: в плане на эту цель ничего не остаётся.</div>`;
-    })() : ''}
+    ${!stages && withStages && !done
+      ? `<div class="small-note" style="margin-top:10px;">В ${year} году ничего не закрывается — копим дальше.</div>` : ''}
     ${extra ? `<div style="margin-top:12px;">${extra}</div>` : ''}
   </div>`;
 }
