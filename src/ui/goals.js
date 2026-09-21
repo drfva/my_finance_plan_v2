@@ -150,9 +150,12 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
   const pct = total > 0 ? Math.max(0, Math.min(100, Math.round(progress / total * 100))) : 0;
   const balance = goalBalanceAt(sim, g, state.savings?.goal_transactions ?? [], ctx.today);
   const cycleCount = (state.savings?.goal_cycles ?? []).filter(c => c.goal_id === g.id).length;
-  // цель без этапов копится одной суммой: её прогноз показываем прямо под шкалой
-  const mainOne = milestones.length ? null : (sim.milestonesOf(g)[0] ?? null);
-  const mainStatus = mainOne ? milestoneStatus(ctx, g, mainOne) : null;
+  /* Метка под шкалой: что с целью дальше. У цели без этапов это она сама,
+     у цели с этапами — ближайший незакрытый этап. */
+  const allMs = sim.milestonesOf(g);
+  const msDates = sim.milestoneDates[g.id] ?? [];
+  const nextMs = allMs.find((m, i) => msDates[i] !== 'pre') ?? allMs[allMs.length - 1] ?? null;
+  const mainStatus = nextMs ? milestoneStatus(ctx, g, nextMs) : null;
 
   const msRows = milestones.slice().sort((a, b) => ((a.deadline || '9999') < (b.deadline || '9999') ? -1 : 1)).map(m => {
     const { label, cls } = milestoneStatus(ctx, g, m);
@@ -209,7 +212,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
       <div class="row between wrap" style="gap:8px;">
         <span class="small-note" style="margin:0;">${esc(fmt.money(progress, g.currency_code))} / ${esc(fmt.money(total, g.currency_code))} (${pct}%) ·
           на счету сейчас (${esc(fmt.date(ctx.today))}): <b>${esc(fmt.money(balance, g.currency_code))}</b></span>
-        ${mainStatus ? pill(mainStatus.label, mainStatus.cls) : ''}
+        ${mainStatus ? pill(`${milestones.length ? esc(nextMs.title || 'этап') + ': ' : ''}${mainStatus.label}`, mainStatus.cls) : ''}
       </div>`
       : `<div class="small-note">на счету сейчас (${esc(fmt.date(ctx.today))}): <b>${esc(fmt.money(balance, g.currency_code))}</b>.
         Прогноза нет: не задана сумма цели и нет этапов.</div>`}
