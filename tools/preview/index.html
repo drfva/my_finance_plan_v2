@@ -14,6 +14,16 @@
 </script>
 <script type="module">
   const state = await (await fetch('./state.json')).json();
+  // ?empty=1 — пустой план: так видно подсказки первого входа
+  if (new URLSearchParams(location.search).has('empty')) {
+    state.income = { plan_years: [], payout_slots: [], periods: [], salary_rates: [], tax_scales: [], tax_brackets: [],
+      vacations: [], sick_leaves: [], extra_incomes: [], income_history: [], account_calendar_days: [], working_day_overrides: [] };
+    state.expenses = { expense_categories: [], expense_items: [], expense_period_overrides: [] };
+    state.savings = { goals: [], goal_milestones: [], goal_transactions: [], goal_cycles: [], goal_cycle_skips: [], savings_period_overrides: [] };
+    state.debts = { credit_cards: [], credit_card_ops: [], credit_payment_overrides: [], installments: [], installment_payments: [] };
+    state.gifts = { gift_events: [], gift_event_amounts: [] };
+    state.facts = { expense_facts: [] };
+  }
   window.supabase = {
     createClient: () => ({
       auth: {

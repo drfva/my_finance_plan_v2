@@ -11,6 +11,7 @@ import { attachEditing } from './edit.js';
 import { simulate, freezePeriods } from '../engine/allocation.js';
 import { computeIncome } from '../engine/income.js';
 import { createSecurity } from '../core/security.js';
+import { tourNeeded, tourPanel, tourHandle } from './tour.js';
 import { syncGenerated } from '../engine/savings.js';
 
 import * as dashboard from './dashboard.js';
@@ -153,7 +154,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
           <span>${esc(ui.notice.text)}</span><button class="ghost small" id="notice-close">×</button></div>` : ''}
         ${topRow}
         ${body}
-      </main>`;
+      </main>
+      ${tourNeeded(ctx) ? tourPanel(ctx) : ''}`;
   }
 
   function render() {
@@ -220,6 +222,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         render();
         return;
       }
+      if (tourHandle(ev, context())) { render(); return; }
+
       const active = TABS.find(t => t.code === ui.tab);
       if (!active?.handle) return;
       try {

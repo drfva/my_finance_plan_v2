@@ -165,3 +165,28 @@ test('правка: этап из шаблона закрепляется, ге�
   applyEdit(store, el({ edit: 'savings|goal_milestones|target', key: JSON.stringify({ id: 'ms-hand' }), type: 'money' }, '200'), fmt);
   assert.equal(store.state.savings.goal_milestones[1].user_edited, false);
 });
+
+test('подсказки первого входа: показываются пустому плану и знают выполненные шаги', async () => {
+  const { tourNeeded, tourPanel } = await import('../src/ui/tour.js');
+  const empty = {
+    canEdit: true,
+    state: { account: { id: 'a', title: 'Мой план', role: 'owner' }, accounts: [{ id: 'a', title: 'Мой план', role: 'owner' }], income: {} },
+    ui: { draft: {}, open: new Set(), tab: 'dashboard' },
+  };
+  assert.equal(tourNeeded(empty), true);
+  const html = tourPanel(empty);
+  assert.match(html, /Шаг 1 из 6/);
+  assert.match(html, /Это ваш план/);
+
+  // есть график выплат — подсказки больше не нужны
+  const filled = { ...empty, state: { ...empty.state, income: { payout_slots: [{ year: 2027, sort_order: 1 }] } } };
+  assert.equal(tourNeeded(filled), false);
+
+  // оклад внесён — подсказка сама встаёт на следующий невыполненный шаг
+  const started = { ...empty, ui: { draft: {}, open: new Set(), tab: 'dashboard' },
+    state: { ...empty.state, income: { salary_rates: [{ id: 'r', amount: 100000 }] } } };
+  assert.match(tourPanel(started), /Проверьте налог/);
+
+  // читателю чужого плана подсказки про настройку не показываем
+  assert.equal(tourNeeded({ ...empty, canEdit: false }), false);
+});

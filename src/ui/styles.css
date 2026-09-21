@@ -369,3 +369,17 @@ input.own{border-color:var(--accent);box-shadow:inset 2px 0 0 var(--accent);font
   .card{padding:14px;}
   main{padding:14px 12px 36px;}
 }
+
+/* Подсказки первого входа */
+.tour{position:fixed;right:20px;bottom:20px;z-index:40;width:360px;max-width:calc(100vw - 32px);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:18px 20px;
+  box-shadow:var(--shadow-pop);}
+.tour h3{font-size:16px;}
+.tour-dots{display:flex;gap:5px;margin-top:8px;}
+.tour-dots i{width:100%;height:4px;border-radius:999px;background:var(--surface-3);}
+.tour-dots i.done{background:var(--good);opacity:.7;}
+.tour-dots i.now{background:var(--accent);}
+@media (max-width:760px){
+  .tour{right:8px;left:8px;bottom:8px;width:auto;padding:14px 16px;border-radius:18px;}
+  .tour .small-note{font-size:13px;}
+}
