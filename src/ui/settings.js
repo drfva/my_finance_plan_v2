@@ -131,16 +131,16 @@ function calendarCard(ctx) {
   }
   const inc = state.income ?? {};
   const cal = ctx.sim.income.calendar;
+  const draft = ctx.ui.draft.settings ?? {};
   const blocks = years.map(year => {
     const days = (inc.account_calendar_days ?? []).filter(d => String(d.date).startsWith(String(year)))
       .sort((a, b) => (a.date < b.date ? -1 : 1));
-    const rows = days.map(d => `<tr>
-      <td>${input({ edit: 'income|account_calendar_days|date', key: { date: d.date }, value: d.date, type: 'date', disabled: !canEdit })}</td>
-      <td>${select({ edit: 'income|account_calendar_days|kind', key: { date: d.date }, value: d.kind, disabled: !canEdit,
-        options: [{ value: 'holiday', label: 'нерабочий' }, { value: 'workday', label: 'рабочий' }] })}</td>
-      <td>${input({ edit: 'income|account_calendar_days|title', key: { date: d.date }, value: d.title, disabled: !canEdit })}</td>
-      <td>${canEdit ? delButton({ domain: 'income', table: 'account_calendar_days', key: { date: d.date } }) : ''}</td>
-    </tr>`);
+
+    const pills = days.map(d => `<span class="day-pill${d.kind === 'workday' ? ' workday' : ''}">
+      ${esc(fmt.date(d.date, 'dayMonth'))}
+      ${canEdit ? delButton({ domain: 'income', table: 'account_calendar_days', key: { date: d.date }, label: '✕', cls: 'ghost small' }) : ''}
+    </span>`).join('');
+
     const wd = Array.from({ length: 12 }, (_, i) => {
       const ym = `${year}-${String(i + 1).padStart(2, '0')}`;
       const o = (inc.working_day_overrides ?? []).find(x => x.ym === ym);
@@ -148,14 +148,20 @@ function calendarCard(ctx) {
         value: o?.working_days ?? '', placeholder: String(cal.calendarWorkingDaysInMonth(year, i + 1)),
         type: 'int', empty: 'null', disabled: !canEdit, style: 'max-width:70px;text-align:right;' })}</td>`;
     }).join('');
-    return `<div style="margin-bottom:20px;">
-      <div class="row between wrap" style="gap:8px;">
+
+    return `<div style="margin-bottom:22px;">
+      <div class="row between wrap" style="gap:8px;align-items:end;">
         <b style="font-size:16px;">${esc(year)}</b>
-        ${canEdit ? addButton({ domain: 'income', table: 'account_calendar_days', label: '+ свой день',
-          row: { date: `${year}-01-01`, kind: 'holiday', title: '' } }) : ''}
+        ${canEdit ? `<div class="row wrap" style="gap:8px;align-items:end;">
+          <input type="date" data-draft="day-${esc(year)}" value="${esc(draft[`day-${year}`] || `${year}-01-01`)}" style="max-width:170px;">
+          ${button({ action: 'add-day', value: String(year), label: '+ нерабочий день', cls: 'small' })}
+          ${days.length ? button({ action: 'clear-days', value: String(year), label: `очистить ${year}`, cls: 'ghost small' }) : ''}
+        </div>` : ''}
       </div>
-      ${table({ head: ['Дата', 'Какой день', 'Название', ''], rows: rows.length ? rows : ['<tr><td colspan="4" class="muted">Своих дней нет: работают праздники справочника</td></tr>'] })}
-      <div class="small-note" style="margin-top:8px;">Рабочих дней в месяце (пусто — по календарю)</div>
+      <div class="row wrap" style="gap:8px;margin-top:10px;">
+        ${pills || '<span class="small-note" style="margin:0;">Своих дней нет: работают праздники справочника</span>'}
+      </div>
+      <div class="small-note" style="margin-top:12px;">Рабочих дней в месяце (пусто — по календарю)</div>
       ${table({ head: Array.from({ length: 12 }, (_, i) => ({ title: fmt.monthName(i + 1).slice(0, 3), cls: 'num' })), rows: [`<tr>${wd}</tr>`] })}
     </div>`;
   }).join('');
@@ -164,7 +170,7 @@ function calendarCard(ctx) {
     key: 'set:calendar', open: ctx.ui.open.has('set:calendar'),
     title: 'Производственный календарь',
     note: `Праздники календаря «${esc(cfg.byCode('calendars', cfg.get('calendar_code'))?.title ?? '')}» уже учтены. `
-      + 'Здесь — переносы выходных, личные нерабочие дни и ручная правка числа рабочих дней в месяце.',
+      + 'Здесь — свои нерабочие дни: выберите дату и добавьте. Ниже можно вручную поправить число рабочих дней в месяце.',
     body: blocks,
   });
 }
@@ -344,6 +350,30 @@ export function handle(ev, ctx) {
   if (ev.target.closest('[data-sign-out-account]')) {
     if (confirm('Выйти из аккаунта на этом устройстве?')) ctx.onSignOut?.();
     return false;
+  }
+
+  const addDay = ev.target.closest('[data-add-day]');
+  if (addDay) {
+    const year = addDay.dataset.addDay;
+    const date = (ctx.ui.draft.settings ?? {})[`day-${year}`] || `${year}-01-01`;
+    if (!String(date).startsWith(String(year))) throw new Error(`Дата ${fmt.date(date)} не из ${year} года`);
+    if ((ctx.state.income?.account_calendar_days ?? []).some(d => d.date === date)) {
+      throw new Error(`${fmt.date(date)} уже в списке`);
+    }
+    store.update('income', d => {
+      (d.account_calendar_days ?? (d.account_calendar_days = [])).push({ date, kind: 'holiday', title: '' });
+    });
+    return true;
+  }
+
+  const clearDays = ev.target.closest('[data-clear-days]');
+  if (clearDays) {
+    const year = clearDays.dataset.clearDays;
+    if (!confirm(`Удалить все свои нерабочие дни ${year} года?`)) return false;
+    store.update('income', d => {
+      d.account_calendar_days = (d.account_calendar_days ?? []).filter(x => !String(x.date).startsWith(year));
+    });
+    return true;
   }
 
   const move = ev.target.closest('[data-stage-move]');

@@ -2,7 +2,7 @@
 
 import { esc, card, table, input, select, checkbox, addButton, delButton, button, pill, field } from './dom.js';
 import { uid } from './edit.js';
-import { goalBalanceAt, goalProgressAt, proposeRedistribution } from '../engine/allocation.js';
+import { goalBalanceAt, goalProgressAt, proposeRedistribution, forecastBeyondPlan } from '../engine/allocation.js';
 import { goalTotal, cycleDates } from '../engine/savings.js';
 
 export const code = 'goals';
@@ -98,13 +98,28 @@ function cyclesBlock(ctx, goal) {
 export function milestoneStatus(ctx, goal, m) {
   const { fmt, sim } = ctx;
   const list = sim.milestonesOf(goal);
-  const done = (sim.milestoneDates[goal.id] ?? [])[list.findIndex(x => x.id === m.id)];
-  const label = !done ? (m.deadline ? `не достигается к ${fmt.date(m.deadline)}` : 'не достигается в плане')
-    : done === 'pre' ? 'уже накоплено'
-    : m.deadline ? (done <= m.deadline ? `в графике (к ${fmt.date(done)})` : `позже срока (к ${fmt.date(done)})`)
-    : `прогноз: к ${fmt.date(done)}`;
-  const cls = !done ? 'danger' : (!m.deadline || done === 'pre' || done <= m.deadline) ? 'ok' : 'warn';
-  return { label, cls };
+  const i = list.findIndex(x => x.id === m.id);
+  const done = (sim.milestoneDates[goal.id] ?? [])[i];
+  if (done) {
+    const label = done === 'pre' ? 'уже накоплено'
+      : m.deadline ? (done <= m.deadline ? `в графике (к ${fmt.date(done)})` : `позже срока (к ${fmt.date(done)})`)
+      : `прогноз: к ${fmt.date(done)}`;
+    const cls = (!m.deadline || done === 'pre' || done <= m.deadline) ? 'ok' : 'warn';
+    return { label, cls, done };
+  }
+  // внутри плана этап не закрывается — продлеваем текущий темп пополнения дальше
+  const far = forecastBeyondPlan(sim, goal, i);
+  if (far) {
+    return {
+      label: m.deadline ? `позже срока (прогноз ${fmt.date(far.date)})` : `прогноз: к ${fmt.date(far.date)}`,
+      cls: m.deadline ? 'warn' : '',
+      done: far.date, beyondPlan: true,
+    };
+  }
+  return {
+    label: m.deadline ? `не достигается к ${fmt.date(m.deadline)}` : 'пока не пополняется',
+    cls: 'danger',
+  };
 }
 
 /* Подраздел внутри карточки цели: заголовок с шевроном, содержимое по клику */

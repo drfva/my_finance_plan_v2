@@ -484,6 +484,39 @@ export function reservePaceSuggestion(sim, goal, today) {
   };
 }
 
+/* Прогноз за пределами плана: если этап не закрывается внутри плана, считаем,
+   с какой скоростью цель пополняется в последних выплатах, и продлеваем этот
+   темп дальше. Возвращает { date, perPayout, payouts, beyondPlan: true } или null,
+   когда цели ничего не достаётся — тогда прогноза нет вовсе. */
+export function forecastBeyondPlan(sim, goal, milestoneIndex = null) {
+  const rows = sim.rows;
+  if (!rows.length) return null;
+  const last = rows[rows.length - 1];
+  const list = sim.milestonesOf(goal);
+  const phase = last.phase[goal.id] ?? { idx: 0, saved: 0 };
+  const target = milestoneIndex === null ? phase.idx : milestoneIndex;
+  if (target < phase.idx) return null;                       // этап уже закрыт в плане
+  if (target >= list.length) return null;
+
+  // сколько ещё нужно: остаток текущего этапа плюс все этапы до нужного
+  let need = Math.max(0, (list[phase.idx]?.target ?? 0) - phase.saved);
+  for (let i = phase.idx + 1; i <= target && i < list.length; i++) need += Number(list[i].target) || 0;
+  if (need <= 0.5) return null;
+
+  // темп: среднее пополнение за последние выплаты, где цель вообще получала деньги
+  const tail = rows.slice(-12);
+  const got = tail.reduce((s, r) => s + (r.allocations[goal.id] ?? 0), 0);
+  const perPayout = tail.length ? got / tail.length : 0;
+  if (perPayout <= 0.5) return null;
+
+  const payouts = Math.ceil(need / perPayout);
+  // средний промежуток между выплатами плана
+  const first = rows[0].period.pay_date;
+  const span = rows.length > 1 ? (Date.parse(last.period.pay_date) - Date.parse(first)) / (rows.length - 1) : 30 * 864e5;
+  const date = new Date(Date.parse(last.period.pay_date) + payouts * span).toISOString().slice(0, 10);
+  return { date, perPayout, payouts, beyondPlan: true };
+}
+
 /* Перераспределение остатка закрытой цели: сначала в цели с ближайшим сроком,
    каждой не больше, чем ей не хватает */
 export function proposeRedistribution(sim, closedGoal, balance, date, txs) {

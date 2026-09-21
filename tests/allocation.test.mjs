@@ -396,3 +396,28 @@ test('рассрочка: пересборка графика не трогае�
   // все платежи прошли — график не трогаем
   assert.equal(rebuildFuture(inst, payments, '2027-12-31', UNITS).length, 4);
 });
+
+test('прогноз: цель без срока досчитывается за пределами плана', async () => {
+  const { forecastBeyondPlan } = await import('../src/engine/allocation.js');
+  const st = plan({
+    goals: [goal('car', { target_amount: 1200000 })],
+    categories: [{ id: 'life', mode: 'fixed_month', monthly_amount: 100000, split_mode: 'even' }],
+  });
+  const sim = run(st);
+  assert.equal(sim.milestoneDates.car[0], null);          // внутри плана не закрывается
+  const f = forecastBeyondPlan(sim, st.savings.goals[0]);
+  assert.ok(f, 'прогноз должен появиться');
+  assert.equal(f.beyondPlan, true);
+  assert.ok(f.date > sim.planEnd, 'дата прогноза — после конца плана');
+  assert.ok(f.perPayout > 0);
+});
+
+test('прогноз: цели, которой ничего не достаётся, прогноза нет', async () => {
+  const { forecastBeyondPlan } = await import('../src/engine/allocation.js');
+  const st = plan({
+    goals: [goal('car', { target_amount: 1e7, deadline: '2027-06-30' }), goal('later', { target_amount: 50000, priority: 9 })],
+    categories: [{ id: 'life', mode: 'fixed_month', monthly_amount: 100000, split_mode: 'even' }],
+  });
+  const sim = run(st);
+  assert.equal(forecastBeyondPlan(sim, st.savings.goals[1]), null);
+});
