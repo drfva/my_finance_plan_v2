@@ -16,11 +16,9 @@
 
   var PROD = {
     env: 'prod',
-    url: 'https://crokwtmokshdankujdhx.supabase.co',
-    key: 'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB',
-    /* Адрес, куда Supabase возвращает из письма. Пусто — берётся адрес текущей страницы.
-       Этот адрес должен быть в Supabase → Authentication → URL Configuration. */
-    returnUrl: ''
+    url: 'https://aostkaxeytjuuolclugs.supabase.co',
+    key: 'sb_publishable_H5X3q94o_TGHyte_VMvcuQ_hdY9CrhN',
+    returnUrl: 'https://drfva.github.io/my_finance_plan_v2/'
   };
 
   var DEV = {
