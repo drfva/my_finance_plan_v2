@@ -2,7 +2,7 @@
 
 import { esc, card, table, input, select, addButton, delButton, button, pill, field } from './dom.js';
 import { uid } from './edit.js';
-import { monthlyAmountOn } from '../engine/expenses.js';
+import { monthlyAmountOn, categoryShare } from '../engine/expenses.js';
 
 export const code = 'categories';
 export const title = () => 'Категории';
@@ -50,32 +50,33 @@ export function render(ctx) {
   const splits = cfg.list('split_modes').map(m => ({ value: m.code, label: m.title }));
 
   const monthTotal = cats.reduce((s, c) => s + (c.mode === 'percent_income' ? 0 : monthlyAmountOn(c, items, ctx.today)), 0);
-  const percentTotal = cats.filter(c => c.mode === 'percent_income').reduce((s, c) => s + (Number(c.percent_value) || 0), 0);
+  const percentTotal = cats.filter(c => c.mode === 'percent_income')
+    .reduce((s, c) => s + categoryShare(c, cats, items, ctx.today), 0);
 
   const cards = cats.map(c => {
     const open = ui.open.has(`cat:${c.id}`);
     const monthly = monthlyAmountOn(c, items, ctx.today);
     const hasItems = items.some(i => i.category_id === c.id);
     const percent = c.mode === 'percent_income';
+    const share = categoryShare(c, cats, items, ctx.today);
     return card({
       body: `
         <div class="row wrap" style="gap:12px;align-items:start;">
           <div style="flex:2;min-width:200px;">${field('Название', input({ edit: 'expenses|expense_categories|title', key: { id: c.id }, value: c.title, disabled: !canEdit }))}</div>
           <div style="flex:1;min-width:190px;">${field('Как считать', select({ edit: 'expenses|expense_categories|mode', key: { id: c.id }, value: c.mode, options: modes, disabled: !canEdit }),
-            percent ? '% с каждой выплаты' : 'Сумма месяца делится между выплатами')}</div>
+            percent ? 'Доля от каждой выплаты' : 'Сумма месяца делится между выплатами')}</div>
+          <div style="flex:1;min-width:150px;">${field('Сумма на месяц', input({ edit: 'expenses|expense_categories|monthly_amount', key: { id: c.id }, value: hasItems ? monthly : c.monthly_amount, type: 'money', disabled: !canEdit || hasItems }),
+            hasItems ? 'Сумма статей' : 'Уходит за месяц целиком')}</div>
           ${percent
-            ? `<div style="flex:1;min-width:140px;">${field('Процент с выплаты', input({ edit: 'expenses|expense_categories|percent_value', key: { id: c.id }, value: c.percent_value, type: 'number', disabled: !canEdit }), 'От суммы на руки')}</div>
-               <div style="flex:1;min-width:150px;">${field('План на месяц', input({ edit: 'expenses|expense_categories|monthly_amount', key: { id: c.id }, value: c.monthly_amount, type: 'money', disabled: !canEdit }), 'Для сверки за месяц')}</div>`
-            : `<div style="flex:1;min-width:150px;">${field('Сумма на месяц', input({ edit: 'expenses|expense_categories|monthly_amount', key: { id: c.id }, value: hasItems ? monthly : c.monthly_amount, type: 'money', disabled: !canEdit || hasItems }),
-                 hasItems ? 'Сумма статей' : 'Уходит за месяц целиком')}</div>
-               <div style="flex:1;min-width:200px;">${field('Деление между выплатами', select({ edit: 'expenses|expense_categories|split_mode', key: { id: c.id }, value: c.split_mode, options: splits, disabled: !canEdit }),
+            ? `<div style="flex:1;min-width:140px;">${field('Доля в расходах', `<div class="pill-value">${esc(fmt.percent(share, 1))}</div>`, 'Считается сама: сумма категории ÷ все расходы')}</div>`
+            : `<div style="flex:1;min-width:200px;">${field('Деление между выплатами', select({ edit: 'expenses|expense_categories|split_mode', key: { id: c.id }, value: c.split_mode, options: splits, disabled: !canEdit }),
                  'Поровну или по длине периода')}</div>`}
           <div>${field(' ', `<button class="ghost small" data-toggle="cat:${esc(c.id)}">${open ? 'свернуть' : 'сезон и статьи'}</button>`)}</div>
           ${canEdit ? `<div>${field(' ', delButton({ domain: 'expenses', table: 'expense_categories', key: { id: c.id }, confirm: `Удалить категорию «${c.title}» вместе со статьями, правками в выплатах и фактом?` }))}</div>` : ''}
         </div>
         <div class="small-note" style="margin-top:6px;">
           ${percent
-            ? `${esc(fmt.percent(Number(c.percent_value) || 0, 1))} с каждой выплаты, план месяца ${esc(fmt.money(c.monthly_amount))}`
+            ? `${esc(fmt.percent(share, 1))} с каждой выплаты — это доля категории в общих расходах; план месяца ${esc(fmt.money(monthly))}`
             : `${esc(fmt.money(monthly))} в месяц${hasItems ? ' (сумма статей)' : ''}`}
           ${c.season_from && c.season_to ? ` · сезон ${esc(c.season_from)}…${esc(c.season_to)}` : ''}
         </div>

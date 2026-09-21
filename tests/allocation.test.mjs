@@ -85,22 +85,44 @@ test('расходы: сезон категории и статей, в том �
   assert.equal(cat('2027-04-1', 'health'), 1500);
 });
 
-test('расходы: процент от выплаты и проверка месяца, ручная правка', () => {
+test('расходы: доля категории в общих расходах, а не заданный процент', () => {
+  const periods = payouts([3]);
+  const inc = new Map([['2027-03-1', 1000], ['2027-03-2', 1000]]);
+  const cats = [
+    { id: 'life', mode: 'percent_income', monthly_amount: 10000 },   // 10 % от 100 000
+    { id: 'rest', mode: 'fixed_month', monthly_amount: 90000, split_mode: 'even' },
+  ];
+  const r = planExpenses({ periods, slots: SLOTS, incomeById: inc, categories: cats });
+  const first = r.byPeriod.get('2027-03-1').categories.find(c => c.category_id === 'life');
+  assert.equal(first.share, 10);
+  assert.equal(first.amount, 100);                       // 10 % от выплаты 1 000
+
+  // сезон меняет знаменатель: вне сезона категория в долях не участвует
+  const seasonal = planExpenses({ periods, slots: SLOTS, incomeById: inc,
+    categories: [...cats, { id: 'winter', mode: 'percent_income', monthly_amount: 100000, season_from: '12-01', season_to: '02-28' }] });
+  const inMarch = seasonal.byPeriod.get('2027-03-1').categories.find(c => c.category_id === 'life');
+  assert.equal(inMarch.share, 10);
+  const off = seasonal.byPeriod.get('2027-03-1').categories.find(c => c.category_id === 'winter');
+  assert.equal(off.amount, 0);
+});
+
+test('расходы: процентная категория сверяется с планом месяца, ручная правка учитывается', () => {
   const periods = payouts([3]);
   const inc = new Map([['2027-03-1', 60000], ['2027-03-2', 80000]]);
   const r = planExpenses({ periods, slots: SLOTS, incomeById: inc,
-    categories: [{ id: 'fun', mode: 'percent_income', percent_value: 10, monthly_amount: 20000 }],
+    categories: [{ id: 'fun', mode: 'percent_income', monthly_amount: 20000 },
+      { id: 'rest', mode: 'fixed_month', monthly_amount: 180000, split_mode: 'even' }],
     overrides: [{ period_id: '2027-03-2', category_id: 'fun', amount: 5000 }] });
-  assert.equal(r.byPeriod.get('2027-03-1').total, 6000);
-  const second = r.byPeriod.get('2027-03-2').categories[0];
+  const first = r.byPeriod.get('2027-03-1').categories.find(c => c.category_id === 'fun');
+  assert.equal(first.share, 10);
+  assert.equal(first.amount, 6000);                      // 10 % от 60 000
+  const second = r.byPeriod.get('2027-03-2').categories.find(c => c.category_id === 'fun');
   assert.deepEqual([second.planned, second.amount, second.overridden], [8000, 5000, true]);
   const check = r.monthChecks[0];
   assert.equal(check.collected, 11000);
   assert.equal(check.shortfall, 9000);
   assert.ok(Math.abs(check.missingPercent - 10 * (20000 / 11000 - 1)) < 1e-9);
 });
-
-/* ------------------------------------------------------------------ долги */
 
 test('рассрочка: график по неделям и месяцам, конец месяца', () => {
   const weekly = buildInstallmentSchedule({ id: 'i', total: 1000, parts: 3, every_n: 2, period_unit: 'week', first_date: '2027-03-03' }, UNITS);

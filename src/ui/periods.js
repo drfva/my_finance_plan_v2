@@ -4,6 +4,7 @@ import { esc, card, table, pill, input, field, button, delButton, select } from 
 import { uid } from './edit.js';
 import { freezePeriods } from '../engine/allocation.js';
 import { generateYear } from '../engine/income.js';
+import { monthlyAmountOn } from '../engine/expenses.js';
 
 export const code = 'periods';
 export const title = () => 'Доходы';
@@ -158,9 +159,12 @@ function body(ctx, r) {
     <div class="grid cols-2" style="margin-top:20px;">
       ${card({
         title: 'Расходы по категориям',
-        actions: !canEdit ? '' : (hasCatOverrides
-          ? button({ action: 'reset-categories', value: p.id, label: 'Подставить по шаблону' })
-          : button({ action: 'clear-categories', value: p.id, label: 'Очистить поля' })),
+        actions: !canEdit ? '' : `
+          ${button({ action: 'spread-categories', value: p.id, label: 'Распределить выплату',
+            title: 'Разложить доход этой выплаты по категориям в их долях' })}
+          ${hasCatOverrides
+            ? button({ action: 'reset-categories', value: p.id, label: 'Подставить по шаблону' })
+            : button({ action: 'clear-categories', value: p.id, label: 'Очистить поля' })}`,
         note: 'В поле — сумма, которая идёт в расчёт. Впишите свою, чтобы поменять её только в этой выплате.',
         body: table({ head: ['Категория', { title: 'По шаблону', cls: 'num' }, { title: 'В расчёте', cls: 'num' }],
           rows: catRows.length ? catRows : ['<tr><td colspan="3" class="muted">Категорий нет</td></tr>'] }),
@@ -293,6 +297,37 @@ export function handle(ev, ctx) {
   if (resetCats) {
     const id = resetCats.dataset.resetCategories;
     store.update('expenses', d => { d.expense_period_overrides = (d.expense_period_overrides ?? []).filter(o => o.period_id !== id); });
+    return false;
+  }
+
+  /* разложить доход выплаты по категориям в их долях от общих расходов:
+     так разовая премия тоже расходится по конвертам */
+  const spread = ev.target.closest('[data-spread-categories]');
+  if (spread) {
+    const id = spread.dataset.spreadCategories;
+    const row = ctx.sim.byId.get(id);
+    if (!row) return false;
+    const cats = ctx.state.expenses?.expense_categories ?? [];
+    const items = ctx.state.expenses?.expense_items ?? [];
+    const date = row.period.pay_date;
+    const total = cats.reduce((s, c) => s + monthlyAmountOn(c, items, date), 0);
+    if (!(total > 0)) throw new Error('Суммы категорий не заданы — распределять нечего');
+    const income = row.totalIncome;
+    let given = 0;
+    const parts = cats.map((c, i) => {
+      const weight = monthlyAmountOn(c, items, date);
+      const amount = i === cats.length - 1 ? fmt.round(income) - given : fmt.round(income * weight / total);
+      given += amount;
+      return { category_id: c.id, amount: Math.max(0, amount) };
+    });
+    store.update('expenses', d => {
+      const rows = d.expense_period_overrides ?? (d.expense_period_overrides = []);
+      for (const part of parts) {
+        const own = rows.find(o => o.period_id === id && o.category_id === part.category_id);
+        if (own) own.amount = part.amount;
+        else rows.push({ period_id: id, category_id: part.category_id, amount: part.amount });
+      }
+    });
     return false;
   }
 

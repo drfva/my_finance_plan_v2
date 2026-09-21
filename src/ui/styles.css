@@ -266,3 +266,4 @@ input.own{border-color:var(--accent);box-shadow:inset 2px 0 0 var(--accent);font
 .goal-actions{align-items:center;}
 .cycle-card{background:var(--surface-2);margin-bottom:12px;padding:16px 18px;}
 .cycle-card .field{margin:0;}
+.pill-value{display:flex;align-items:center;min-height:40px;font-weight:800;font-family:var(--font-mono);}
