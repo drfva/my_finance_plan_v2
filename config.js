@@ -27,7 +27,7 @@
     env: 'dev',
     url: 'https://aostkaxeytjuuolclugs.supabase.co',
     key: 'sb_publishable_H5X3q94o_TGHyte_VMvcuQ_hdY9CrhN',
-    returnUrl: 'http://localhost:5500/index.html'
+    returnUrl: 'https://drfva.github.io/my_finance_plan_v2/'
   };
 
   window.APP_CONFIG = isLocal ? DEV : PROD;
