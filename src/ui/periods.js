@@ -55,8 +55,9 @@ function body(ctx, r) {
     return `<tr>
       <td>${esc(cat?.title ?? c.category_id)}${c.mode === 'percent_income' ? ' <span class="small-note">процент</span>' : ''}</td>
       <td class="num muted">${esc(fmt.money(c.planned))}</td>
-      <td class="num">${input({ edit: 'expenses|expense_period_overrides|amount', key: { period_id: p.id, category_id: c.category_id }, value: fmt.round(c.amount), type: 'money', disabled: !canEdit, style: 'max-width:130px;text-align:right;' })}</td>
-      <td>${c.overridden ? `${pill('своя сумма')} ${delButton({ domain: 'expenses', table: 'expense_period_overrides', key: { period_id: p.id, category_id: c.category_id }, label: '↺', cls: 'ghost small' })}` : ''}</td>
+      <td class="num">${input({ edit: 'expenses|expense_period_overrides|amount', key: { period_id: p.id, category_id: c.category_id },
+        value: fmt.round(c.amount), type: 'money', disabled: !canEdit, cls: c.overridden ? 'own' : '',
+        style: 'max-width:130px;text-align:right;' })}</td>
     </tr>`;
   });
 
@@ -72,27 +73,48 @@ function body(ctx, r) {
       <td>${esc(c.title)}</td>
       <td class="num muted">${esc(fmt.money(before?.debt ?? 0, c.currency_code))}</td>
       <td class="muted">${before?.deadline ? esc(fmt.date(before.deadline)) : '—'}</td>
-      <td class="num">${input({ edit: 'debts|credit_payment_overrides|amount', key: { period_id: p.id, card_id: c.id }, value: fmt.round(paid), type: 'money', disabled: !canEdit, style: 'max-width:130px;text-align:right;' })}</td>
-      <td>${ov ? `${pill('своя сумма')} ${delButton({ domain: 'debts', table: 'credit_payment_overrides', key: { period_id: p.id, card_id: c.id }, label: '↺', cls: 'ghost small' })}` : ''}</td>
+      <td class="num">${input({ edit: 'debts|credit_payment_overrides|amount', key: { period_id: p.id, card_id: c.id },
+        value: fmt.round(paid), type: 'money', disabled: !canEdit, cls: ov ? 'own' : '', style: 'max-width:130px;text-align:right;' })}</td>
     </tr>`;
   });
 
   const ovRows = state.savings?.savings_period_overrides ?? [];
   const hasCatOverrides = (state.expenses?.expense_period_overrides ?? []).some(o => o.period_id === p.id);
   const hasCardOverrides = (state.debts?.credit_payment_overrides ?? []).some(o => o.period_id === p.id);
-  const hasGoalOverrides = ovRows.some(o => o.period_id === p.id);
   // закрытая цель остаётся только в зафиксированных выплатах и там, где ей уже что-то досталось
-  const goalRows = goals.filter(g => !g.completed || p.locked || (r.allocations[g.id] ?? 0) > 0.5).map(g => {
+  const goalRow = g => {
     const amount = r.allocations[g.id] ?? 0;
-    const manual = ovRows.some(o => o.period_id === p.id && o.goal_id === g.id);
+    const own = ovRows.some(o => o.period_id === p.id && o.goal_id === g.id);
     return `<tr>
       <td>${esc(g.title)}</td>
       <td class="num muted">${esc(fmt.money(amount))}</td>
-      <td class="num">${input({ edit: 'savings|savings_period_overrides|amount', key: { period_id: p.id, goal_id: g.id }, value: fmt.round(amount), type: 'money', disabled: !canEdit, style: 'max-width:130px;text-align:right;' })}</td>
-      <td>${manual ? `${pill('своя сумма')} ${delButton({ domain: 'savings', table: 'savings_period_overrides', key: { period_id: p.id, goal_id: g.id }, label: '↺', cls: 'ghost small' })}` : ''}</td>
+      <td class="num">${input({ edit: 'savings|savings_period_overrides|amount', key: { period_id: p.id, goal_id: g.id },
+        value: fmt.round(amount), type: 'money', disabled: !canEdit, cls: own ? 'own' : '',
+        style: 'max-width:130px;text-align:right;' })}</td>
       <td class="num muted">${esc(fmt.money(r.goalBalances[g.id] ?? 0, g.currency_code))}</td>
     </tr>`;
-  });
+  };
+  // закрытая цель остаётся только в зафиксированных выплатах и там, где ей уже что-то досталось
+  const visibleGoals = goals.filter(g => !g.completed || p.locked || (r.allocations[g.id] ?? 0) > 0.5);
+  const goalsOf = kind => visibleGoals.filter(g => (kind === 'reserve' ? g.kind_code === 'reserve' : g.kind_code !== 'reserve'))
+    .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+
+  const savingsCard = (title_, kind) => {
+    const list = goalsOf(kind);
+    if (!list.length) return '';
+    const own = list.some(g => ovRows.some(o => o.period_id === p.id && o.goal_id === g.id));
+    return card({
+      title: title_,
+      actions: !canEdit ? '' : own
+        ? button({ action: 'reset-savings', value: `${p.id}:${kind}`, label: p.locked ? 'Обнулить суммы' : 'Сбросить на авто-расчёт' })
+        : button({ action: 'clear-savings', value: `${p.id}:${kind}`, label: 'Очистить поля' }),
+      note: p.locked ? 'Выплата зафиксирована: идут только эти суммы.'
+        : own ? 'Свои суммы закреплены, остальное план пересчитал под них.'
+        : 'В поле — сумма, которую посчитал план. Впишите свою: она закрепится, остальные пересчитаются.',
+      body: table({ head: ['Цель', { title: 'Авто-расчёт', cls: 'num' }, { title: 'В расчёте', cls: 'num' }, { title: 'В копилке', cls: 'num' }],
+        rows: list.map(goalRow) }),
+    });
+  };
 
   const remainder = r.unallocated >= -0.5
     ? `<div class="info-box" style="${r.unallocated > 0.5 ? 'background:var(--good-soft);color:var(--good);' : ''}">
@@ -136,24 +158,21 @@ function body(ctx, r) {
     <div class="grid cols-2" style="margin-top:20px;">
       ${card({
         title: 'Расходы по категориям',
-        actions: canEdit && hasCatOverrides ? button({ action: 'reset-categories', value: p.id, label: 'Подставить по шаблону' }) : '',
+        actions: !canEdit ? '' : (hasCatOverrides
+          ? button({ action: 'reset-categories', value: p.id, label: 'Подставить по шаблону' })
+          : button({ action: 'clear-categories', value: p.id, label: 'Очистить поля' })),
         note: 'В поле — сумма, которая идёт в расчёт. Впишите свою, чтобы поменять её только в этой выплате.',
-        body: table({ head: ['Категория', { title: 'По шаблону', cls: 'num' }, { title: 'В расчёте', cls: 'num' }, ''],
-          rows: catRows.length ? catRows : ['<tr><td colspan="4" class="muted">Категорий нет</td></tr>'] }),
+        body: table({ head: ['Категория', { title: 'По шаблону', cls: 'num' }, { title: 'В расчёте', cls: 'num' }],
+          rows: catRows.length ? catRows : ['<tr><td colspan="3" class="muted">Категорий нет</td></tr>'] }),
       })}
-      ${card({
-        title: 'Распределение по копилкам',
-        actions: canEdit && hasGoalOverrides ? button({ action: 'reset-savings', value: p.id, label: p.locked ? 'Обнулить суммы' : 'Сбросить на авто-расчёт' }) : '',
-        note: p.locked ? 'Выплата зафиксирована: в копилки идут только эти суммы.' : 'В поле — сумма, которую посчитал план. Впишите свою, чтобы задать её вручную.',
-        body: table({ head: ['Цель', { title: 'Авто-расчёт', cls: 'num' }, { title: 'В расчёте', cls: 'num' }, '', { title: 'В копилке', cls: 'num' }],
-          rows: goalRows.length ? goalRows : ['<tr><td colspan="5" class="muted">Целей нет</td></tr>'] }),
-      })}
+      ${savingsCard('Распределение по копилкам', 'bucket')}
+      ${savingsCard('Распределение по подушкам', 'reserve')}
     </div>
     ${instRows.length ? `<div style="margin-top:20px;">${card({ title: 'Рассрочки из этой выплаты', body: table({ head: ['Дата', 'Покупка', { title: 'Сумма', cls: 'num' }], rows: instRows }) })}</div>` : ''}
     ${cardRows.length ? `<div style="margin-top:20px;">${card({
       title: 'Кредитки',
       actions: canEdit && hasCardOverrides ? button({ action: 'reset-cards', value: p.id, label: 'Сбросить на авто-расчёт' }) : '',
-      body: table({ head: ['Карта', { title: 'Долг до выплаты', cls: 'num' }, 'Погасить до', { title: 'В расчёте', cls: 'num' }, ''], rows: cardRows }),
+      body: table({ head: ['Карта', { title: 'Долг до выплаты', cls: 'num' }, 'Погасить до', { title: 'В расчёте', cls: 'num' }], rows: cardRows }),
     })}</div>` : ''}
     <div style="margin-top:20px;">${remainder}</div>
   </div>`;
@@ -239,10 +258,34 @@ export function handle(ev, ctx) {
     return false;
   }
 
+  /* цели выплаты по типу: копилки и подарки отдельно от подушек */
+  const goalsOfKind = kind => (ctx.state.savings?.goals ?? [])
+    .filter(g => (kind === 'reserve' ? g.kind_code === 'reserve' : g.kind_code !== 'reserve'));
+
   const reset = ev.target.closest('[data-reset-savings]');
   if (reset) {
-    const id = reset.dataset.resetSavings;
-    store.update('savings', d => { d.savings_period_overrides = (d.savings_period_overrides ?? []).filter(o => o.period_id !== id); });
+    const [id, kind] = reset.dataset.resetSavings.split(':');
+    const ids = new Set(goalsOfKind(kind).map(g => g.id));
+    store.update('savings', d => {
+      d.savings_period_overrides = (d.savings_period_overrides ?? [])
+        .filter(o => !(o.period_id === id && ids.has(o.goal_id)));
+    });
+    return false;
+  }
+
+  // очистить поля: всем целям этого блока ставим свою сумму 0 — дальше вписывайте руками
+  const clear = ev.target.closest('[data-clear-savings]');
+  if (clear) {
+    const [id, kind] = clear.dataset.clearSavings.split(':');
+    const list = goalsOfKind(kind);
+    store.update('savings', d => {
+      const rows = d.savings_period_overrides ?? (d.savings_period_overrides = []);
+      for (const g of list) {
+        const own = rows.find(o => o.period_id === id && o.goal_id === g.id);
+        if (own) own.amount = 0;
+        else rows.push({ period_id: id, goal_id: g.id, amount: 0 });
+      }
+    });
     return false;
   }
 
@@ -250,6 +293,21 @@ export function handle(ev, ctx) {
   if (resetCats) {
     const id = resetCats.dataset.resetCategories;
     store.update('expenses', d => { d.expense_period_overrides = (d.expense_period_overrides ?? []).filter(o => o.period_id !== id); });
+    return false;
+  }
+
+  const clearCats = ev.target.closest('[data-clear-categories]');
+  if (clearCats) {
+    const id = clearCats.dataset.clearCategories;
+    const row = ctx.sim.byId.get(id);
+    store.update('expenses', d => {
+      const rows = d.expense_period_overrides ?? (d.expense_period_overrides = []);
+      for (const c of row?.expenses.categories ?? []) {
+        const own = rows.find(o => o.period_id === id && o.category_id === c.category_id);
+        if (own) own.amount = 0;
+        else rows.push({ period_id: id, category_id: c.category_id, amount: 0 });
+      }
+    });
     return false;
   }
 

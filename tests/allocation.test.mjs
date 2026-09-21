@@ -250,7 +250,8 @@ const goal = (id, extra = {}) => ({ id, title: id, kind_code: 'bucket', currency
 
 test('конвейер: совпадает с расчётом старой версии на её плане', () => {
   const fx = JSON.parse(fs.readFileSync(new URL('./fixtures/legacy-2027.json', import.meta.url), 'utf8'));
-  const sim = run(fx.state);
+  // старая версия не откладывала темп подушки раньше копилок — для сверки выключаем
+  const sim = simulate(fx.state, createConfig(fx.state), { paceFirst: false });
   assert.equal(sim.rows.length, fx.expected.length);
   const near = (a, b, what) => assert.ok(Math.abs((a ?? 0) - (b ?? 0)) < 0.01, `${what}: ${a} ≠ ${b}`);
   fx.expected.forEach((e, i) => {
@@ -420,4 +421,36 @@ test('прогноз: цели, которой ничего не достаёт�
   });
   const sim = run(st);
   assert.equal(forecastBeyondPlan(sim, st.savings.goals[1]), null);
+});
+
+test('подушка: заданный темп откладывается раньше копилок', () => {
+  const goals = [
+    goal('trip', { target_amount: 500000, priority: 1 }),
+    goal('cushion', { kind_code: 'reserve', target_amount: 300000, pace_amount: 8000, priority: 1 }),
+  ];
+  const st = plan({ periods: payouts([1]), goals,
+    categories: [{ id: 'life', mode: 'fixed_month', monthly_amount: 100000, split_mode: 'even' }] });
+  const first = run(st).rows[0];
+  assert.equal(first.allocations.cushion, 8000);          // темп ушёл раньше копилки
+  assert.equal(first.allocations.trip, 42000);            // копилке — остаток выплаты
+  // без темпа подушка снова получает только то, что осталось после копилок
+  goals[1].pace_amount = 0;
+  const without = run(plan({ periods: payouts([1]), goals,
+    categories: [{ id: 'life', mode: 'fixed_month', monthly_amount: 100000, split_mode: 'even' }] })).rows[0];
+  assert.equal(without.allocations.cushion, undefined);
+  assert.equal(without.allocations.trip, 50000);
+});
+
+test('копилки: ручная сумма фиксируется, остальные считаются автоматически', () => {
+  const goals = [
+    goal('trip', { target_amount: 500000, priority: 1 }),
+    goal('car', { target_amount: 500000, priority: 2 }),
+  ];
+  const st = plan({ periods: payouts([1]), goals,
+    categories: [{ id: 'life', mode: 'fixed_month', monthly_amount: 100000, split_mode: 'even' }],
+    overrides: [{ period_id: '2027-01-1', goal_id: 'trip', amount: 5000 }] });
+  const first = run(st).rows[0];
+  assert.equal(first.allocations.trip, 5000);             // ровно то, что ввели руками
+  assert.equal(first.allocations.car, 45000);             // остальное разошлось автоматически
+  assert.equal(first.unallocated, 0);
 });

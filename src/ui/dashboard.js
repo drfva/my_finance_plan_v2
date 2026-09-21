@@ -14,14 +14,6 @@ export const code = 'dashboard';
 export const title = () => 'Обзор';
 export const hasYears = true;
 
-const WARNINGS = {
-  no_salary_rate: 'у выплаты нет оклада на дату — доход по формуле не считается',
-  no_fx_rate: 'нет курса валюты — цель или карта пропущены',
-  extra_before_plan: 'разовый доход раньше первой выплаты плана',
-  installments_before_plan: 'платежи рассрочки раньше первой выплаты плана',
-  vacation_outside_plan: 'отпуск выходит за расчётные периоды выплат плана',
-};
-
 const VIEWS = ['income', 'expenses', 'saved'];
 const monthOf = r => (r.period.window_start || r.period.pay_date).slice(0, 7);
 const sumOf = obj => Object.values(obj ?? {}).reduce((s, x) => s + x, 0);
@@ -282,8 +274,7 @@ function yearGoalCard(ctx, g, allocated, { withStages, extra = '' }) {
     : mine.length ? pill(late ? 'позже срока' : 'в графике', late ? 'warn' : 'ok')
     : done ? pill('накоплена', 'ok')
     : far ? pill(`прогноз: ${fmt.date(far.date)}`)
-    : next ? pill(`прогноз: ${fmt.date(next.done)}`)
-    : pill('в этом году не пополняется', 'warn');
+    : next ? pill(`прогноз: ${fmt.date(next.done)}`) : '';
 
   return `<div class="card goal-card">
     <div class="row between" style="gap:10px;"><h3>${esc(g.title)}</h3>${head}</div>
@@ -358,23 +349,21 @@ export function render(ctx) {
     <td class="num">${esc(fmt.money(c.collected))}</td>
     <td class="num">${esc(fmt.money(c.plan))}</td>
     <td class="num">${esc(fmt.percent(c.missingPercent, 1))}</td></tr>`);
-  const warn = [...new Set(sim.warnings.map(w => w.code))];
 
   const body = view === 'income' ? incomeView(ctx, rows)
     : view === 'expenses' ? expensesView(ctx, rows)
     : savedView(ctx);
 
   return `
-    <h2 style="margin:0;">${year} год</h2>
+    <div class="row between wrap" style="gap:10px;align-items:baseline;">
+      <h2 style="margin:0;">${year} год</h2>
+      ${deficit ? pill(`${deficit} ${fmt.plural(deficit, { one: 'выплата', few: 'выплаты', many: 'выплат' })} с дефицитом`, 'danger') : ''}
+    </div>
     <div class="grid cols-4">
       ${tile('income', 'Доход за год', fmt.money(income))}
       ${tile('expenses', 'Расходы за год', fmt.money(expenses))}
       ${tile('saved', 'Отложено в цели', fmt.money(saved))}
       ${tile(null, 'Свободный остаток', fmt.money(free))}
-    </div>
-    <div class="row wrap" style="gap:8px;">
-      ${pill(`${rows.length} выплат в ${year} году`)}
-      ${deficit ? pill(`${deficit} ${fmt.plural(deficit, { one: 'выплата', few: 'выплаты', many: 'выплат' })} с дефицитом`, 'danger') : pill('дефицитных выплат нет', 'ok')}
     </div>
     ${body}
     ${checks.length ? card({
@@ -382,7 +371,7 @@ export function render(ctx) {
       note: 'За месяц процент должен покрыть план категории. Здесь — месяцы, где не покрыл.',
       body: table({ head: ['Месяц', 'Категория', { title: 'Собрано', cls: 'num' }, { title: 'План', cls: 'num' }, { title: 'Не хватает процента', cls: 'num' }], rows: checkRows }),
     }) : ''}
-    ${warn.length ? card({ title: 'Предупреждения расчёта', body: `<ul class="small-note">${warn.map(w => `<li>${esc(WARNINGS[w] ?? w)}</li>`).join('')}</ul>` }) : ''}`;
+`;
 }
 
 export function handle(ev, ctx) {

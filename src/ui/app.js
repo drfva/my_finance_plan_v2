@@ -72,13 +72,16 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   /* Циклы и праздники разворачиваются в этапы и траты при изменении данных */
   function syncGeneratedRows(ctx) {
     if (!ctx.canEdit) return;
-    const key = JSON.stringify([ctx.state.savings?.goal_cycles, ctx.state.savings?.goal_cycle_skips, ctx.state.gifts, ctx.years]);
+    // горизонт плана — часть ключа: создали выплаты нового года, и циклы должны
+    // развернуться дальше, даже если сами циклы не менялись
+    const until = (ctx.state.income?.periods ?? []).reduce((m, p) => (p.pay_date > m ? p.pay_date : m), '');
+    const key = JSON.stringify([ctx.state.savings?.goal_cycles, ctx.state.savings?.goal_cycle_skips, ctx.state.gifts, ctx.years, until]);
     if (key === lastSync) return;
     lastSync = key;
     const res = syncGenerated({
       savings: ctx.state.savings ?? {},
       gifts: ctx.state.gifts ?? {},
-      until: (ctx.state.income?.periods ?? []).reduce((m, p) => (p.pay_date > m ? p.pay_date : m), ''),
+      until,
       years: ctx.years,
       today: ctx.today,
       units: ctx.cfg.list('period_units'),

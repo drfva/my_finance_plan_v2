@@ -20,6 +20,10 @@
                     успеть до конца льготного периода с учётом будущих выплат;
      gifts, buckets, reserves — темп для целей своего типа (ref_goal_kinds).
 
+   Темп подушки (pace_amount) откладывается раньше копилок: если у подушки задан
+   темп, эта сумма уходит в неё из свободных денег до этапа buckets. Старая версия
+   так не делала — для сверки с ней есть опция paceFirst: false.
+
    После этапов — доливка остатка по целям: по одному этапу за раз, у кого срок
    ближе; цели без срока — по приоритету; подушки — отдельной группой на своём
    месте в порядке этапов. Затем, если у этапа credits не выключено
@@ -41,7 +45,7 @@ import { createFx } from './fx.js';
 
 const SAVINGS_STAGES = ['gifts', 'buckets', 'reserves'];
 
-export function simulate(state, cfg, { income = null, round = Math.round } = {}) {
+export function simulate(state, cfg, { income = null, round = Math.round, paceFirst = true } = {}) {
   const inc = income ?? computeIncome(state, cfg, { round });
   const periods = inc.periods.map(r => r.period);
   const warnings = [...inc.warnings];
@@ -186,6 +190,30 @@ export function simulate(state, cfg, { income = null, round = Math.round } = {})
     return { g, reserve, remaining, per, deadline };
   }
 
+  /* Темп подушки: если у подушки задана сумма на выплату, она откладывается
+     раньше копилок — на то он и темп. Возвращает, сколько ушло из выплаты. */
+  function reservePaceStep(p, allocations, fixedGoals, remaining, deposit, given) {
+    let spent = 0;
+    const list = activeGoals('reserves')
+      .filter(g => !fixedGoals.has(g.id) && (Number(g.pace_amount) || 0) > 0)
+      .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+    for (const g of list) {
+      const left = remaining - spent;
+      if (left <= 0.5) break;
+      const req = requirement(g, p);
+      const b = inBase(req, p.pay_date);
+      if (!b) continue;
+      const paceBase = fx.toBase(Number(g.pace_amount) || 0, g.currency_code, p.pay_date);
+      if (paceBase === null) continue;
+      const give = Math.min(paceBase, left, b.remainingBase);
+      if (give > 0.0001 && deposit(g.id, give, p.pay_date, allocations)) {
+        spent += give;
+        given.set(g.id, (given.get(g.id) ?? 0) + give);
+      }
+    }
+    return spent;
+  }
+
   /* Перевод требования в базовую валюту; нет курса — цель пропускается */
   function inBase(req, date) {
     const code = req.g.currency_code;
@@ -263,7 +291,9 @@ export function simulate(state, cfg, { income = null, round = Math.round } = {})
     const instList = inst.byPeriod.get(p.id) ?? [];
     const instTotal = instList.reduce((s, x) => s + x.amount, 0);
     const ov = savingsOv.get(p.id);
-    const manual = Boolean(p.locked || ov?.size);
+    // ручные суммы по целям: такая цель получает ровно введённое, остальные считаются
+    const fixedGoals = ov ?? new Map();
+    const manual = Boolean(p.locked);
     const payOv = cardOv.get(p.id) ?? new Map();
 
     let remaining = r.total;
@@ -277,8 +307,11 @@ export function simulate(state, cfg, { income = null, round = Math.round } = {})
       return ka < kb ? -1 : ka > kb ? 1 : 0;
     });
 
+    let paceDone = false;
+    const paceGiven = new Map();   // темп подушки, уже отложенный в этой выплате
     for (const s of stages) {
       const before = remaining;
+      let paceSpent = 0;
 
       if (s.code === 'categories') {
         remaining -= expRow.total;
@@ -301,30 +334,41 @@ export function simulate(state, cfg, { income = null, round = Math.round } = {})
           }
         }
       } else if (SAVINGS_STAGES.includes(s.code)) {
-        if (manual) {
-          for (const g of goals.filter(x => stageOfGoal(x) === s.code)) {
-            const amt = ov?.get(g.id) ?? 0;
-            if (amt && depositBase(g.id, amt, p.pay_date, allocations)) remaining -= amt;
+        // сначала ручные суммы этого этапа: они забронированы и в расчёт не входят
+        for (const g of goals.filter(x => stageOfGoal(x) === s.code && fixedGoals.has(x.id))) {
+          const amt = fixedGoals.get(g.id) ?? 0;
+          if (amt > 0.0001 && depositBase(g.id, amt, p.pay_date, allocations)) remaining -= amt;
+        }
+        if (!manual && remaining > 0) {
+          // темп подушки идёт раньше копилок: если он задан, его откладываем обязательно
+          if (paceFirst && !paceDone && s.code !== 'reserves') {
+            paceSpent = reservePaceStep(p, allocations, fixedGoals, remaining, depositBase, paceGiven);
+            remaining -= paceSpent;
+            paceDone = true;
           }
-        } else if (remaining > 0) {
-          const reqs = paceOrder(activeGoals(s.code).map(g => requirement(g, p)), s.code);
+          const reqs = paceOrder(activeGoals(s.code).filter(g => !fixedGoals.has(g.id)).map(g => requirement(g, p)), s.code);
           for (const req of reqs) {
             if (remaining <= 0) break;
             const b = inBase(req, p.pay_date);
             if (!b) continue;
-            const give = Math.min(b.perBase, remaining, b.remainingBase);
+            // темп, уже отложенный до копилок, второй раз не берём
+            const per = b.perBase - (paceGiven.get(req.g.id) ?? 0);
+            const give = Math.min(per, remaining, b.remainingBase);
             if (give > 0.0001 && depositBase(req.g.id, give, p.pay_date, allocations)) remaining -= give;
           }
         }
       }
-      byStage[s.code] = before - remaining;
+      // темп подушки, отложенный внутри чужого этапа, считается этапом подушек
+      byStage[s.code] = (byStage[s.code] ?? 0) + (before - remaining - paceSpent);
+      if (paceSpent) byStage.reserves = (byStage.reserves ?? 0) + paceSpent;
     }
 
     /* доливка остатка: по одному этапу за раз, очередь строится заново */
     let cascaded = 0;
     if (!manual) {
       for (let guard = 0; remaining > 0.5 && guard < 60; guard++) {
-        const pool = SAVINGS_STAGES.flatMap(code => activeGoals(code)).map(g => requirement(g, p));
+        const pool = SAVINGS_STAGES.flatMap(code => activeGoals(code))
+          .filter(g => !fixedGoals.has(g.id)).map(g => requirement(g, p));
         let next = null;
         for (const req of cascadeOrder(pool)) {
           if (req.remaining <= 0.0001) continue;
