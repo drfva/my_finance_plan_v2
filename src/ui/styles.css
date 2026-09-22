@@ -383,3 +383,13 @@ input.own{border-color:var(--accent);box-shadow:inset 2px 0 0 var(--accent);font
   .tour{right:8px;left:8px;bottom:8px;width:auto;padding:14px 16px;border-radius:18px;}
   .tour .small-note{font-size:13px;}
 }
+
+/* Оранжевая точка: где-то не укладываемся в срок */
+.late-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--warn);margin-left:6px;vertical-align:middle;}
+nav.tabs button.active .late-dot,.month-tabs button.active .late-dot{background:var(--on-accent);}
+
+/* Этапы и движения по годам: год-подпись и прокрутка для длинных списков */
+.year-group + .year-group{margin-top:10px;}
+.year-cap{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;
+  padding:6px 0 2px;position:sticky;top:0;background:inherit;}
+.timeline-scroll{max-height:340px;overflow-y:auto;padding-right:4px;}

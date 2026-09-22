@@ -37,7 +37,7 @@ export function render(ctx) {
     if (monthFacts.length) {
       const diff = factSum - planSum;
       const limit = planSum * tolerance / 100;
-      const color = diff > limit ? 'var(--danger)' : diff < -limit ? 'var(--good)' : 'var(--surface)';
+      const color = diff > limit ? 'var(--danger)' : diff < -limit ? 'var(--good)' : 'rgba(255,255,255,.55)';
       const title = diff > limit ? 'перерасход' : diff < -limit ? 'уложились' : 'в рамках допуска';
       dot = `<span title="${title}" style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;
         background:${color};border:1px solid var(--line);vertical-align:middle;"></span>`;

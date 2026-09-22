@@ -12,6 +12,7 @@ import { simulate, freezePeriods } from '../engine/allocation.js';
 import { computeIncome } from '../engine/income.js';
 import { createSecurity } from '../core/security.js';
 import { tourNeeded, tourPanel, tourHandle } from './tour.js';
+import { lateYears } from './alerts.js';
 import { syncGenerated } from '../engine/savings.js';
 
 import * as dashboard from './dashboard.js';
@@ -119,16 +120,45 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     return true;
   }
 
-  function tabsHtml(ctx) {
-    return TABS.map(t => `<button class="${t.code === ui.tab ? 'active' : ''}" data-tab="${t.code}">${esc(t.title(ctx))}</button>`).join('');
+  function tabsHtml(ctx, late) {
+    return TABS.map(t => `<button class="${t.code === ui.tab ? 'active' : ''}" data-tab="${t.code}">${esc(t.title(ctx))}${
+      late[t.code]?.size ? '<i class="late-dot" title="Есть сроки, в которые план не укладывается"></i>' : ''}</button>`).join('');
+  }
+
+  /* Годы для переключателя: прошлый, текущий и следующий. Остальное прячется
+     в «Архив годов» и «Ещё» — списки открываются кнопкой. */
+  function yearWindow(list, current) {
+    const sorted = [...list].sort((a, b) => a - b);
+    const i = Math.max(0, sorted.indexOf(current));
+    let from = Math.max(0, i - 1);
+    if (i === 0) from = 0;
+    const shown = sorted.slice(from, from + 3);
+    return {
+      shown,
+      past: sorted.filter(y => y < shown[0]),
+      future: sorted.filter(y => y > shown[shown.length - 1]),
+    };
   }
 
   function shell(ctx, body) {
     const tab = TABS.find(t => t.code === ui.tab);
-    const yearBtns = ctx.years.length > 1 && tab?.hasYears
-      ? `<div class="month-tabs" style="margin:0;">${ctx.years.map(y =>
-          `<button class="${y === ctx.year ? 'active' : ''}" data-year="${y}">${y}</button>`).join('')}</div>`
-      : '';
+    const late = lateYears(ctx);
+    const lateHere = late[ui.tab] ?? new Set();
+    const yearBtn = y => `<button class="${y === ctx.year ? 'active' : ''}" data-year="${y}">${y}${
+      lateHere.has(y) ? '<i class="late-dot"></i>' : ''}</button>`;
+    let yearBtns = '';
+    if (ctx.years.length > 1 && tab?.hasYears) {
+      const win = yearWindow(ctx.years, ctx.year);
+      const more = (key, list, label) => (list.length ? `
+        <button class="${ui.open.has(key) ? 'active' : ''}" data-toggle="${key}">${label} (${list.length})${
+          list.some(y => lateHere.has(y)) ? '<i class="late-dot"></i>' : ''}</button>
+        ${ui.open.has(key) ? list.map(yearBtn).join('') : ''}` : '');
+      yearBtns = `<div class="month-tabs" style="margin:0;">
+        ${more('years-past', win.past, 'Архив годов')}
+        ${win.shown.map(yearBtn).join('')}
+        ${more('years-next', win.future, 'Ещё')}
+      </div>`;
+    }
     const tabActions = tab?.actions ? tab.actions(ctx) : '';
     const topRow = yearBtns || tabActions
       ? `<div class="row between wrap" style="gap:10px;margin-bottom:14px;">${yearBtns || '<span></span>'}
@@ -147,7 +177,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
           <button class="ghost small" id="sign-out">Выйти</button>
         </div>
       </div>
-      <nav class="tabs">${tabsHtml(ctx)}</nav>
+      <nav class="tabs">${tabsHtml(ctx, late)}</nav>
       </div>
       <main>
         ${ui.notice ? `<div class="info-box row between" style="background:var(--${ui.notice.kind}-soft);color:var(--${ui.notice.kind});">

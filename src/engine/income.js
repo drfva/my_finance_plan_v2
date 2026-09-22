@@ -17,7 +17,8 @@
      года доход на руки; formula — подсказка «по формуле»;
    * налог по формуле считается нарастающим итогом за год даты выплаты: в годовой
      доход по порядку дат входят фактические суммы выплат (пересчитанные в gross)
-     и отпускные;
+     и отпускные; выплата с taxable = false (по умолчанию — разовая) налогом не
+     облагается и в нарастающий итог не попадает;
    * отпускные в доход месяца для расчёта отпускных не входят.
 --------------------------------------------------------------------- */
 
@@ -143,8 +144,10 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
     const useFormula = fillIds && fillIds.has(p.id) && formula;
     const salary = useFormula ? formula.net : (Number(p.income_net) || 0);
     const cumBefore = cum;
-    const salaryGross = useFormula ? formula.grossTaxable : grossFromNet(salary, cum, scale);
-    cum += salaryGross;
+    // разовая выплата без галочки «облагается налогом» в годовой доход не входит
+    const taxable = p.taxable !== false;
+    const salaryGross = !taxable ? salary : (useFormula ? formula.grossTaxable : grossFromNet(salary, cum, scale));
+    cum += taxable ? salaryGross : 0;
 
     const vac = vacationByPeriod.get(p.id) ?? [];
     const vacationPayTotal = vac.reduce((s, x) => s + x.amount, 0);
@@ -153,7 +156,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
 
     // сколько начислено и удержано в этой выплате — для истории доходов на обзоре
     const gross = round(salaryGross + vacationGross);
-    const parts_ = taxParts(salaryGross + vacationGross, cumBefore, scale, round);
+    const parts_ = taxable ? taxParts(salaryGross + vacationGross, cumBefore, scale, round) : [];
     const tax = Math.max(0, round(gross - salary - vacationPayTotal));
 
     const extras = extrasByPeriod.get(p.id) ?? [];

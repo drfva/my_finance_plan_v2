@@ -10,7 +10,13 @@ export const code = 'periods';
 export const title = () => 'Доходы';
 export const hasYears = true;
 
-const defaultDraft = ctx => ({ pay_date: ctx.today, income_net: '', note: '', window: ctx.today.slice(0, 7) });
+const defaultDraft = ctx => ({ pay_date: ctx.today, income_net: '', note: '', window: ctx.today.slice(0, 7), taxable: false });
+
+/* Колонка taxable появляется после 003_taxable.sql: на старой базе её не отправляем */
+const hasTaxableColumn = ctx => {
+  const list = ctx.state.income?.periods ?? [];
+  return !list.length || list.some(p => 'taxable' in p);
+};
 
 /* Годы, где график задан, а выплат ещё нет: их можно создать одной кнопкой */
 function yearsWithSchedule(ctx) {
@@ -25,7 +31,7 @@ function head(ctx, r) {
   const p = r.period;
   const debts = Object.values(r.debtPayments).reduce((s, x) => s + x, 0);
   const pills = [
-    p.calc_mode === 'manual' ? pill('вручную') : '',
+    p.calc_mode === 'manual' ? pill(p.taxable === false ? 'разовая, без налога' : 'разовая') : '',
     p.locked ? pill('🔒 зафиксирована') : '',
     r.income.vacationPay > 0.5 ? pill(`отпускные ${fmt.money(r.income.vacationPay)}`) : '',
     r.income.extraIncome > 0.5 ? pill(`разовый доход ${fmt.money(r.income.extraIncome)}`) : '',
@@ -68,7 +74,12 @@ function body(ctx, r) {
     <td>${esc(x.installments.map(id => (state.debts?.installments ?? []).find(i => i.id === id)?.title ?? id).join(', '))}</td>
     <td class="num">${esc(fmt.money(x.amount))}</td></tr>`);
 
-  const cardRows = cards.map(c => {
+  // карту показываем, только если по ней есть долг, погашение или своя сумма
+  const cardRows = cards.filter(c => {
+    const before = r.cardBefore[c.id];
+    return (before?.debt ?? 0) > 0.5 || (r.debtPayments[c.id] ?? 0) > 0.5
+      || (state.debts?.credit_payment_overrides ?? []).some(o => o.period_id === p.id && o.card_id === c.id);
+  }).map(c => {
     const before = r.cardBefore[c.id];
     const paid = r.debtPayments[c.id] ?? 0;
     const ov = (state.debts?.credit_payment_overrides ?? []).some(o => o.period_id === p.id && o.card_id === c.id);
@@ -97,8 +108,15 @@ function body(ctx, r) {
       <td class="num muted">${esc(fmt.money(r.goalBalances[g.id] ?? 0, g.currency_code))}</td>
     </tr>`;
   };
-  // закрытая цель остаётся только в зафиксированных выплатах и там, где ей уже что-то досталось
-  const visibleGoals = goals.filter(g => !g.completed || p.locked || (r.allocations[g.id] ?? 0) > 0.5);
+  /* В выплате не показываем цели, которым здесь ничего не достаётся и уже не достанется:
+     закрытые руками и полностью набранные. В зафиксированных выплатах видно всё, что там лежит. */
+  const filled = g => {
+    const list = ctx.sim.milestonesOf(g);
+    const phase = r.phase?.[g.id];
+    return Boolean(phase && list.length && phase.idx >= list.length);
+  };
+  const visibleGoals = goals.filter(g => (r.allocations[g.id] ?? 0) > 0.5 || p.locked
+    || (!g.completed && !filled(g)));
   const goalsOf = kind => visibleGoals.filter(g => (kind === 'reserve' ? g.kind_code === 'reserve' : g.kind_code !== 'reserve'))
     .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
 
@@ -212,6 +230,8 @@ export function render(ctx) {
   }).join('') : '';
 
   const draft = { ...defaultDraft(ctx), ...(ui.draft.periods ?? {}) };
+  // колонка taxable появляется после 003_taxable.sql: без неё галочку не показываем
+  const hasTaxable = !(state.income?.periods ?? []).length || (state.income.periods).some(p => 'taxable' in p);
   const form = canEdit && ui.open.has('add-period') ? `
     <div class="modal-back" data-close-add>
       <div class="modal card" data-modal>
@@ -225,6 +245,12 @@ export function render(ctx) {
           ${field('Доход на руки', `<input class="num" inputmode="decimal" data-draft="income_net" value="${esc(draft.income_net)}">`)}
           ${field('Комментарий', `<input data-draft="note" value="${esc(draft.note)}">`)}
         </div>
+        ${hasTaxable ? `<label class="small-note" style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;margin-top:12px;">
+          <input type="checkbox" data-draft="taxable"${draft.taxable ? ' checked' : ''} style="width:auto;min-height:0;">
+          облагается налогом (премия, подработка по договору)
+        </label>
+        <div class="small-note" style="margin-top:4px;">Без галочки выплата в годовой доход не войдёт и налогом не обложится —
+          так считаются подарки, возвраты и переводы от родных.</div>` : ''}
         <div class="row wrap" style="gap:8px;margin-top:16px;">
           ${button({ action: 'add-manual', label: 'Создать выплату', cls: 'primary small' })}
           ${button({ action: 'close-add', label: 'Отмена', cls: 'ghost small' })}
@@ -393,6 +419,7 @@ export function handle(ev, ctx) {
         pay_date: draft.pay_date,
         window_start: `${draft.window}-01`, window_end: `${draft.window}-${String(last).padStart(2, '0')}`,
         calc_mode: 'manual', income_net: amount, note: draft.note ?? '',
+        ...(hasTaxableColumn(ctx) ? { taxable: draft.taxable === true || draft.taxable === 'true' } : {}),
         locked: draft.pay_date < ctx.today,
       });
     });

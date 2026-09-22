@@ -239,12 +239,14 @@ function yearGoalCard(ctx, g, allocated, { withStages, extra = '' }) {
     && !(x.m.deadline && x.m.deadline < ctx.today);
   const mine = withStages ? withForecast.filter(inYear) : [];
 
-  /* Шкала прогресса. Если в этом году что-то закрывается — меряем целью года,
-     иначе общей суммой цели: копилка всё равно копилась, это должно быть видно. */
+  /* Шкала прогресса. Если в этом году что-то закрывается — меряем целью года.
+     Если нет, но впереди есть срок — меряем ближайшей целью, о которой и говорит прогноз.
+     У подушек этапов не показываем: там всегда общая сумма. */
   const whole = goalTotal(g, state.savings?.goal_milestones ?? []) || (Number(g.target_amount) || 0);
   const yearTarget = mine.reduce((acc, x) => acc + (Number(x.m.target) || 0), 0);
-  const total = yearTarget || whole;
-  const basis = yearTarget ? 'цель года' : (withStages ? 'до общей суммы' : 'общая сумма');
+  const upcoming = withStages ? (withForecast.find(x => x.done && x.done !== 'pre' && !inYear(x)) ?? null) : null;
+  const total = yearTarget || (upcoming ? (Number(upcoming.m.target) || 0) : whole);
+  const basis = yearTarget ? 'цель года' : (upcoming ? 'до ближайшей цели' : (withStages ? 'до общей суммы' : 'общая сумма'));
 
   const base = goalBalanceAt(sim, g, txs, `${year - 1}-12-31`);
   const added = allocated.get(g.id) ?? 0;
@@ -301,6 +303,17 @@ function savedView(ctx) {
   const all = (state.savings?.goals ?? []).slice().sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
   const of = kind => all.filter(g => g.kind_code === kind);
 
+  /* Копилка, у которой в этом году нечего закрывать и которая уже набрана
+     (или закрыта руками), в обзор года не идёт — она только мешает. */
+  const alive = g => {
+    if (g.completed) return false;
+    const list = sim.milestonesOf(g);
+    const dates = sim.milestoneDates[g.id] ?? [];
+    const left = list.some((m, i) => !dates[i] || dates[i] === null);
+    const open = list.some((m, i) => dates[i] && dates[i] !== 'pre' && dates[i] >= `${year}-01-01`);
+    return left || open || (allocated.get(g.id) ?? 0) > 0.5;
+  };
+
   const section = (heading, list, opts) => (list.length ? `
     <h3 style="margin:22px 0 0;font-size:16px;">${esc(heading)}</h3>
     <div class="grid cols-2">${list.map(g => yearGoalCard(ctx, g, allocated, opts)).join('')}</div>` : '');
@@ -313,7 +326,7 @@ function savedView(ctx) {
   </div>`).join('');
 
   return `
-    ${section('Копилки', of('bucket'), { withStages: true })}
+    ${section('Копилки', of('bucket').filter(alive), { withStages: true })}
     ${section('Подушки', of('reserve'), { withStages: false })}
     ${gifts}`;
 }

@@ -362,3 +362,26 @@ test('отпускные: прошлый отпуск в расчётном пе
   // свой собственный отпуск в коэффициент не попадает
   assert.equal(f.months.every(m => m.vacDays === 0 || m.m === 4), true);
 });
+
+test('доход: разовая выплата без налога не входит в нарастающий итог', async () => {
+  const { computeIncome } = await import('../src/engine/income.js');
+  const cfg = {
+    get: k => ({ calendar_code: 'ru', base_currency: 'RUB', avg_days_in_month: 29.3 }[k]),
+    list: n => (n === 'calendar_days' ? [] : []),
+  };
+  const base = {
+    payout_slots: [], salary_rates: [], tax_scales: SCALES, tax_brackets: BRACKETS,
+    vacations: [], sick_leaves: [], extra_incomes: [], income_history: [],
+    account_calendar_days: [], working_day_overrides: [],
+  };
+  const period = extra => ({ id: 'p1', year: 2027, slot_order: null, pay_date: '2027-03-20',
+    window_start: '2027-03-01', window_end: '2027-03-31', calc_mode: 'manual', income_net: 100000, locked: false, ...extra });
+
+  const free = computeIncome({ income: { ...base, periods: [period({ taxable: false })] } }, cfg).periods[0];
+  assert.equal(free.tax, 0);
+  assert.equal(free.gross, 100000);          // начислено = на руки
+
+  const taxed = computeIncome({ income: { ...base, periods: [period({ taxable: true })] } }, cfg).periods[0];
+  assert.ok(taxed.tax > 0, 'с галочкой налог считается');
+  assert.ok(taxed.gross > 100000);
+});

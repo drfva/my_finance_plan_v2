@@ -122,6 +122,42 @@ export function milestoneStatus(ctx, goal, m) {
   };
 }
 
+/* Список строк по годам: прошедшее прячется под «посмотреть историю»,
+   будущее показывается ближайшими, остальное — в прокручиваемом блоке. */
+function byYears(items, dateOf) {
+  const out = new Map();
+  for (const it of items) {
+    const y = String(dateOf(it) || '').slice(0, 4) || '—';
+    if (!out.has(y)) out.set(y, []);
+    out.get(y).push(it);
+  }
+  return [...out.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+}
+
+function yearBlocks(groups, render) {
+  return groups.map(([y, list]) => `<div class="year-group">
+    <div class="year-cap">${esc(y)}</div>
+    ${list.map(render).join('')}
+  </div>`).join('');
+}
+
+/* Прошедшее + будущее одним списком с историей и прокруткой */
+function timeline(ctx, key, items, { dateOf, render, near = 5, emptyNote }) {
+  const today = ctx.today;
+  const past = items.filter(x => (dateOf(x) || '9999') < today);
+  const future = items.filter(x => (dateOf(x) || '9999') >= today);
+  const open = ctx.ui.open.has(key);
+  const scroll = future.length > near;
+  return `
+    ${past.length ? `<div style="margin-bottom:8px;">
+      <button class="ghost small" data-toggle="${esc(key)}">${open ? 'скрыть историю' : `посмотреть историю (${past.length})`}</button>
+    </div>${open ? yearBlocks(byYears(past, dateOf), render) : ''}` : ''}
+    ${future.length
+      ? `<div class="${scroll ? 'timeline-scroll' : ''}">${yearBlocks(byYears(future, dateOf), render)}</div>
+         ${scroll ? `<div class="small-note">Показаны ближайшие, остальные — прокруткой: всего впереди ${future.length}.</div>` : ''}`
+      : (past.length ? '' : `<div class="small-note">${esc(emptyNote)}</div>`)}`;
+}
+
 /* Подраздел внутри карточки цели: заголовок с шевроном, содержимое по клику */
 function sub(ctx, key, title, actions, body) {
   const open = ctx.ui.open.has(key);
@@ -157,7 +193,8 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
   const nextMs = allMs.find((m, i) => msDates[i] !== 'pre') ?? allMs[allMs.length - 1] ?? null;
   const mainStatus = nextMs ? milestoneStatus(ctx, g, nextMs) : null;
 
-  const msRows = milestones.slice().sort((a, b) => ((a.deadline || '9999') < (b.deadline || '9999') ? -1 : 1)).map(m => {
+  const msList = milestones.slice().sort((a, b) => ((a.deadline || '9999') < (b.deadline || '9999') ? -1 : 1));
+  const msRow = m => {
     const { label, cls } = milestoneStatus(ctx, g, m);
     const generated = m.source && m.source !== 'manual';
     const spent = (state.savings?.goal_transactions ?? []).some(t => t.milestone_id === m.id);
@@ -179,9 +216,9 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
             title: 'Снова вести этот этап по шаблону — ваша правка пропадёт' }) : ''}` : ''}
       </div>
     </div>`;
-  }).join('');
+  };
 
-  const txRows = txs.map(t => {
+  const txRow = t => {
     const other = t.counterparty_id ? goalsById.get(t.counterparty_id) : null;
     const kindCell = isTransfer(t)
       ? `<div style="padding-top:8px;">${pill(t.kind === 'transfer_out' ? `перевод в «${other?.title ?? '—'}»` : `перевод из «${other?.title ?? '—'}»`)}</div>`
@@ -195,7 +232,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
       ${canEdit ? delButton({ domain: 'savings', table: 'goal_transactions', key: { id: t.id },
         confirm: isTransfer(t) ? 'Удалить перевод? Он исчезнет в обеих целях.' : undefined }) : ''}
     </div>`;
-  }).join('');
+  };
 
   return `<div class="card goal-card">
     <div class="goal-head row between wrap">
@@ -243,13 +280,15 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
       canEdit ? addButton({ domain: 'savings', table: 'goal_milestones', label: '+ этап',
         row: { id: uid('ms'), goal_id: g.id, title: 'Новый этап', target: 0, deadline: null, source: 'manual', user_edited: false, sort_order: milestones.length + 1 } }) : '',
       `<div class="small-note" style="margin-top:0;">Этапы — приросты: следующий начинается с нуля, общая сумма цели складывается из них.</div>
-       ${msRows || '<div class="small-note">Этапов нет — цель копится одной суммой.</div>'}`)}
+       ${timeline(ctx, `ms-hist:${g.id}`, msList, { dateOf: m => m.deadline, render: msRow,
+         emptyNote: 'Этапов нет — цель копится одной суммой.' })}`)}
 
     ${sub(ctx, `goal-tx:${g.id}`, `Движения и переводы${txs.length ? ` · ${txs.length}` : ''}`,
       canEdit ? addButton({ domain: 'savings', table: 'goal_transactions', label: '+ трата или пополнение',
         row: { id: uid('tx'), goal_id: g.id, date: ctx.today, amount: 0, kind: 'spend', title: '', source: 'manual', user_edited: false } }) : '',
       `<div class="small-note" style="margin-top:0;">Траты из копилки, пополнения со стороны и переводы между целями.</div>
-       ${txRows || '<div class="small-note">Движений пока нет.</div>'}
+       ${timeline(ctx, `tx-hist:${g.id}`, txs, { dateOf: t => t.date, render: txRow,
+         emptyNote: 'Движений пока нет.' })}
        ${transferForm(ctx, g)}`)}
 
     ${showCycles ? sub(ctx, `goal-cyc:${g.id}`, `Повторяющиеся накопления${cycleCount ? ` · ${cycleCount}` : ''}`, '', cyclesBlock(ctx, g)) : ''}
