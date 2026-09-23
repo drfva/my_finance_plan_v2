@@ -83,9 +83,9 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
     }
   }
 
-  /* Доход месяца в начисленных суммах: оклад и премии. Подарки и разовые выплаты
-     без налога в средний заработок не входят. Если выплат месяца в плане нет или
-     они неполные, берётся «История доходов» — она тоже заполняется в gross. */
+  /* Доход месяца в начисленных суммах: оклад и премии. Подработка, подарки и
+     разовые выплаты без налога в средний заработок не входят. Если выплат месяца
+     в плане нет или они неполные, берётся «История доходов» — она тоже в gross. */
   const slotsPerYear = new Map();
   for (const s of slots) slotsPerYear.set(Number(s.year), (slotsPerYear.get(Number(s.year)) ?? 0) + 1);
   const periodsByMonth = new Map();
@@ -95,7 +95,10 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
     if (!periodsByMonth.has(key)) periodsByMonth.set(key, []);
     periodsByMonth.get(key).push(p);
   }
-  const inAverage = p => p.taxable !== false && p.manual_kind !== 'gift';
+  /* В средний заработок идёт то, что платит этот работодатель: оклад по графику
+     и премии. Подработка и подарки — нет, даже если облагаются налогом. */
+  const inAverage = p => p.taxable !== false
+    && (p.calc_mode !== 'manual' || p.manual_kind === 'bonus');
   function monthGross(y, m) {
     const key = `${y}-${m}`;
     const list = periodsByMonth.get(key) ?? [];

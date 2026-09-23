@@ -265,8 +265,8 @@ export function render(ctx) {
           <input type="checkbox" data-draft="taxable"${draft.taxable ? ' checked' : ''} style="width:auto;min-height:0;">
           облагается налогом
         </label>
-        <div class="small-note" style="margin-top:4px;">Премия и подработка облагаются и входят в средний заработок для отпускных.
-          Подарок — нет: снимите галочку.</div>` : ''}
+        <div class="small-note" style="margin-top:4px;">В средний заработок для отпускных идут оклад и премии.
+          Подработка в него не входит, хотя налогом облагается; подарок — ни в средний заработок, ни под налог.</div>` : ''}
         <div class="row wrap" style="gap:8px;margin-top:16px;">
           ${button({ action: 'add-manual', label: 'Создать выплату', cls: 'primary small' })}
           ${button({ action: 'close-add', label: 'Отмена', cls: 'ghost small' })}

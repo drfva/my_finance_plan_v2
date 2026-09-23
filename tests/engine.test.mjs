@@ -316,3 +316,26 @@ test('отпускные: доход месяца для среднего бер
   assert.equal(gross, f.amount);
   assert.ok(net < gross && net > gross * 0.8, `на руки ${net} из ${gross}`);
 });
+
+test('отпускные: подработка и подарок в средний заработок не идут, премия идёт', () => {
+  const month = (m, kind, amount) => ({
+    id: `x${m}${kind ?? ''}`, year: 2027, slot_order: kind ? null : 1, title: kind ?? 'Аванс',
+    pay_date: `2027-${String(m).padStart(2, '0')}-20`, window_start: `2027-${String(m).padStart(2, '0')}-01`,
+    window_end: `2027-${String(m).padStart(2, '0')}-28`, calc_mode: kind ? 'manual' : 'auto',
+    manual_kind: kind, income_net: amount, locked: false, taxable: kind !== 'gift',
+  });
+  const build = extra => ({ income: {
+    payout_slots: [], salary_rates: RATES, tax_scales: SCALES, tax_brackets: BRACKETS,
+    sick_leaves: [], extra_incomes: [], income_history: [], account_calendar_days: [], working_day_overrides: [],
+    periods: [month(3), ...extra],
+    vacations: [{ id: 'v', title: 'Отпуск', start_date: '2027-08-10', end_date: '2027-08-16', pay_manual: false }],
+  } });
+  const baseOnly = computeIncome(build([]), VAC_CFG).vacations[0].formula.totalIncome;
+  const withBonus = computeIncome(build([month(3, 'bonus', 50000)]), VAC_CFG).vacations[0].formula.totalIncome;
+  const withSide = computeIncome(build([month(3, 'side_job', 50000)]), VAC_CFG).vacations[0].formula.totalIncome;
+  const withGift = computeIncome(build([month(3, 'gift', 50000)]), VAC_CFG).vacations[0].formula.totalIncome;
+
+  assert.ok(withBonus > baseOnly, 'премия увеличивает средний заработок');
+  assert.equal(withSide, baseOnly, 'подработка в средний заработок не идёт');
+  assert.equal(withGift, baseOnly, 'подарок в средний заработок не идёт');
+});
