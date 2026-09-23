@@ -29,27 +29,35 @@ function incomeView(ctx, rows) {
   const hasOneOff = rows.some(r => !r.period.slot_order);
   const hasExtra = sum(rows, r => r.income.extraIncome) > 0.5;
 
-  /* Отпускные показываем в месяце, когда их фактически выплатят (за три дня до
-     отпуска), а не в расчётных периодах, между которыми они делятся в плане. */
-  const vacationByMonth = new Map();
-  for (const vi of ctx.income.vacations ?? []) {
-    if (!vi.payDate) continue;
-    const net = (vi.split ?? []).reduce((acc, sp) => {
-      const own = (ctx.income.byId.get(sp.period_id)?.vacations ?? []).find(x => x.vacation_id === vi.vacation.id);
-      return acc + (own?.net ?? 0);
-    }, 0);
-    if (net <= 0.5) continue;
-    const key = vi.payDate.slice(0, 7);
-    vacationByMonth.set(key, (vacationByMonth.get(key) ?? 0) + net);
-  }
-  const hasVacation = [...vacationByMonth.values()].some(v => v > 0.5);
-
   const months = new Map();
   for (const r of rows) {
     const m = monthOf(r);
     if (!months.has(m)) months.set(m, []);
     months.get(m).push(r);
   }
+
+  /* Отпускные показываем в месяце, когда их фактически выплатят (за три дня до
+     отпуска), а не в расчётных периодах, между которыми они делятся в плане.
+     Своей строки для такого месяца не заводим: если месяца выплаты в таблице нет
+     (отпуск на стыке лет или вне плана), сумма остаётся в месяцах тех выплат,
+     между которыми она поделена, — иначе в таблице появлялись пустые месяцы. */
+  const vacationByMonth = new Map();
+  const add = (key, v) => vacationByMonth.set(key, (vacationByMonth.get(key) ?? 0) + v);
+  for (const vi of ctx.income.vacations ?? []) {
+    const parts = (vi.split ?? []).map(sp => {
+      const row = ctx.income.byId.get(sp.period_id);
+      const own = (row?.vacations ?? []).find(x => x.vacation_id === vi.vacation.id);
+      return { row, net: own?.net ?? 0 };
+    }).filter(x => x.row && x.net > 0.5);
+    if (!parts.length) continue;
+    const payMonth = vi.payDate ? vi.payDate.slice(0, 7) : null;
+    if (payMonth && months.has(payMonth)) {
+      add(payMonth, parts.reduce((acc, x) => acc + x.net, 0));
+    } else {
+      for (const x of parts) add(monthOf(x.row), x.net);
+    }
+  }
+  const hasVacation = [...vacationByMonth.values()].some(v => v > 0.5);
 
   const rateCell = parts => {
     if (!parts.length) return '<td class="num muted">—</td>';
@@ -67,9 +75,6 @@ function incomeView(ctx, rows) {
   const money = v => `<td class="num">${v > 0.5 ? esc(fmt.money(v)) : ''}</td>`;
   const totals = { gross: 0, tax: 0, net: 0, salary: 0, vacation: 0, extra: 0, oneOff: 0 };
   const bySlot = new Map();
-
-  // месяц выплаты отпускных может не совпасть ни с одним расчётным периодом плана
-  for (const key of vacationByMonth.keys()) if (!months.has(key)) months.set(key, []);
 
   const body = [...months.entries()].sort().map(([m, list]) => {
     const gross = sum(list, r => r.income.gross);
