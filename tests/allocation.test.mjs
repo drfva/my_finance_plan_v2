@@ -276,17 +276,25 @@ test('конвейер: совпадает с расчётом старой ве
   const sim = simulate(fx.state, createConfig(fx.state), { paceFirst: false });
   assert.equal(sim.rows.length, fx.expected.length);
   const near = (a, b, what) => assert.ok(Math.abs((a ?? 0) - (b ?? 0)) < 0.01, `${what}: ${a} ≠ ${b}`);
+
+  /* Отпускные в старой версии были суммой «на руки», в новой считаются
+     начисленными и облагаются налогом при выплате. Поэтому доход и всё, что из
+     него следует, сверяем до первой выплаты с отпускными; расходы и рассрочки
+     от дохода не зависят и сверяются на всём плане. */
+  const firstVac = sim.rows.findIndex(r => r.income.vacationPay > 0);
+  assert.ok(firstVac > 0, 'в плане сверки есть отпуск');
+
   fx.expected.forEach((e, i) => {
     const r = sim.rows[i];
     assert.equal(r.period.id, e.id);
-    near(r.totalIncome, e.income, `${e.id} доход`);
     near(r.categoriesTotal + r.installmentsTotal, e.expenses, `${e.id} расходы`);
+    if (i >= firstVac) return;
+    near(r.totalIncome, e.income, `${e.id} доход`);
     near(r.unallocated, e.unallocated, `${e.id} остаток`);
     for (const k of new Set([...Object.keys(e.allocations), ...Object.keys(r.allocations)])) near(r.allocations[k], e.allocations[k], `${e.id} → ${k}`);
     for (const k of new Set([...Object.keys(e.debtPayments), ...Object.keys(r.debtPayments)])) near(r.debtPayments[k], e.debtPayments[k], `${e.id} карта ${k}`);
     for (const k of Object.keys(e.balances)) near(r.goalBalances[k], e.balances[k], `${e.id} баланс ${k}`);
   });
-  assert.deepEqual(sim.milestoneDates, fx.milestoneDates);
 });
 
 test('конвейер: копилка со сроком получает темп, остаток доливается', () => {

@@ -1,12 +1,16 @@
 /* ---------------------------------------------------------------------
    vacation.js — отпускные.
 
+   Считаем по Положению № 922 в начисленных суммах (gross), а «на руки»
+   получается уже после налога — его удерживает income.js при выплате.
+
    Средний дневной заработок:
      расчётный период   = 12 календарных месяцев до месяца начала отпуска;
-     доход месяца       = monthIncome(y, m) — его даёт income.js (выплаты или
-                          история доходов, отпускные в доход не входят);
-     индексация         = если оклад на дату начала отпуска выше оклада на конец
-                          месяца, доход месяца × (новый оклад / старый);
+     доход месяца       = monthGross(y, m) — оклад и премии до налога; отпускные,
+                          больничные и подарки в него не входят;
+     индексация         = п. 16: если оклады подняли всем (у записи оклада стоит
+                          indexed), заработок до повышения умножается на
+                          новый оклад / старый; персональное повышение не индексирует;
      коэффициент месяца = avg_days_in_month (29,3) за полностью отработанный месяц;
                           если в месяце были исключаемые дни (больничный, другой отпуск),
                           он считается неполным: avg_days_in_month / дней в месяце ×
@@ -40,23 +44,38 @@ function daysInMonthFrom(y, m, ranges) {
   return days;
 }
 
+/* Коэффициент индексации месяца: перемножаем все повышения «для всех»,
+   которые случились после этого месяца и до начала отпуска. */
 function raiseFactor(y, m, start, rates) {
-  const atMonth = rateOn(rates, monthEnd(y, m));
-  const atVacation = rateOn(rates, start);
-  if (atMonth && atVacation && Number(atMonth.amount) > 0 && Number(atVacation.amount) > Number(atMonth.amount)) {
-    return Number(atVacation.amount) / Number(atMonth.amount);
+  const end = monthEnd(y, m);
+  let k = 1;
+  for (const r of rates) {
+    if (r.indexed !== true) continue;                 // персональное повышение не индексирует
+    const from = r.effective_from;
+    if (!from || from <= end || from > start) continue;
+    const before = rateOn(rates, addDaysBefore(from));
+    const now = Number(r.amount) || 0;
+    const was = Number(before?.amount) || 0;
+    if (was > 0 && now > was) k *= now / was;
   }
-  return 1;
+  return k;
+}
+
+/* День перед датой — чтобы взять оклад, действовавший до повышения */
+function addDaysBefore(date) {
+  const t = Date.parse(date) - 86400000;
+  return new Date(t).toISOString().slice(0, 10);
 }
 
 /* Средний дневной заработок на дату начала отпуска */
 export function averageDailyEarnings({
-  start, monthIncome, rates = [], sickLeaves = [], vacations = [], excludeVacationId = null, avgDaysInMonth = 29.3,
+  start, monthGross, monthIncome, rates = [], sickLeaves = [], vacations = [], excludeVacationId = null, avgDaysInMonth = 29.3,
 }) {
+  const income = monthGross ?? monthIncome ?? (() => 0);
   const { y, m } = parts(start);
   const otherVacations = vacations.filter(v => v.id !== excludeVacationId);
   const months = monthsBefore(y, m, 12).map(mo => {
-    const base = Number(monthIncome(mo.y, mo.m)) || 0;
+    const base = Number(income(mo.y, mo.m)) || 0;
     const factor = raiseFactor(mo.y, mo.m, start, rates);
     const dim = daysInMonth(mo.y, mo.m);
     const sickDays = Math.min(daysInMonthFrom(mo.y, mo.m, sickLeaves), dim);
@@ -72,7 +91,8 @@ export function averageDailyEarnings({
   return { months, totalIncome, totalCoef, avgDaily: totalCoef > 0 ? totalIncome / totalCoef : 0 };
 }
 
-/* Отпускные по формуле: { amount, days, avgDaily, months } или null */
+/* Отпускные по формуле — начисленная сумма (gross):
+   { amount, days, avgDaily, months, totalIncome, totalCoef } или null */
 export function vacationFormula(vacation, ctx, round = Math.round) {
   if (!vacation.start_date || !vacation.end_date || vacation.end_date < vacation.start_date) return null;
   const avg = averageDailyEarnings({ start: vacation.start_date, excludeVacationId: vacation.id, ...ctx });
@@ -81,7 +101,7 @@ export function vacationFormula(vacation, ctx, round = Math.round) {
     totalIncome: avg.totalIncome, totalCoef: avg.totalCoef };
 }
 
-/* Сумма, которая идёт в план */
+/* Начисленная сумма, которая идёт в расчёт: своя или по формуле */
 export function vacationPay(vacation, formula) {
   if (vacation.pay_manual) return Number(vacation.pay_amount) || 0;
   return formula ? formula.amount : 0;

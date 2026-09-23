@@ -27,8 +27,22 @@ function incomeView(ctx, rows) {
 
   const sum = (list, fn) => list.reduce((acc, r) => acc + (fn(r) || 0), 0);
   const hasOneOff = rows.some(r => !r.period.slot_order);
-  const hasVacation = sum(rows, r => r.income.vacationPay) > 0.5;
   const hasExtra = sum(rows, r => r.income.extraIncome) > 0.5;
+
+  /* Отпускные показываем в месяце, когда их фактически выплатят (за три дня до
+     отпуска), а не в расчётных периодах, между которыми они делятся в плане. */
+  const vacationByMonth = new Map();
+  for (const vi of ctx.income.vacations ?? []) {
+    if (!vi.payDate) continue;
+    const net = (vi.split ?? []).reduce((acc, sp) => {
+      const own = (ctx.income.byId.get(sp.period_id)?.vacations ?? []).find(x => x.vacation_id === vi.vacation.id);
+      return acc + (own?.net ?? 0);
+    }, 0);
+    if (net <= 0.5) continue;
+    const key = vi.payDate.slice(0, 7);
+    vacationByMonth.set(key, (vacationByMonth.get(key) ?? 0) + net);
+  }
+  const hasVacation = [...vacationByMonth.values()].some(v => v > 0.5);
 
   const months = new Map();
   for (const r of rows) {
@@ -54,12 +68,15 @@ function incomeView(ctx, rows) {
   const totals = { gross: 0, tax: 0, net: 0, salary: 0, vacation: 0, extra: 0, oneOff: 0 };
   const bySlot = new Map();
 
+  // месяц выплаты отпускных может не совпасть ни с одним расчётным периодом плана
+  for (const key of vacationByMonth.keys()) if (!months.has(key)) months.set(key, []);
+
   const body = [...months.entries()].sort().map(([m, list]) => {
     const gross = sum(list, r => r.income.gross);
     const tax = sum(list, r => r.income.tax);
     const net = sum(list, r => r.totalIncome);
     const salary = sum(list, r => r.income.salary);
-    const vacation = sum(list, r => r.income.vacationPay);
+    const vacation = vacationByMonth.get(m) ?? 0;
     const extra = sum(list, r => r.income.extraIncome);
     const oneOff = sum(list.filter(r => !r.period.slot_order), r => r.totalIncome);
     totals.gross += gross; totals.tax += tax; totals.net += net;
@@ -107,6 +124,7 @@ function incomeView(ctx, rows) {
 
   return card({
     title: `Доход по месяцам ${year}`,
+    note: hasVacation ? 'Отпускные показаны в месяце, когда их выплачивают — за три дня до отпуска.' : '',
     body: body.length
       ? table({ head, rows: body, foot })
       : '<div class="muted">Выплат в этом году нет.</div>',

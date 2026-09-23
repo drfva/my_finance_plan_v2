@@ -10,13 +10,22 @@ export const code = 'periods';
 export const title = () => 'Доходы';
 export const hasYears = true;
 
-const defaultDraft = ctx => ({ pay_date: ctx.today, income_net: '', note: '', window: ctx.today.slice(0, 7), taxable: false });
+const MANUAL_KINDS = [
+  { value: 'bonus', label: 'Премия', taxable: true },
+  { value: 'side_job', label: 'Подработка', taxable: true },
+  { value: 'gift', label: 'Подарок', taxable: false },
+];
+const KIND_TITLES = Object.fromEntries(MANUAL_KINDS.map(k => [k.value, k.label.toLowerCase()]));
+
+const defaultDraft = ctx => ({ pay_date: ctx.today, income_net: '', note: '', window: ctx.today.slice(0, 7),
+  kind: 'bonus', taxable: true });
 
 /* Колонка taxable появляется после 003_taxable.sql: на старой базе её не отправляем */
-const hasTaxableColumn = ctx => {
+const hasColumn = (ctx, name) => {
   const list = ctx.state.income?.periods ?? [];
-  return !list.length || list.some(p => 'taxable' in p);
+  return !list.length || list.some(p => name in p);
 };
+const hasTaxableColumn = ctx => hasColumn(ctx, 'taxable');
 
 /* Годы, где график задан, а выплат ещё нет: их можно создать одной кнопкой */
 function yearsWithSchedule(ctx) {
@@ -31,7 +40,8 @@ function head(ctx, r) {
   const p = r.period;
   const debts = Object.values(r.debtPayments).reduce((s, x) => s + x, 0);
   const pills = [
-    p.calc_mode === 'manual' ? pill(p.taxable === false ? 'разовая, без налога' : 'разовая') : '',
+    p.calc_mode === 'manual'
+      ? pill(`${KIND_TITLES[p.manual_kind] ?? 'разовая'}${p.taxable === false ? ', без налога' : ''}`) : '',
     p.locked ? pill('🔒 зафиксирована') : '',
     r.income.vacationPay > 0.5 ? pill(`отпускные ${fmt.money(r.income.vacationPay)}`) : '',
     r.income.extraIncome > 0.5 ? pill(`разовый доход ${fmt.money(r.income.extraIncome)}`) : '',
@@ -165,15 +175,19 @@ function body(ctx, r) {
              ${canEdit && Math.abs((Number(p.income_net) || 0) - f.net) > 0.5
                ? button({ action: 'fill-income', value: p.id, label: 'подставить по формуле', cls: 'ghost small' }) : ''}`
           : 'оклада на этот период нет'}</div>
-        ${r.income.vacationPay > 0.5 ? `<div class="small-note">+ отпускные ${esc(fmt.money(r.income.vacationPay))}
-          за ${r.income.vacations.reduce((sum, x) => sum + x.days, 0)} дн., считаются на вкладке «Отпуска»</div>` : ''}
+        ${r.income.vacationPay > 0.5 ? `<div class="small-note">+ отпускные ${esc(fmt.money(r.income.vacationPay))} на руки
+          (начислено ${esc(fmt.money(r.income.vacationGross))}) за ${r.income.vacations.reduce((sum, x) => sum + x.days, 0)} дн.</div>` : ''}
         ${r.income.extraIncome > 0.5 ? `<div class="small-note">+ разовый доход ${esc(fmt.money(r.income.extraIncome))}</div>` : ''}
       </div>
       ${field('Комментарий', input({ edit: 'income|periods|note', key: { id: p.id }, value: p.note, disabled: !canEdit }))}
     </div>
 
-    ${r.income.vacationPay ? `<div class="small-note">Отпускные в этой выплате: ${r.income.vacations.map(v =>
-      `${esc((state.income?.vacations ?? []).find(x => x.id === v.vacation_id)?.title || 'отпуск')} — ${esc(fmt.money(v.amount))} (${v.days} дн.)`).join(', ')}</div>` : ''}
+    ${r.income.vacationPay ? `<div class="small-note">Отпускные в этой выплате: ${r.income.vacations.map(v => {
+      const own = (state.income?.vacations ?? []).find(x => x.id === v.vacation_id);
+      const when = ctx.income.vacations.find(x => x.vacation.id === v.vacation_id)?.payDate;
+      return `${esc(own?.title || 'отпуск')} — ${esc(fmt.money(v.net))} на руки (${v.days} дн.)${
+        when ? `, фактически получены ${esc(fmt.date(when))}` : ''}`;
+    }).join('; ')}</div>` : ''}
     ${r.income.extraIncome ? `<div class="small-note">Разовый доход: ${esc(fmt.money(r.income.extraIncome))}</div>` : ''}
 
     <div class="grid cols-2" style="margin-top:20px;">
@@ -243,14 +257,16 @@ export function render(ctx) {
           ${field('Дата выплаты', `<input type="date" data-draft="pay_date" value="${esc(draft.pay_date)}">`)}
           ${field('За месяц', `<input type="month" data-draft="window" value="${esc(draft.window)}">`)}
           ${field('Доход на руки', `<input class="num" inputmode="decimal" data-draft="income_net" value="${esc(draft.income_net)}">`)}
+          ${field('Что это', `<select data-draft="kind">${MANUAL_KINDS.map(k =>
+            `<option value="${k.value}"${k.value === draft.kind ? ' selected' : ''}>${esc(k.label)}</option>`).join('')}</select>`)}
           ${field('Комментарий', `<input data-draft="note" value="${esc(draft.note)}">`)}
         </div>
         ${hasTaxable ? `<label class="small-note" style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;margin-top:12px;">
           <input type="checkbox" data-draft="taxable"${draft.taxable ? ' checked' : ''} style="width:auto;min-height:0;">
-          облагается налогом (премия, подработка по договору)
+          облагается налогом
         </label>
-        <div class="small-note" style="margin-top:4px;">Без галочки выплата в годовой доход не войдёт и налогом не обложится —
-          так считаются подарки, возвраты и переводы от родных.</div>` : ''}
+        <div class="small-note" style="margin-top:4px;">Премия и подработка облагаются и входят в средний заработок для отпускных.
+          Подарок — нет: снимите галочку.</div>` : ''}
         <div class="row wrap" style="gap:8px;margin-top:16px;">
           ${button({ action: 'add-manual', label: 'Создать выплату', cls: 'primary small' })}
           ${button({ action: 'close-add', label: 'Отмена', cls: 'ghost small' })}
@@ -419,7 +435,10 @@ export function handle(ev, ctx) {
         pay_date: draft.pay_date,
         window_start: `${draft.window}-01`, window_end: `${draft.window}-${String(last).padStart(2, '0')}`,
         calc_mode: 'manual', income_net: amount, note: draft.note ?? '',
-        ...(hasTaxableColumn(ctx) ? { taxable: draft.taxable === true || draft.taxable === 'true' } : {}),
+        ...(hasTaxableColumn(ctx) ? {
+          taxable: draft.taxable === true || draft.taxable === 'true',
+          ...(hasColumn(ctx, 'manual_kind') ? { manual_kind: draft.kind || null } : {}),
+        } : {}),
         locked: draft.pay_date < ctx.today,
       });
     });

@@ -5,12 +5,13 @@
      inc.periods          → выплаты по дате, у каждой:
        formula            — расчёт по окладу: gross, tax, net, рабочие дни (или null)
        salary             — доход на руки, который идёт в план (income_net выплаты)
-       vacationPay        — отпускные, пришедшиеся на эту выплату
+       vacationPay        — отпускные этой выплаты на руки (vacationGross минус vacationTax)
        extraIncome        — подарки и подработки с «учитывать в доходе»
        gross, tax, taxParts — начислено, удержано и по каким ставкам
        total              — всего доход выплаты
      inc.vacations        → по каждому отпуску: формула, сумма в плане, дата выплаты, деление
-     inc.monthIncome(y,m) → доход месяца на руки (для отпускных и истории доходов)
+     inc.monthIncome(y,m) → доход месяца на руки
+     inc.monthGross(y,m)  → начислено за месяц (оклад и премии) — база для отпускных
 
    Правила, перенесённые из текущей версии:
    * в плане всегда участвует income_net — введённый или записанный при создании
@@ -62,7 +63,29 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
     }));
   }
 
-  /* 2. Доход месяца: выплаты за месяц, если они все на месте, иначе история доходов */
+  /* 2. Начислено по каждой выплате (gross). Средний заработок для отпускных
+        считается в начисленных суммах, а в плане выплаты живут «на руки», поэтому
+        gross получается обратным пересчётом по шкале нарастающим итогом.
+        Этот проход идёт без отпускных — они добавляются ниже, когда посчитаны. */
+  const grossOfPeriod = new Map();
+  {
+    let cum = 0;
+    let cumYear = null;
+    for (const p of periods) {
+      const payYear = Number(p.pay_date.slice(0, 4));
+      if (payYear !== cumYear) { cum = 0; cumYear = payYear; }
+      const scale = scaleForYear(scales, brackets, payYear);
+      const net = Number(p.income_net) || 0;
+      const taxable = p.taxable !== false;
+      const gross = taxable ? grossFromNet(net, cum, scale) : net;
+      grossOfPeriod.set(p.id, { gross, taxable });
+      if (taxable) cum += gross;
+    }
+  }
+
+  /* Доход месяца в начисленных суммах: оклад и премии. Подарки и разовые выплаты
+     без налога в средний заработок не входят. Если выплат месяца в плане нет или
+     они неполные, берётся «История доходов» — она тоже заполняется в gross. */
   const slotsPerYear = new Map();
   for (const s of slots) slotsPerYear.set(Number(s.year), (slotsPerYear.get(Number(s.year)) ?? 0) + 1);
   const periodsByMonth = new Map();
@@ -72,20 +95,28 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
     if (!periodsByMonth.has(key)) periodsByMonth.set(key, []);
     periodsByMonth.get(key).push(p);
   }
-  function monthIncome(y, m) {
+  const inAverage = p => p.taxable !== false && p.manual_kind !== 'gift';
+  function monthGross(y, m) {
     const key = `${y}-${m}`;
     const list = periodsByMonth.get(key) ?? [];
     const need = slotsPerYear.get(y) ?? 0;
-    const sum = list.reduce((s, p) => s + (Number(p.income_net) || 0), 0);
+    const sum = list.filter(inAverage).reduce((s, p) => s + (grossOfPeriod.get(p.id)?.gross ?? 0), 0);
     if (list.length && (need === 0 || list.length >= need)) return sum;
     if (history.has(key)) return Number(history.get(key).amount) || 0;
     return sum;
   }
 
+  /* Доход месяца на руки — для подсказок и истории */
+  function monthIncome(y, m) {
+    const key = `${y}-${m}`;
+    const list = periodsByMonth.get(key) ?? [];
+    return list.reduce((s, p) => s + (Number(p.income_net) || 0), 0);
+  }
+
   /* 3. Отпускные: формула, сумма в плане, деление по выплатам */
   const avgDaysInMonth = Number(cfg.get('avg_days_in_month'));
   const vacationInfo = vacations.map(v => {
-    const formula = vacationFormula(v, { monthIncome, rates, sickLeaves, vacations, avgDaysInMonth }, round);
+    const formula = vacationFormula(v, { monthGross, rates, sickLeaves, vacations, avgDaysInMonth }, round);
     const pay = vacationPay(v, formula);
     return {
       vacation: v,
@@ -149,14 +180,17 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
     const salaryGross = !taxable ? salary : (useFormula ? formula.grossTaxable : grossFromNet(salary, cum, scale));
     cum += taxable ? salaryGross : 0;
 
+    /* Отпускные приходят уже начисленными: налог с них считается здесь,
+       в план идёт сумма на руки. */
     const vac = vacationByPeriod.get(p.id) ?? [];
-    const vacationPayTotal = vac.reduce((s, x) => s + x.amount, 0);
-    const vacationGross = vacationPayTotal > 0 ? grossFromNet(vacationPayTotal, cum, scale) : 0;
+    const vacationGross = vac.reduce((s, x) => s + x.amount, 0);
+    const vacationTax = vacationGross > 0 ? taxForPayment(vacationGross, cum, scale, round) : 0;
+    const vacationPayTotal = round(vacationGross - vacationTax);
     cum += vacationGross;
 
     // сколько начислено и удержано в этой выплате — для истории доходов на обзоре
     const gross = round(salaryGross + vacationGross);
-    const parts_ = taxable ? taxParts(salaryGross + vacationGross, cumBefore, scale, round) : [];
+    const parts_ = taxParts((taxable ? salaryGross : 0) + vacationGross, cumBefore, scale, round);
     const tax = Math.max(0, round(gross - salary - vacationPayTotal));
 
     const extras = extrasByPeriod.get(p.id) ?? [];
@@ -167,7 +201,9 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
       formula,
       salary,
       vacationPay: vacationPayTotal,
-      vacations: vac,
+      vacationGross,
+      vacationTax,
+      vacations: vac.map(x => ({ ...x, gross: x.amount, net: round(x.amount - (vacationGross > 0 ? vacationTax * x.amount / vacationGross : 0)) })),
       extraIncome,
       extras,
       gross,
@@ -183,6 +219,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
     byId: new Map(rows.map(r => [r.period.id, r])),
     vacations: vacationInfo,
     monthIncome,
+    monthGross,
     warnings,
     rateOn: s => rateOn(rates, s),
     /* Оценка «на руки в месяц» по окладу на дату */

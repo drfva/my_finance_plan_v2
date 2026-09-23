@@ -265,6 +265,8 @@ export function render(ctx) {
     <td>${input({ edit: 'income|salary_rates|effective_from', key: { id: r.id }, value: r.effective_from, type: 'date', disabled: !canEdit })}</td>
     <td class="num">${input({ edit: 'income|salary_rates|amount', key: { id: r.id }, value: r.amount, type: 'money', disabled: !canEdit })}</td>
     <td>${checkbox({ edit: 'income|salary_rates|is_gross', key: { id: r.id }, value: r.is_gross !== false, disabled: !canEdit, title: 'Сумма до удержания налога' })}</td>
+    <td>${checkbox({ edit: 'income|salary_rates|indexed', key: { id: r.id }, value: r.indexed === true, disabled: !canEdit,
+      title: 'Оклады подняли всем: заработок до этой даты индексируется при расчёте отпускных' })}</td>
     <td class="num muted">${esc(fmt.money(ctx.income.monthlyNetOn(r.effective_from || ctx.today)))}</td>
     <td>${input({ edit: 'income|salary_rates|note', key: { id: r.id }, value: r.note, disabled: !canEdit })}</td>
     <td>${canEdit ? delButton({ domain: 'income', table: 'salary_rates', key: { id: r.id } }) : ''}</td></tr>`);
@@ -295,7 +297,7 @@ export function render(ctx) {
   const histRows = histYears.map(y => `<tr><td>${esc(y)}</td>${Array.from({ length: 12 }, (_, i) => {
     const h = (inc.income_history ?? []).find(x => Number(x.year) === y && Number(x.month) === i + 1);
     return `<td class="num">${input({ edit: 'income|income_history|amount', key: { year: y, month: i + 1 }, value: h?.amount ?? '',
-      placeholder: fmt.money(ctx.income.monthIncome(y, i + 1)), type: 'money', disabled: !canEdit, style: 'max-width:110px;text-align:right;' })}</td>`;
+      placeholder: fmt.money(ctx.income.monthGross(y, i + 1)), type: 'money', disabled: !canEdit, style: 'max-width:110px;text-align:right;' })}</td>`;
   }).join('')}</tr>`);
 
   const fxRows = (state.settings?.fx_rates ?? []).slice().sort((a, b) => (a.rate_date < b.rate_date ? 1 : -1)).slice(0, 12)
@@ -326,9 +328,10 @@ export function render(ctx) {
       title: 'Оклад',
       actions: canEdit ? addButton({ domain: 'income', table: 'salary_rates', label: '+ запись',
         row: { id: uid('rate'), effective_from: `${ctx.year}-01-01`, amount: 0, is_gross: true, note: '' } }) : '',
-      note: 'С какой даты действует оклад и сколько он. Отработанный день стоит «оклад ÷ рабочих дней месяца».',
-      body: table({ head: ['С даты', { title: 'Оклад', cls: 'num' }, 'До налога', { title: 'На руки в месяц', cls: 'num' }, 'Комментарий', ''],
-        rows: rateRows.length ? rateRows : ['<tr><td colspan="6" class="muted">Оклад не задан</td></tr>'] }),
+      note: 'С какой даты действует оклад и сколько он. Отработанный день стоит «оклад ÷ рабочих дней месяца». '
+        + 'Галочка «Всем» — повышение коснулось всех работников: тогда при расчёте отпускных заработок до этой даты индексируется (п. 16 Положения № 922).',
+      body: table({ head: ['С даты', { title: 'Оклад', cls: 'num' }, 'До налога', 'Всем', { title: 'На руки в месяц', cls: 'num' }, 'Комментарий', ''],
+        rows: rateRows.length ? rateRows : ['<tr><td colspan="7" class="muted">Оклад не задан</td></tr>'] }),
     })}
 
     ${section({
@@ -341,8 +344,9 @@ export function render(ctx) {
 
     ${section({
       key: 'set:history', open: ctx.ui.open.has('set:history'),
-      title: 'История доходов',
-      note: 'Доход на руки по месяцам: из него считается средний заработок для отпускных. Пустое поле — берётся из выплат плана.',
+      title: 'История доходов, начислено',
+      note: 'Начисленный доход по месяцам — оклад и премии до налога. Из него считается средний заработок для отпускных. '
+        + 'Пустое поле — месяц берётся из выплат плана (они пересчитываются в начисленные по шкале налога).',
       body: table({ head: ['Год', ...Array.from({ length: 12 }, (_, i) => ({ title: fmt.monthName(i + 1).slice(0, 3), cls: 'num' }))], rows: histRows }),
     })}
 

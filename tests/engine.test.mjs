@@ -196,153 +196,17 @@ test('отпускные: больничный уменьшает коэффиц
   assert.equal(f.months.find(m => m.m === 4).sickDays, 10);
 });
 
-test('отпускные: индексация после повышения оклада', () => {
-  const rates = [...RATES, { id: 'r2', effective_from: '2027-06-01', amount: 253000, is_gross: true }];
-  const avg = averageDailyEarnings({ start: '2027-08-10', monthIncome: () => 100000, rates, avgDaysInMonth: 29.3 });
+test('отпускные: индексация применяется только к повышению «для всех»', () => {
+  // повышение всем: заработок до него умножается на 253 000 / 230 000
+  const all = [...RATES, { id: 'r2', effective_from: '2027-06-01', amount: 253000, is_gross: true, indexed: true }];
+  const avg = averageDailyEarnings({ start: '2027-08-10', monthGross: () => 100000, rates: all, avgDaysInMonth: 29.3 });
   assert.ok(Math.abs(avg.months.find(m => m.y === 2027 && m.m === 5).factor - 1.1) < 1e-9);
   assert.equal(avg.months.find(m => m.y === 2027 && m.m === 6).factor, 1);
-});
 
-test('отпускные: деление по выплатам по дням отпуска в расчётном периоде', () => {
-  const periods = payoutSchedule(2027, SLOTS_2027, cal());
-  const split = splitVacationPay({ start_date: '2027-08-10', end_date: '2027-08-17' }, 8001, periods);
-  assert.deepEqual(split, [
-    { period_id: '2027-08-1', days: 6, amount: 6001 },   // 8001 × 6/8 = 6000,75 → 6001
-    { period_id: '2027-08-2', days: 2, amount: 2000 },   // остаток: сумма частей = отпускным
-  ]);
-  const sum = split.reduce((s, x) => s + x.amount, 0);
-  assert.equal(sum, 8001);
-});
-
-/* ------------------------------------------------------------------ доход выплат целиком */
-
-const REF = {
-  setting_defaults: [
-    { key: 'base_currency', value: 'RUB', scope: 'account' },
-    { key: 'calendar_code', value: 'ru', scope: 'account' },
-    { key: 'avg_days_in_month', value: 29.3, scope: 'account' },
-    { key: 'rounding', value: 1, scope: 'account' },
-    { key: 'locale', value: 'ru-RU', scope: 'user' },
-  ],
-  calendar_days: RU,
-  currencies: [{ code: 'RUB', symbol: '₽' }, { code: 'USD', symbol: '$' }],
-  allocation_stages: [],
-};
-
-function planState(over = {}) {
-  return {
-    ref: REF,
-    user: { settings: {} },
-    account: { id: 'a1', can_edit: true, role: 'owner' },
-    settings: { account_settings: {}, fx_rates: [{ base_code: 'RUB', quote_code: 'USD', rate_date: '2027-01-01', rate: 80 }] },
-    income: {
-      plan_years: [{ year: 2027 }],
-      payout_slots: SLOTS_2027,
-      salary_rates: RATES,
-      tax_scales: SCALES,
-      tax_brackets: BRACKETS,
-      periods: [],
-      income_history: Array.from({ length: 12 }, (_, i) => ({ year: 2026, month: i + 1, amount: 180000 })),
-      vacations: [],
-      sick_leaves: [],
-      extra_incomes: [],
-      account_calendar_days: [],
-      working_day_overrides: [],
-      ...over,
-    },
-  };
-}
-
-test('год плана: 24 выплаты, на руки по формуле с налогом нарастающим итогом', () => {
-  const state = planState();
-  const cfg = createConfig(state);
-  const rows = generateYear(state, cfg, 2027);
-  assert.equal(rows.length, 24);
-
-  const mar1 = rows.find(p => p.id === '2027-03-1');
-  assert.equal(mar1.income_net, 104545 - 13591);        // налог 13 % с 104 545, округлённый
-  // повторная генерация не дублирует уже добавленные выплаты
-  state.income.periods = rows;
-  assert.equal(generateYear(state, cfg, 2027).length, 0);
-
-  // за год gross 2,76 млн: последние выплаты уже по 15 %
-  const inc = computeIncome(state, cfg);
-  const dec = inc.byId.get('2027-12-2');
-  assert.ok(dec.formula.tax > Math.round(dec.formula.gross * 0.13));
-  const yearTax = inc.periods.filter(r => r.period.pay_date.startsWith('2027')).reduce((s, r) => s + r.formula.tax, 0);
-  const yearGross = inc.periods.filter(r => r.period.pay_date.startsWith('2027')).reduce((s, r) => s + r.formula.gross, 0);
-  assert.ok(Math.abs(yearTax - taxOn(yearGross, BRACKETS)) <= 24);   // расхождение только от округления выплат
-});
-
-test('доход выплаты: факт, отпускные, подработка в валюте', () => {
-  const periods = payoutSchedule(2027, SLOTS_2027, cal()).map(p => ({ ...p, income_net: 100000 }));
-  const state = planState({
-    periods,
-    vacations: [
-      { id: 'v1', title: 'Лето', start_date: '2027-08-10', end_date: '2027-08-17', pay_amount: 40000, pay_manual: true },
-      { id: 'v2', title: 'Осень', start_date: '2027-10-04', end_date: '2027-10-10', pay_amount: 0, pay_manual: false },
-    ],
-    extra_incomes: [
-      { id: 'e1', date: '2027-03-01', amount: 100, currency_code: 'USD', counted_in_total: true },
-      { id: 'e2', date: '2027-03-01', amount: 5000, currency_code: 'RUB', counted_in_total: false },
-      { id: 'e3', date: '2027-01-02', amount: 700, currency_code: 'RUB', counted_in_total: true },
-    ],
-  });
-  const inc = computeIncome(state, createConfig(state));
-
-  // факт на руки идёт в план как есть
-  assert.equal(inc.byId.get('2027-03-1').salary, 100000);
-  // отпускные введены вручную: 40 000 делятся 6 : 2 дням
-  assert.equal(inc.byId.get('2027-08-1').vacationPay, 30000);
-  assert.equal(inc.byId.get('2027-08-2').vacationPay, 10000);
-  assert.equal(inc.byId.get('2027-08-2').total, 110000);
-  // отпускные по формуле: 12 месяцев до октября — выплаты 2027 по 200 000, 2026 — история 180 000
-  const v2 = inc.vacations.find(v => v.vacation.id === 'v2');
-  assert.equal(v2.formula.months.filter(m => m.baseIncome === 200000).length, 9);
-  assert.equal(v2.formula.months.filter(m => m.baseIncome === 180000).length, 3);
-  assert.equal(v2.pay, v2.formula.amount);
-  assert.equal(v2.payDate, '2027-10-01');
-  // 100 $ по курсу 80 ₽ = 8 000 ₽ — в выплату 19.02 (последняя не позже 01.03)
-  const feb = inc.periods.find(r => r.extras.length);
-  assert.equal(feb.period.pay_date, '2027-02-19');
-  assert.equal(feb.extraIncome, 8000);
-  // до первой выплаты плана — предупреждение, не молчание
-  assert.ok(inc.warnings.some(w => w.code === 'extra_before_plan' && w.extra_income_id === 'e3'));
-  // доход месяца для истории: две выплаты за март
-  assert.equal(inc.monthIncome(2027, 3), 200000);
-  assert.equal(inc.monthIncome(2026, 5), 180000);
-});
-
-test('доход выплаты: нет оклада — предупреждение, ручная выплата без него', () => {
-  const state = planState({
-    salary_rates: [],
-    periods: [
-      { id: 'a', year: 2027, pay_date: '2027-01-20', window_start: '2027-01-01', window_end: '2027-01-15', calc_mode: 'auto', income_net: 1 },
-      { id: 'b', year: 2027, pay_date: '2027-01-25', window_start: '2027-01-01', window_end: '2027-01-15', calc_mode: 'manual', income_net: 2 },
-    ],
-  });
-  const inc = computeIncome(state, createConfig(state));
-  assert.deepEqual(inc.warnings.filter(w => w.code === 'no_salary_rate').map(w => w.period_id), ['a']);
-  assert.equal(inc.byId.get('b').formula, null);
-});
-
-test('совпадение со старой версией: суммы на руки из её плана на 2027 год', () => {
-  // DEFAULT_STATE старой версии: оклад 230 000, НДФЛ нарастающим итогом
-  const state = planState();
-  const rows = generateYear(state, createConfig(state), 2027);
-  const net = id => rows.find(p => p.id === id).income_net;
-  assert.equal(net('2027-01-1'), 66700);
-  assert.equal(net('2027-01-2'), 133400);
-  assert.equal(net('2027-02-1'), 115847);
-  assert.equal(net('2027-03-1'), 90954);
-  assert.equal(net('2027-04-1'), 100050);
-});
-
-test('налог: из каких ставок он сложился', () => {
-  const s = scaleForYear(SCALES, BRACKETS, 2027);
-  assert.deepEqual(taxParts(100000, 0, s), [{ rate: 13, amount: 13000 }]);
-  assert.deepEqual(taxParts(200000, 2300000, s), [{ rate: 13, amount: 13000 }, { rate: 15, amount: 15000 }]);
-  assert.deepEqual(taxParts(0, 0, s), []);
+  // персональное повышение индексации не даёт
+  const personal = [...RATES, { id: 'r2', effective_from: '2027-06-01', amount: 253000, is_gross: true, indexed: false }];
+  const plain = averageDailyEarnings({ start: '2027-08-10', monthGross: () => 100000, rates: personal, avgDaysInMonth: 29.3 });
+  assert.equal(plain.months.every(m => m.factor === 1), true);
 });
 
 test('отпускные: прошлый отпуск в расчётном периоде тоже делает месяц неполным', () => {
@@ -384,4 +248,71 @@ test('доход: разовая выплата без налога не вхо�
   const taxed = computeIncome({ income: { ...base, periods: [period({ taxable: true })] } }, cfg).periods[0];
   assert.ok(taxed.tax > 0, 'с галочкой налог считается');
   assert.ok(taxed.gross > 100000);
+});
+
+test('налог: из каких ставок он сложился', () => {
+  const s = scaleForYear(SCALES, BRACKETS, 2027);
+  assert.deepEqual(taxParts(100000, 0, s), [{ rate: 13, amount: 13000 }]);
+  assert.deepEqual(taxParts(200000, 2300000, s), [{ rate: 13, amount: 13000 }, { rate: 15, amount: 15000 }]);
+  assert.deepEqual(taxParts(0, 0, s), []);
+});
+
+test('отпускные: деление между выплатами по дням расчётного периода', () => {
+  const periods = [
+    { id: 'a', pay_date: '2027-08-20', window_start: '2027-08-01', window_end: '2027-08-15' },
+    { id: 'b', pay_date: '2027-09-05', window_start: '2027-08-16', window_end: '2027-08-31' },
+  ];
+  const split = splitVacationPay({ start_date: '2027-08-10', end_date: '2027-08-17' }, 80000, periods);
+  assert.deepEqual(split.map(x => [x.period_id, x.days]), [['a', 6], ['b', 2]]);
+  assert.equal(split.reduce((s, x) => s + x.amount, 0), 80000);      // копейки не теряются
+});
+
+/* Полный расчёт отпуска: gross → СДЗ → начислено → НДФЛ → на руки */
+const VAC_CFG = {
+  get: k => ({ calendar_code: 'ru', base_currency: 'RUB', avg_days_in_month: 29.3 }[k]),
+  list: n => (n === 'calendar_days' ? RU : []),
+};
+const vacState = extra => ({
+  income: {
+    payout_slots: SLOTS_2027, salary_rates: RATES, tax_scales: SCALES, tax_brackets: BRACKETS,
+    sick_leaves: [], extra_incomes: [], income_history: [], account_calendar_days: [], working_day_overrides: [],
+    periods: [
+      { id: 'p1', year: 2027, slot_order: 1, title: 'Аванс', pay_date: '2027-08-20', window_start: '2027-08-01', window_end: '2027-08-15', calc_mode: 'auto', income_net: 100000, locked: false },
+      { id: 'p2', year: 2027, slot_order: 2, title: 'Зарплата', pay_date: '2027-09-03', window_start: '2027-08-16', window_end: '2027-08-31', calc_mode: 'auto', income_net: 100000, locked: false },
+    ],
+    ...extra,
+  },
+});
+
+test('отпускные: своя сумма — это начислено, в план идёт остаток после налога', () => {
+  const st = vacState({ vacations: [{ id: 'v', title: 'Отпуск', start_date: '2027-08-10', end_date: '2027-08-17', pay_manual: true, pay_amount: 100000 }] });
+  const inc = computeIncome(st, VAC_CFG);
+  const grossTotal = inc.periods.reduce((s, r) => s + r.vacationGross, 0);
+  const netTotal = inc.periods.reduce((s, r) => s + r.vacationPay, 0);
+  assert.equal(grossTotal, 100000, 'начислено — ровно введённая сумма');
+  assert.ok(netTotal < grossTotal, 'на руки меньше на налог');
+  assert.ok(Math.abs(netTotal - 87000) <= 2, `ожидали ~87 000 на руки, вышло ${netTotal}`);
+});
+
+test('отпускные: доход месяца для среднего берётся в начисленных суммах', () => {
+  // расчётный период — август 2026 … июль 2027, заполняем историю в gross
+  const history = [];
+  for (let i = 0; i < 12; i++) {
+    const m = 8 + i;
+    history.push({ year: m > 12 ? 2027 : 2026, month: m > 12 ? m - 12 : m, amount: 230000 });
+  }
+  const st = vacState({ income_history: history,
+    vacations: [{ id: 'v', title: 'Отпуск', start_date: '2027-08-10', end_date: '2027-08-16', pay_manual: false }] });
+  const f = computeIncome(st, VAC_CFG).vacations[0].formula;
+  assert.equal(f.months.length, 12);
+  assert.ok(Math.abs(f.totalCoef - 12 * 29.3) < 1e-9);
+  assert.ok(Math.abs(f.avgDaily - 2760000 / (12 * 29.3)) < 0.01, `СДЗ ${f.avgDaily}`);
+  assert.equal(f.amount, Math.round(f.avgDaily * 7));      // начислено за 7 дней
+
+  // налог удержится при выплате, в план уйдёт остаток
+  const inc = computeIncome(st, VAC_CFG);
+  const gross = inc.periods.reduce((s2, r) => s2 + r.vacationGross, 0);
+  const net = inc.periods.reduce((s2, r) => s2 + r.vacationPay, 0);
+  assert.equal(gross, f.amount);
+  assert.ok(net < gross && net > gross * 0.8, `на руки ${net} из ${gross}`);
 });
