@@ -101,11 +101,15 @@ export function milestoneStatus(ctx, goal, m) {
   const i = list.findIndex(x => x.id === m.id);
   const done = (sim.milestoneDates[goal.id] ?? [])[i];
   if (done) {
-    const label = done === 'pre' ? 'уже накоплено'
+    /* Деньги закрытого этапа могли уже уйти по назначению — тогда честнее сказать
+       «накоплено и потрачено», иначе непонятно, почему в копилке пусто. */
+    const funded = (sim.milestoneFunded?.[goal.id] ?? [])[i];
+    const spent = funded != null && funded <= 0.0001 ? ' · потрачено' : '';
+    const label = (done === 'pre' ? 'уже накоплено'
       : m.deadline ? (done <= m.deadline ? `в графике (к ${fmt.date(done)})` : `позже срока (к ${fmt.date(done)})`)
-      : `прогноз: к ${fmt.date(done)}`;
+      : `прогноз: к ${fmt.date(done)}`) + spent;
     const cls = (!m.deadline || done === 'pre' || done <= m.deadline) ? 'ok' : 'warn';
-    return { label, cls, done };
+    return { label, cls, done, spent: !!spent };
   }
   // внутри плана этап не закрывается — продлеваем текущий темп пополнения дальше
   const far = forecastBeyondPlan(sim, goal, i);

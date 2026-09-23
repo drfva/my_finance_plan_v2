@@ -176,6 +176,43 @@ test('копилка: плановая трата не откатывает эт
   assert.equal(t2.milestoneDates().g[0], null);
 });
 
+test('копилка: перевод из копилки откатывает этап, а потраченный этап — нет', () => {
+  const goals = [{ id: 'g', title: 'Лечение' }];
+  const milestones = [
+    { id: 'a', goal_id: 'g', target: 100, deadline: '2027-04-01' },
+    { id: 'b', goal_id: 'g', target: 100, deadline: '2027-08-01' },
+  ];
+  // перевод в другую копилку назначением этапа не считается, даже в его срок
+  const t = createTracker({ goals, milestones });
+  t.apply({ goal_id: 'g', date: '2027-03-01', amount: 120, kind: 'transfer_in' });
+  assert.equal(t.milestoneDates().g[0], '2027-03-01');
+  t.apply({ goal_id: 'g', date: '2027-03-25', amount: 110, kind: 'transfer_out' });
+  assert.equal(t.milestoneDates().g[0], null, 'деньги ушли из копилки — этап снова открыт');
+  assert.equal(t.balance('g'), 10);
+
+  // трата по назначению этап не откатывает, и следующий перевод его не трогает
+  const t2 = createTracker({ goals, milestones });
+  t2.apply({ goal_id: 'g', date: '2027-03-01', amount: 150, kind: 'transfer_in' });
+  t2.apply({ goal_id: 'g', date: '2027-03-25', amount: 100, kind: 'spend' });
+  t2.apply({ goal_id: 'g', date: '2027-03-26', amount: 50, kind: 'transfer_out' });
+  assert.equal(t2.milestoneDates().g[0], '2027-03-01');
+  assert.equal(t2.milestoneFunded().g[0], 0, 'этап накоплен и потрачен');
+});
+
+test('копилка: трата с milestone_id тратит деньги только своего этапа', () => {
+  const goals = [{ id: 'g', title: 'Лечение' }];
+  const milestones = [
+    { id: 'a', goal_id: 'g', target: 100, deadline: '2027-04-01' },
+    { id: 'b', goal_id: 'g', target: 100, deadline: '2027-05-01' },
+  ];
+  const t = createTracker({ goals, milestones });
+  t.apply({ goal_id: 'g', date: '2027-03-01', amount: 200, kind: 'transfer_in' });
+  assert.deepEqual(t.milestoneDates().g, ['2027-03-01', '2027-03-01']);
+  // срок этапа b тоже в окне, но трата привязана к a — берём деньги только оттуда
+  t.apply({ goal_id: 'g', date: '2027-04-01', amount: 100, kind: 'spend', milestone_id: 'a' });
+  assert.deepEqual(t.milestoneFunded().g, [0, 100]);
+});
+
 test('цикл: даты повторов, пропуски и ручная правка', () => {
   assert.deepEqual(cycleDates({ start_date: '2027-01-31', every_n: 1, period_unit: 'month', repeats: 3 }, null, UNITS),
     ['2027-01-31', '2027-02-28', '2027-03-31']);

@@ -5,6 +5,7 @@
      sim.rows            → по каждой выплате: доход, этапы, суммы в цели, погашения, остаток
      sim.byId            → то же по id выплаты
      sim.milestoneDates  → когда закрывается каждый этап каждой цели
+     sim.milestoneFunded → сколько денег закрытого этапа ещё лежит в копилке
      sim.cardCycles      → льготные периоды карт и даты их закрытия
      sim.monthChecks     → процентные категории: собрано за месяц против плана
      sim.warnings        → чего не хватает для расчёта (курса, выплат и т. п.)
@@ -434,6 +435,7 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
     stages,
     monthChecks: expenses.monthChecks,
     milestoneDates: tracker.milestoneDates(),
+    milestoneFunded: tracker.milestoneFunded(),
     initialPhase,
     finalPhase: tracker.snapshot(),
     cardCycles: Object.fromEntries(cardCycles),
