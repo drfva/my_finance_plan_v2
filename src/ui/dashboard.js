@@ -41,23 +41,28 @@ function incomeView(ctx, rows) {
      Своей строки для такого месяца не заводим: если месяца выплаты в таблице нет
      (отпуск на стыке лет или вне плана), сумма остаётся в месяцах тех выплат,
      между которыми она поделена, — иначе в таблице появлялись пустые месяцы. */
-  const vacationByMonth = new Map();
-  const add = (key, v) => vacationByMonth.set(key, (vacationByMonth.get(key) ?? 0) + v);
+  const vacationByMonth = new Map();   // месяц → { net, gross, tax }
+  const add = (key, v) => {
+    const cur = vacationByMonth.get(key) ?? { net: 0, gross: 0, tax: 0 };
+    vacationByMonth.set(key, { net: cur.net + v.net, gross: cur.gross + v.gross, tax: cur.tax + v.tax });
+  };
   for (const vi of ctx.income.vacations ?? []) {
     const parts = (vi.split ?? []).map(sp => {
       const row = ctx.income.byId.get(sp.period_id);
       const own = (row?.vacations ?? []).find(x => x.vacation_id === vi.vacation.id);
-      return { row, net: own?.net ?? 0 };
-    }).filter(x => x.row && x.net > 0.5);
+      if (!row || !own) return null;
+      const share = row.vacationGross > 0 ? own.gross / row.vacationGross : 0;
+      return { row, net: own.net ?? 0, gross: own.gross ?? 0, tax: (row.vacationTax ?? 0) * share };
+    }).filter(x => x && x.gross > 0.5);
     if (!parts.length) continue;
     const payMonth = vi.payDate ? vi.payDate.slice(0, 7) : null;
-    if (payMonth && months.has(payMonth)) {
-      add(payMonth, parts.reduce((acc, x) => acc + x.net, 0));
-    } else {
-      for (const x of parts) add(monthOf(x.row), x.net);
-    }
+    const whole = parts.reduce((acc, x) => ({ net: acc.net + x.net, gross: acc.gross + x.gross, tax: acc.tax + x.tax }),
+      { net: 0, gross: 0, tax: 0 });
+    if (payMonth && months.has(payMonth)) add(payMonth, whole);
+    else for (const x of parts) add(monthOf(x.row), x);
   }
-  const hasVacation = [...vacationByMonth.values()].some(v => v > 0.5);
+  const vacOf = m => vacationByMonth.get(m) ?? { net: 0, gross: 0, tax: 0 };
+  const hasVacation = [...vacationByMonth.values()].some(v => v.net > 0.5);
 
   const rateCell = parts => {
     if (!parts.length) return '<td class="num muted">—</td>';
@@ -76,20 +81,28 @@ function incomeView(ctx, rows) {
   const totals = { gross: 0, tax: 0, net: 0, salary: 0, vacation: 0, extra: 0, oneOff: 0 };
   const bySlot = new Map();
 
+  /* Отпускные вынесены в месяц выплаты, поэтому из выплат берём только зарплатную
+     часть: иначе одна и та же сумма считалась бы дважды — и в месяце выплаты,
+     и в расчётном периоде, куда она делится. */
+  const salaryNet = r => r.salary;
+  const salaryGross = r => (r.income?.gross ?? r.gross) - (r.income?.vacationGross ?? r.vacationGross ?? 0);
+  const salaryTax = r => (r.income?.tax ?? r.tax) - (r.income?.vacationTax ?? r.vacationTax ?? 0);
+
   const body = [...months.entries()].sort().map(([m, list]) => {
-    const gross = sum(list, r => r.income.gross);
-    const tax = sum(list, r => r.income.tax);
-    const net = sum(list, r => r.totalIncome);
-    const salary = sum(list, r => r.income.salary);
-    const vacation = vacationByMonth.get(m) ?? 0;
+    const vac = vacOf(m);
+    const gross = sum(list, r => salaryGross(r.income)) + vac.gross;
+    const tax = sum(list, r => salaryTax(r.income)) + vac.tax;
     const extra = sum(list, r => r.income.extraIncome);
-    const oneOff = sum(list.filter(r => !r.period.slot_order), r => r.totalIncome);
+    const oneOff = sum(list.filter(r => !r.period.slot_order), r => salaryNet(r.income));
+    const salary = sum(list, r => salaryNet(r.income));
+    const vacation = vac.net;
+    const net = salary + vacation + extra;
     totals.gross += gross; totals.tax += tax; totals.net += net;
     totals.salary += salary; totals.vacation += vacation; totals.extra += extra; totals.oneOff += oneOff;
 
     const note = list.map(r => `${esc((r.period.title || 'разовая').toLowerCase())} ${esc(fmt.date(r.period.pay_date, 'dayMonth'))} · ${esc(fmt.money(r.totalIncome))}`).join('; ');
     const slotCells = slots.map(o => {
-      const own = sum(list.filter(r => r.period.slot_order === o), r => r.totalIncome);
+      const own = sum(list.filter(r => r.period.slot_order === o), r => salaryNet(r.income));
       bySlot.set(o, (bySlot.get(o) ?? 0) + own);
       return money(own);
     }).join('');
@@ -129,7 +142,10 @@ function incomeView(ctx, rows) {
 
   return card({
     title: `Доход по месяцам ${year}`,
-    note: hasVacation ? 'Отпускные показаны в месяце, когда их выплачивают — за три дня до отпуска.' : '',
+    note: hasVacation
+      ? 'Отпускные показаны целиком в месяце, когда их выплачивают — за три дня до отпуска, — и в колонках слева их нет: '
+        + 'там только зарплатная часть выплат. Под названием месяца — суммы выплат целиком, с отпускными.'
+      : '',
     body: body.length
       ? table({ head, rows: body, foot })
       : '<div class="muted">Выплат в этом году нет.</div>',
