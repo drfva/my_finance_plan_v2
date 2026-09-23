@@ -91,6 +91,7 @@ export function readValue(el, fmt) {
   }
   if (type === 'json') { try { return JSON.parse(raw); } catch { return undefined; } }
   if (type === 'date' || type === 'monthday') return raw || null;
+  if (type === 'ref') return raw || null;   // ссылка на строку: пусто — это null, а не ''
   return raw;
 }
 

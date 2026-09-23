@@ -10,12 +10,16 @@
    увеличивают, траты и переводы (spend, transfer_out) уменьшают — на свою дату.
    Этап закрыт, если на его срок денег в копилке хватало; закрытый этап держит
    свою сумму в резерве, остальное идёт в прогресс следующего этапа.
-   Отток денег сначала съедает прогресс текущего этапа, потом резервы закрытых
-   этапов — с последнего. Этап, чей срок ещё не наступил, при этом открывается
-   заново: на его дату денег уже не хватит. Этап, срок которого прошёл, остаётся
-   закрытым — на ту дату он был накоплен, история не меняется; его резерв просто
-   уходит (деньги потрачены). Вид оттока и привязка к этапу роли не играют —
-   важна только дата.
+   Прошедший этап — тот, чей срок позади (на дату движения или просто на сегодня).
+   Он накоплен, заново не открывается, и отложенное на него — доступный резерв.
+   Отток денег берёт по порядку: накопленное на прошедшие этапы — с самого
+   раннего; потом прогресс текущего этапа; и только потом откатывает закрытые
+   этапы, чей срок ещё впереди — к ним мы ещё идём, и на их дату денег уже не
+   хватит. Вид оттока (трата или перевод) роли не играет.
+
+   Инварианта: баланс копилки = сумма резервов закрытых этапов + прогресс
+   текущего (в минусе резервы и прогресс нулевые, а минус — это долг, который
+   закрывает первое же пополнение).
 
    Циклы (goal_cycles) и праздники (gift_events) — шаблоны: syncGenerated
    разворачивает их в этапы и траты с source = 'cycle' / 'gift'. Строку, которую
@@ -46,13 +50,14 @@ const isOutflow = kind => kind === 'spend' || kind === 'transfer_out';
 
 /* ------------------------------------------------------------------ учёт этапов */
 
-export function createTracker({ goals, milestones }) {
+export function createTracker({ goals, milestones, today = '' }) {
   const ms = new Map();
   const balance = new Map();
   const idx = new Map();
   const phaseSaved = new Map();
   const dates = new Map();       // goal → [дата закрытия этапа | 'pre' | null]
   const pool = new Map();        // деньги закрытых этапов, ещё не потраченные
+  const log = [];                // все движения по копилкам, по порядку
 
   function close(gid, i, date) {
     dates.get(gid)[i] = date;
@@ -68,6 +73,29 @@ export function createTracker({ goals, milestones }) {
     }
   }
 
+  /* Запись движения: сколько стало в копилке и что при этом случилось с этапами */
+  function entry(gid, date, delta, before, note) {
+    const after = dates.get(gid);
+    const closed = [], reopened = [];
+    after.forEach((v, i) => {
+      if (v && !before[i]) closed.push(i);
+      if (!v && before[i]) reopened.push(i);
+    });
+    const funded = (i) => {
+      const c = (pool.get(gid) ?? []).findLast(x => x.idx === i);
+      return c ? Math.max(0, c.left) : 0;
+    };
+    return {
+      goal_id: gid, date, delta,
+      balance: balance.get(gid),
+      phase: { ...phase(gid) },
+      closed, reopened,
+      drained: after.map((v, i) => (v && funded(i) <= 0.0001 ? i : -1)).filter(i => i >= 0),
+      note,
+    };
+  }
+  const phase = gid => ({ idx: idx.get(gid) ?? 0, saved: phaseSaved.get(gid) ?? 0 });
+
   for (const g of goals) {
     const list = milestonesOf(g, milestones);
     const start = Number(g.starting_balance) || 0;
@@ -77,31 +105,49 @@ export function createTracker({ goals, milestones }) {
     phaseSaved.set(g.id, start);
     dates.set(g.id, list.map(() => null));
     pool.set(g.id, []);
+    const before = [...dates.get(g.id)];
     advance(g.id, 'pre');
+    log.push(entry(g.id, null, start, before, { source: 'start' }));
   }
 
-  /* Срок этапа уже наступил на эту дату — значит он был накоплен и его резерв
-     можно тратить, не открывая этап заново. */
-  const passed = (deadline, date) => !!deadline && date >= deadline;
 
-  function deposit(gid, amount, date) {
+  /* Прошедший этап: его срок позади — на дату движения или просто на сегодня.
+     Такой этап — история: он был накоплен к сроку, заново не открывается, а
+     накопленное на него лежит в копилке и тратится в первую очередь. */
+  const passed = (deadline, date) => !!deadline && (date >= deadline || (!!today && deadline < today));
+
+  function deposit(gid, amount, date, note = null) {
     if (!amount || !ms.has(gid)) return;
+    const before = [...dates.get(gid)];
     balance.set(gid, balance.get(gid) + amount);
-    phaseSaved.set(gid, phaseSaved.get(gid) + amount);
+    // если копилка была в минусе, пополнение сначала закрывает этот минус
+    const credited = Math.min(amount, Math.max(0, balance.get(gid)));
+    phaseSaved.set(gid, phaseSaved.get(gid) + credited);
     advance(gid, date);
+    log.push(entry(gid, date, amount, before, note));
   }
 
-  function withdraw(gid, amount, date) {
+  function withdraw(gid, amount, date, note = null) {
     if (!ms.has(gid)) return;
+    const before = [...dates.get(gid)];
     balance.set(gid, balance.get(gid) - amount);
     const list = ms.get(gid);
     const closed = pool.get(gid);
     let left = amount;
-    // 1. прогресс текущего этапа — самые «свежие» деньги
+    // 1. накопленное на прошедшие этапы — с самого раннего: их сроки позади,
+    //    эти деньги уже отложены и тратятся первыми
+    for (const c of closed) {
+      if (left <= 0.0001) break;
+      if (c.left <= 0.0001 || !passed(c.deadline, date)) continue;
+      const take = Math.min(left, c.left);
+      c.left -= take;
+      left -= take;
+    }
+    // 2. прогресс текущего этапа
     const take = Math.min(left, phaseSaved.get(gid));
     phaseSaved.set(gid, phaseSaved.get(gid) - take);
     left -= take;
-    // 2. резервы закрытых этапов, с последнего
+    // 3. этапы, чей срок ещё впереди, — откатываем с последнего
     while (left > 0.0001 && idx.get(gid) > 0) {
       const prevIdx = idx.get(gid) - 1;
       const prev = list[prevIdx];
@@ -117,24 +163,28 @@ export function createTracker({ goals, milestones }) {
       phaseSaved.set(gid, Math.max(0, funded - back));
       left -= back;
     }
-    // 3. дальше идут этапы, чей срок уже прошёл: они остаются закрытыми
-    //    (на свою дату были накоплены), а их резерв уходит вместе с деньгами
+    // 4. если в копилке всё равно не хватило — добираем из того, что осталось
     for (let i = closed.length - 1; i >= 0 && left > 0.0001; i--) {
       const drain = Math.min(left, closed[i].left);
       closed[i].left -= drain;
       left -= drain;
     }
+    log.push(entry(gid, date, -amount, before, note));
   }
 
   function apply(tx) {
     const amount = Math.abs(Number(tx.amount) || 0);
-    if (isOutflow(tx.kind)) withdraw(tx.goal_id, amount, tx.date);
-    else deposit(tx.goal_id, amount, tx.date);
+    const note = { source: 'tx', kind: tx.kind, title: tx.title || '', id: tx.id,
+      counterparty_id: tx.counterparty_id || null, milestone_id: tx.milestone_id || null };
+    if (isOutflow(tx.kind)) withdraw(tx.goal_id, amount, tx.date, note);
+    else deposit(tx.goal_id, amount, tx.date, note);
   }
 
   return {
     milestones: gid => ms.get(gid) ?? [],
-    phase: gid => ({ idx: idx.get(gid) ?? 0, saved: phaseSaved.get(gid) ?? 0 }),
+    phase,
+    /* Все движения по копилке по порядку: пополнения плана, траты и переводы */
+    ledger: gid => log.filter(e => e.goal_id === gid),
     balance: gid => balance.get(gid) ?? 0,
     deposit, withdraw, apply,
     snapshot() {

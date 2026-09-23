@@ -6,6 +6,7 @@
      sim.byId            → то же по id выплаты
      sim.milestoneDates  → когда закрывается каждый этап каждой цели
      sim.milestoneFunded → сколько денег закрытого этапа ещё лежит в копилке
+     sim.ledgerOf(id)    → все движения по копилке: отчисления плана, траты, переводы
      sim.cardCycles      → льготные периоды карт и даты их закрытия
      sim.monthChecks     → процентные категории: собрано за месяц против плана
      sim.warnings        → чего не хватает для расчёта (курса, выплат и т. п.)
@@ -46,7 +47,7 @@ import { createFx } from './fx.js';
 
 const SAVINGS_STAGES = ['gifts', 'buckets', 'reserves'];
 
-export function simulate(state, cfg, { income = null, round = Math.round, paceFirst = true } = {}) {
+export function simulate(state, cfg, { income = null, round = Math.round, paceFirst = true, today = '' } = {}) {
   const inc = income ?? computeIncome(state, cfg, { round });
   const periods = inc.periods.map(r => r.period);
   const warnings = [...inc.warnings];
@@ -88,13 +89,15 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
   const sv = state.savings ?? {};
   const goals = sv.goals ?? [];
   const milestones = sv.goal_milestones ?? [];
-  const tracker = createTracker({ goals, milestones });
+  const tracker = createTracker({ goals, milestones, today });
   const initialPhase = tracker.snapshot();
   const txs = (sv.goal_transactions ?? []).filter(t => t.date).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   let txPtr = 0;
   const applyTxUpTo = date => {
     while (txPtr < txs.length && (date === null || txs[txPtr].date <= date)) tracker.apply(txs[txPtr++]);
   };
+
+  let curPeriodId = null;        // выплата, из которой идёт текущее отчисление — для «движений»
 
   const savingsOv = new Map();
   for (const o of sv.savings_period_overrides ?? []) {
@@ -231,7 +234,7 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
     const g = goals.find(x => x.id === gid);
     const inGoal = g ? fx.fromBase(amountBase, g.currency_code, date) : null;
     if (inGoal === null) { warnOnce('no_fx_rate', { goal_id: gid, currency: g?.currency_code }); return false; }
-    tracker.deposit(gid, inGoal, date);
+    tracker.deposit(gid, inGoal, date, { source: 'plan', period_id: curPeriodId });
     allocations[gid] = (allocations[gid] ?? 0) + amountBase;
     return true;
   }
@@ -285,6 +288,7 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
   const rows = [];
   for (const r of inc.periods) {
     const p = r.period;
+    curPeriodId = p.id;
     applyTxUpTo(p.pay_date);
     applyCardOpsUpTo(p.pay_date);
 
@@ -425,6 +429,7 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
       phase: snap.phase,
     });
   }
+  curPeriodId = null;
   applyTxUpTo(null);
   applyCardOpsUpTo(null);
 
@@ -436,6 +441,7 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
     monthChecks: expenses.monthChecks,
     milestoneDates: tracker.milestoneDates(),
     milestoneFunded: tracker.milestoneFunded(),
+    ledgerOf: gid => tracker.ledger(gid),
     initialPhase,
     finalPhase: tracker.snapshot(),
     cardCycles: Object.fromEntries(cardCycles),

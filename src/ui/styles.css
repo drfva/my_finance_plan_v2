@@ -393,3 +393,6 @@ nav.tabs button.active .late-dot,.month-tabs button.active .late-dot{background:
 .year-cap{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;
   padding:6px 0 2px;position:sticky;top:0;background:inherit;}
 .timeline-scroll{max-height:340px;overflow-y:auto;padding-right:4px;}
+
+/* минус в истории баланса копилки */
+.num .neg{color:var(--danger);}

@@ -202,15 +202,72 @@ test('копилка: вид оттока роли не играет, важна
     assert.equal(t.balance('g'), 10);
   }
 
-  // отток съедает прогресс текущего этапа, потом резерв закрытого
+  // отток сначала тратит накопленное на прошедший этап, потом прогресс текущего
   const t2 = createTracker({ goals, milestones });
   t2.apply({ goal_id: 'g', date: '2027-03-01', amount: 150, kind: 'transfer_in' });
   assert.deepEqual(t2.phase('g'), { idx: 1, saved: 50 });
   t2.apply({ goal_id: 'g', date: '2027-04-10', amount: 120, kind: 'spend' });
   assert.equal(t2.milestoneDates().g[0], '2027-03-01', 'срок первого этапа прошёл');
-  assert.deepEqual(t2.phase('g'), { idx: 1, saved: 0 });
-  assert.equal(t2.milestoneFunded().g[0], 30);
+  assert.equal(t2.milestoneFunded().g[0], 0, 'его 100 потрачены первыми');
+  assert.deepEqual(t2.phase('g'), { idx: 1, saved: 30 }, 'из прогресса ушло только 20');
   assert.equal(t2.balance('g'), 30);
+
+  // «сегодня» тоже делает этап прошедшим: трата до срока его уже не откатывает
+  const t3 = createTracker({ goals, milestones, today: '2027-04-20' });
+  t3.apply({ goal_id: 'g', date: '2027-03-01', amount: 120, kind: 'transfer_in' });
+  t3.apply({ goal_id: 'g', date: '2027-03-25', amount: 110, kind: 'spend' });
+  assert.equal(t3.milestoneDates().g[0], '2027-03-01', 'срок 01.04 уже позади');
+  assert.equal(t3.milestoneFunded().g[0], 0);
+  assert.equal(t3.balance('g'), 10);
+});
+
+test('копилка: трата тратит накопленное на прошедшие этапы, будущие пересчитываются', () => {
+  const goals = [{ id: 'g', title: 'Лечение' }];
+  const ms = (d2, d3) => [
+    { id: 'm1', goal_id: 'g', title: 'Анализы+КТ', target: 20845, deadline: '2026-08-25' },
+    { id: 'm2', goal_id: 'g', title: 'Химия', target: 42853, deadline: d2 },
+    { id: 'm3', goal_id: 'g', title: 'Химия+КТ', target: 25000, deadline: d3 },
+    { id: 'm4', goal_id: 'g', title: 'Операция', target: 40000, deadline: '2027-02-01' },
+  ];
+  const events = [
+    { date: '2026-08-20', amount: 20845, kind: 'deposit' },
+    { date: '2026-08-30', amount: 20845, kind: 'spend' },      // после срока m1 — этап засчитан
+    { date: '2026-09-04', amount: 42853, kind: 'deposit' },
+    { date: '2026-09-18', amount: 61000, kind: 'deposit' },
+  ];
+  const fill = t => { for (const e of events) t.apply({ goal_id: 'g', ...e }); return t; };
+
+  // сроки первых трёх этапов позади: трата берёт накопленное на них, с самого
+  // раннего, и ничего не откатывает — пересчитывается только будущая «Операция»
+  const t = fill(createTracker({ goals, milestones: ms('2026-09-05', '2026-09-20'), today: '2026-09-23' }));
+  assert.deepEqual(t.phase('g'), { idx: 3, saved: 36000 });
+  t.apply({ goal_id: 'g', date: '2026-09-19', amount: 42853, kind: 'spend' });
+  assert.equal(t.balance('g'), 61000);
+  assert.deepEqual(t.milestoneFunded().g, [0, 0, 25000, null], 'потрачено накопленное на «Химию»');
+  assert.deepEqual(t.phase('g'), { idx: 3, saved: 36000 }, 'прогресс «Операции» не тронут');
+
+  // сроки «Химии» и «Химии+КТ» ещё впереди: трогать нечего, трата съедает прогресс
+  // «Операции» и откатывает последний закрытый этап — на его дату денег не хватит
+  const t2 = fill(createTracker({ goals, milestones: ms('2026-10-10', '2026-11-21'), today: '2026-09-23' }));
+  t2.apply({ goal_id: 'g', date: '2026-09-19', amount: 42853, kind: 'spend' });
+  assert.equal(t2.milestoneDates().g[2], null);
+  assert.deepEqual(t2.phase('g'), { idx: 2, saved: 18147 });
+
+  // баланс копилки всегда равен резервам закрытых этапов плюс прогресс текущего
+  // (в минусе и то и другое ноль, а минус закрывает первое же пополнение)
+  const t3 = createTracker({ goals, milestones: ms('2026-10-10', '2026-11-21'), today: '2026-09-23' });
+  t3.apply({ goal_id: 'g', date: '2026-08-20', amount: 20845, kind: 'deposit' });
+  t3.apply({ goal_id: 'g', date: '2026-08-30', amount: 30000, kind: 'spend' });
+  assert.equal(t3.balance('g'), -9155);
+  assert.deepEqual(t3.phase('g'), { idx: 1, saved: 0 }, 'первый этап накоплен к сроку и потрачен');
+  t3.apply({ goal_id: 'g', date: '2026-09-04', amount: 10000, kind: 'deposit' });
+  assert.equal(t3.balance('g'), 845);
+  assert.deepEqual(t3.phase('g'), { idx: 1, saved: 845 }, 'пополнение сначала закрыло минус');
+
+  for (const tr of [t, t2, t3]) {
+    const sum = tr.milestoneFunded().g.reduce((acc, x) => acc + (x ?? 0), 0) + tr.phase('g').saved;
+    assert.equal(Math.round(sum), Math.round(Math.max(0, tr.balance('g'))));
+  }
 });
 
 test('цикл: даты повторов, пропуски и ручная правка', () => {

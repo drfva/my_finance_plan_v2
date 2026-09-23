@@ -26,9 +26,13 @@ import * as credits from './credits.js';
 import * as installments from './installments.js';
 import * as vacations from './vacations.js';
 import * as settings from './settings.js';
+import * as ledger from './ledger.js';
 import { attachSettings } from './settings.js';
 
 const TABS = [dashboard, periods, categories, facts, goals, gifts, reserves, credits, installments, vacations, settings];
+/* Вкладки без кнопки в шапке: открываются из других разделов (кнопкой в карточке) */
+const HIDDEN = [ledger];
+const ALL_TABS = [...TABS, ...HIDDEN];
 
 const STATUS_TEXT = { pending: 'Сохранение…', saving: 'Сохранение…', saved: 'Сохранено', error: 'Ошибка сохранения' };
 
@@ -51,7 +55,7 @@ export function planYears(state, today) {
 }
 
 export function createApp({ store, env = 'prod', client = null, onSignOut }) {
-  const ui = { tab: null, year: null, open: new Set(), draft: {}, notice: null };
+  const ui = { tab: null, year: null, goal: null, open: new Set(), draft: {}, notice: null };
   const security = client ? createSecurity(client, () => render()) : null;
   let lastSync = '';
 
@@ -65,7 +69,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     const c = cfg();
     const f = c.formatter();
     const income = computeIncome(state, c, { round: f.round });
-    const sim = simulate(state, c, { income, round: f.round });
+    const sim = simulate(state, c, { income, round: f.round, today: f.todayISO() });
     const list = years();
     if (!list.includes(ui.year)) ui.year = list.includes(Number(f.todayISO().slice(0, 4))) ? Number(f.todayISO().slice(0, 4)) : list[0];
     return { store, state, cfg: c, fmt: f, income, sim, ui, year: ui.year, years: list, today: f.todayISO(), canEdit: c.canEdit, security, onSignOut, notice };
@@ -141,7 +145,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   }
 
   function shell(ctx, body) {
-    const tab = TABS.find(t => t.code === ui.tab);
+    const tab = ALL_TABS.find(t => t.code === ui.tab);
     const late = lateYears(ctx);
     const lateHere = late[ui.tab] ?? new Set();
     const yearBtn = y => `<button class="${y === ctx.year ? 'active' : ''}" data-year="${y}">${y}${
@@ -193,11 +197,11 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     if (ensureGiftsGoal(ctx)) return;  // состояние изменилось — отрисовка придёт событием
     syncGeneratedRows(ctx);
     if (freezePast(ctx)) return;      // состояние изменилось — отрисовка придёт событием
-    if (!ui.tab || !TABS.some(t => t.code === ui.tab)) {
+    if (!ui.tab || !ALL_TABS.some(t => t.code === ui.tab)) {
       const start = ctx.cfg.get('start_tab');
       ui.tab = TABS.some(t => t.code === start) ? start : 'dashboard';
     }
-    const tab = TABS.find(t => t.code === ui.tab);
+    const tab = ALL_TABS.find(t => t.code === ui.tab);
     let body;
     try {
       body = tab.render(ctx);
@@ -254,7 +258,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       }
       if (tourHandle(ev, context())) { render(); return; }
 
-      const active = TABS.find(t => t.code === ui.tab);
+      const active = ALL_TABS.find(t => t.code === ui.tab);
       if (!active?.handle) return;
       try {
         if (active.handle(ev, context())) render();

@@ -1,6 +1,6 @@
 /* Копилки: цели с этапами, движениями, переводами и повторяющимися накоплениями */
 
-import { esc, card, table, input, select, checkbox, addButton, delButton, button, pill, field } from './dom.js';
+import { esc, card, table, num, cell, row, input, select, checkbox, addButton, delButton, button, pill, field } from './dom.js';
 import { uid } from './edit.js';
 import { goalBalanceAt, goalProgressAt, proposeRedistribution, forecastBeyondPlan } from '../engine/allocation.js';
 import { goalTotal, cycleDates } from '../engine/savings.js';
@@ -267,6 +267,8 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
           cls: g.completed ? 'ghost small' : 'small',
           title: g.completed ? 'Цель снова участвует в распределении' : 'Цель перестанет получать деньги: в будущих выплатах её не будет, в зафиксированных останется' })}
         ${button({ action: 'transfer-open', value: g.id, label: 'Перевести в другую цель', cls: 'ghost small' })}
+        ${button({ action: 'ledger-open', value: g.id, label: 'История баланса', cls: 'ghost small',
+          title: 'Все движения по копилке: отчисления из выплат, траты и переводы' })}
       </div>`) : ''}
     </div>
     ${extraFields}
@@ -293,6 +295,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
       `<div class="small-note" style="margin-top:0;">Траты из копилки, пополнения со стороны и переводы между целями.</div>
        ${timeline(ctx, `tx-hist:${g.id}`, txs, { dateOf: t => t.date, render: txRow,
          emptyNote: 'Движений пока нет.' })}
+
        ${transferForm(ctx, g)}`)}
 
     ${showCycles ? sub(ctx, `goal-cyc:${g.id}`, `Повторяющиеся накопления${cycleCount ? ` · ${cycleCount}` : ''}`, '', cyclesBlock(ctx, g)) : ''}
@@ -315,6 +318,10 @@ export function render(ctx) {
 
 export function handle(ev, ctx) {
   const { store, ui } = ctx;
+
+  // «История баланса» — отдельная вкладка с движениями по этой копилке
+  const led = ev.target.closest('[data-ledger-open]');
+  if (led) { ui.goal = led.dataset.ledgerOpen; ui.tab = 'ledger'; ui.open.clear(); return true; }
 
   const move = ev.target.closest('[data-goal-move]');
   if (move) {
