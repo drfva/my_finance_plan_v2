@@ -156,61 +156,61 @@ test('карта: льготный период открывается трат�
 
 /* ------------------------------------------------------------------ накопления */
 
-test('копилка: плановая трата не откатывает этап, ранняя — откатывает', () => {
-  const goals = [{ id: 'g', title: 'Путешествия' }];
-  const milestones = [
-    { id: 'a', goal_id: 'g', target: 100, deadline: '2027-04-01' },
-    { id: 'b', goal_id: 'g', target: 100, deadline: '2027-08-01' },
-  ];
-  const t = createTracker({ goals, milestones });
-  t.deposit('g', 150, '2027-03-01');
-  assert.deepEqual(t.phase('g'), { idx: 1, saved: 50 });
-  t.withdraw('g', 100, '2027-03-25');              // за 7 дней до срока — плановая
-  assert.deepEqual(t.phase('g'), { idx: 1, saved: 50 });
-  assert.equal(t.milestoneDates().g[0], '2027-03-01');
+test('копилка: этап держится, только пока денег хватает на его срок', () => {
+  const goals = [{ id: 'g', title: 'Лечение' }];
+  const milestones = [{ id: 'a', goal_id: 'g', target: 10000, deadline: '2027-10-05' }];
 
-  const t2 = createTracker({ goals, milestones });
-  t2.deposit('g', 150, '2027-01-01');
-  t2.withdraw('g', 120, '2027-01-10');             // за 81 день до срока — чужие деньги
-  assert.deepEqual(t2.phase('g'), { idx: 0, saved: 30 });
-  assert.equal(t2.milestoneDates().g[0], null);
+  // пополнили 01.10, этап закрылся; трата 04.10 — до срока, на 05.10 денег не хватит
+  const t = createTracker({ goals, milestones });
+  t.apply({ goal_id: 'g', date: '2027-10-01', amount: 10000, kind: 'transfer_in' });
+  assert.equal(t.milestoneDates().g[0], '2027-10-01');
+  t.apply({ goal_id: 'g', date: '2027-10-04', amount: 5000, kind: 'spend' });
+  assert.equal(t.milestoneDates().g[0], null, 'этап снова открыт');
+  assert.deepEqual(t.phase('g'), { idx: 0, saved: 5000 });
+  assert.equal(t.balance('g'), 5000);
+
+  // тот же этап со сроком 03.10: к сроку деньги были, трата 04.10 уже после него
+  const past = [{ id: 'a', goal_id: 'g', target: 10000, deadline: '2027-10-03' }];
+  const t2 = createTracker({ goals, milestones: past });
+  t2.apply({ goal_id: 'g', date: '2027-10-01', amount: 10000, kind: 'transfer_in' });
+  t2.apply({ goal_id: 'g', date: '2027-10-04', amount: 5000, kind: 'spend' });
+  assert.equal(t2.milestoneDates().g[0], '2027-10-01', 'срок прошёл — этап засчитан');
+  assert.equal(t2.milestoneFunded().g[0], 5000);
+  assert.equal(t2.balance('g'), 5000);
+
+  // трата задним числом, до срока этапа, — на 03.10 денег уже не хватало
+  const t3 = createTracker({ goals, milestones: past });
+  t3.apply({ goal_id: 'g', date: '2027-10-01', amount: 10000, kind: 'transfer_in' });
+  t3.apply({ goal_id: 'g', date: '2027-10-02', amount: 5000, kind: 'spend' });
+  assert.equal(t3.milestoneDates().g[0], null);
+  assert.equal(t3.balance('g'), 5000);
 });
 
-test('копилка: перевод из копилки откатывает этап, а потраченный этап — нет', () => {
+test('копилка: вид оттока роли не играет, важна только дата', () => {
   const goals = [{ id: 'g', title: 'Лечение' }];
   const milestones = [
     { id: 'a', goal_id: 'g', target: 100, deadline: '2027-04-01' },
     { id: 'b', goal_id: 'g', target: 100, deadline: '2027-08-01' },
   ];
-  // перевод в другую копилку назначением этапа не считается, даже в его срок
-  const t = createTracker({ goals, milestones });
-  t.apply({ goal_id: 'g', date: '2027-03-01', amount: 120, kind: 'transfer_in' });
-  assert.equal(t.milestoneDates().g[0], '2027-03-01');
-  t.apply({ goal_id: 'g', date: '2027-03-25', amount: 110, kind: 'transfer_out' });
-  assert.equal(t.milestoneDates().g[0], null, 'деньги ушли из копилки — этап снова открыт');
-  assert.equal(t.balance('g'), 10);
+  // перевод в другую копилку и трата откатывают этап одинаково
+  for (const kind of ['transfer_out', 'spend']) {
+    const t = createTracker({ goals, milestones });
+    t.apply({ goal_id: 'g', date: '2027-03-01', amount: 120, kind: 'transfer_in' });
+    assert.equal(t.milestoneDates().g[0], '2027-03-01');
+    t.apply({ goal_id: 'g', date: '2027-03-25', amount: 110, kind });
+    assert.equal(t.milestoneDates().g[0], null, kind);
+    assert.equal(t.balance('g'), 10);
+  }
 
-  // трата по назначению этап не откатывает, и следующий перевод его не трогает
+  // отток съедает прогресс текущего этапа, потом резерв закрытого
   const t2 = createTracker({ goals, milestones });
   t2.apply({ goal_id: 'g', date: '2027-03-01', amount: 150, kind: 'transfer_in' });
-  t2.apply({ goal_id: 'g', date: '2027-03-25', amount: 100, kind: 'spend' });
-  t2.apply({ goal_id: 'g', date: '2027-03-26', amount: 50, kind: 'transfer_out' });
-  assert.equal(t2.milestoneDates().g[0], '2027-03-01');
-  assert.equal(t2.milestoneFunded().g[0], 0, 'этап накоплен и потрачен');
-});
-
-test('копилка: трата с milestone_id тратит деньги только своего этапа', () => {
-  const goals = [{ id: 'g', title: 'Лечение' }];
-  const milestones = [
-    { id: 'a', goal_id: 'g', target: 100, deadline: '2027-04-01' },
-    { id: 'b', goal_id: 'g', target: 100, deadline: '2027-05-01' },
-  ];
-  const t = createTracker({ goals, milestones });
-  t.apply({ goal_id: 'g', date: '2027-03-01', amount: 200, kind: 'transfer_in' });
-  assert.deepEqual(t.milestoneDates().g, ['2027-03-01', '2027-03-01']);
-  // срок этапа b тоже в окне, но трата привязана к a — берём деньги только оттуда
-  t.apply({ goal_id: 'g', date: '2027-04-01', amount: 100, kind: 'spend', milestone_id: 'a' });
-  assert.deepEqual(t.milestoneFunded().g, [0, 100]);
+  assert.deepEqual(t2.phase('g'), { idx: 1, saved: 50 });
+  t2.apply({ goal_id: 'g', date: '2027-04-10', amount: 120, kind: 'spend' });
+  assert.equal(t2.milestoneDates().g[0], '2027-03-01', 'срок первого этапа прошёл');
+  assert.deepEqual(t2.phase('g'), { idx: 1, saved: 0 });
+  assert.equal(t2.milestoneFunded().g[0], 30);
+  assert.equal(t2.balance('g'), 30);
 });
 
 test('цикл: даты повторов, пропуски и ручная правка', () => {

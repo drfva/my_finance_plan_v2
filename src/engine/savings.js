@@ -6,18 +6,16 @@
    без срока — в конце. У цели без этапов один этап: target_amount к deadline.
    Закрытый этап засчитан навсегда, даже если деньги потом потрачены.
 
-   Траты и пополнения (goal_transactions):
-     spend                   — трата по назначению копилки;
-     transfer_out            — деньги ушли из копилки в другое место;
-     deposit, transfer_in    — пополняют и засчитываются в этапы.
-   Трата (spend) сначала тратит деньги закрытых этапов, если она плановая для них
-   (привязана к этапу через milestone_id либо не раньше срока этапа и не более чем
-   за planned_spend_window_days до него), потом съедает прогресс текущего этапа, и
-   только потом откатывает закрытые этапы, чьи деньги ушли раньше срока.
-   Перевод из копилки (transfer_out) назначением этапа не считается: он съедает
-   прогресс текущего этапа и откатывает закрытые этапы, деньги которых ещё лежали
-   в копилке, — на какую бы дату он ни попал. Этап, деньги которого уже ушли по
-   назначению, засчитан навсегда и не откатывается.
+   Деньги копилки лежат одной суммой: пополнения (deposit, transfer_in) её
+   увеличивают, траты и переводы (spend, transfer_out) уменьшают — на свою дату.
+   Этап закрыт, если на его срок денег в копилке хватало; закрытый этап держит
+   свою сумму в резерве, остальное идёт в прогресс следующего этапа.
+   Отток денег сначала съедает прогресс текущего этапа, потом резервы закрытых
+   этапов — с последнего. Этап, чей срок ещё не наступил, при этом открывается
+   заново: на его дату денег уже не хватит. Этап, срок которого прошёл, остаётся
+   закрытым — на ту дату он был накоплен, история не меняется; его резерв просто
+   уходит (деньги потрачены). Вид оттока и привязка к этапу роли не играют —
+   важна только дата.
 
    Циклы (goal_cycles) и праздники (gift_events) — шаблоны: syncGenerated
    разворачивает их в этапы и траты с source = 'cycle' / 'gift'. Строку, которую
@@ -48,7 +46,7 @@ const isOutflow = kind => kind === 'spend' || kind === 'transfer_out';
 
 /* ------------------------------------------------------------------ учёт этапов */
 
-export function createTracker({ goals, milestones, plannedWindowDays = 45 }) {
+export function createTracker({ goals, milestones }) {
   const ms = new Map();
   const balance = new Map();
   const idx = new Map();
@@ -82,8 +80,9 @@ export function createTracker({ goals, milestones, plannedWindowDays = 45 }) {
     advance(g.id, 'pre');
   }
 
-  const isPlanned = (deadline, date) => !deadline || date >= deadline
-    || daysInclusive(date, deadline) - 1 <= plannedWindowDays;
+  /* Срок этапа уже наступил на эту дату — значит он был накоплен и его резерв
+     можно тратить, не открывая этап заново. */
+  const passed = (deadline, date) => !!deadline && date >= deadline;
 
   function deposit(gid, amount, date) {
     if (!amount || !ms.has(gid)) return;
@@ -92,42 +91,25 @@ export function createTracker({ goals, milestones, plannedWindowDays = 45 }) {
     advance(gid, date);
   }
 
-  /* opts: { purpose } — трата по назначению копилки (spend) или нет (transfer_out);
-            { milestoneId } — трата привязана к конкретному этапу. */
-  function withdraw(gid, amount, date, opts = {}) {
+  function withdraw(gid, amount, date) {
     if (!ms.has(gid)) return;
-    const { purpose = true, milestoneId = null } = opts;
     balance.set(gid, balance.get(gid) - amount);
     const list = ms.get(gid);
     const closed = pool.get(gid);
-    const targetIdx = milestoneId ? list.findIndex(m => m.id === milestoneId) : -1;
     let left = amount;
-    // 1. плановая трата: деньги закрытых этапов, чей срок подошёл
-    if (purpose) {
-      for (const c of closed) {
-        if (left <= 0.0001) break;
-        if (c.left <= 0) continue;
-        // трата, привязанная к этапу, тратит только его деньги
-        if (targetIdx >= 0 ? c.idx !== targetIdx : !isPlanned(c.deadline, date)) continue;
-        const take = Math.min(left, c.left);
-        c.left -= take;
-        left -= take;
-      }
-    }
-    // 2. прогресс текущего этапа
+    // 1. прогресс текущего этапа — самые «свежие» деньги
     const take = Math.min(left, phaseSaved.get(gid));
     phaseSaved.set(gid, phaseSaved.get(gid) - take);
     left -= take;
-    // 3. откат закрытых этапов, чьи деньги ещё лежали в копилке
+    // 2. резервы закрытых этапов, с последнего
     while (left > 0.0001 && idx.get(gid) > 0) {
       const prevIdx = idx.get(gid) - 1;
       const prev = list[prevIdx];
       const at = closed.findLastIndex(c => c.idx === prevIdx);
       const funded = at >= 0 ? closed[at].left : 0;
-      // деньги этапа уже ушли по его назначению — этап засчитан навсегда
-      if (funded <= 0.0001) break;
-      // трата по назначению в срок этапа его не откатывает
-      if (purpose && isPlanned(prev.deadline, date)) break;
+      if (funded <= 0.0001) break;      // резерв этапа уже израсходован
+      if (passed(prev.deadline, date)) break;
+      // срок ещё впереди: на его дату денег не хватит — открываем этап заново
       idx.set(gid, prevIdx);
       dates.get(gid)[prevIdx] = null;
       closed.splice(at, 1);
@@ -135,11 +117,18 @@ export function createTracker({ goals, milestones, plannedWindowDays = 45 }) {
       phaseSaved.set(gid, Math.max(0, funded - back));
       left -= back;
     }
+    // 3. дальше идут этапы, чей срок уже прошёл: они остаются закрытыми
+    //    (на свою дату были накоплены), а их резерв уходит вместе с деньгами
+    for (let i = closed.length - 1; i >= 0 && left > 0.0001; i--) {
+      const drain = Math.min(left, closed[i].left);
+      closed[i].left -= drain;
+      left -= drain;
+    }
   }
 
   function apply(tx) {
     const amount = Math.abs(Number(tx.amount) || 0);
-    if (isOutflow(tx.kind)) withdraw(tx.goal_id, amount, tx.date, { purpose: tx.kind === 'spend', milestoneId: tx.milestone_id || null });
+    if (isOutflow(tx.kind)) withdraw(tx.goal_id, amount, tx.date);
     else deposit(tx.goal_id, amount, tx.date);
   }
 
@@ -158,7 +147,7 @@ export function createTracker({ goals, milestones, plannedWindowDays = 45 }) {
     },
     milestoneDates: () => Object.fromEntries([...dates].map(([k, v]) => [k, [...v]])),
     /* Сколько денег закрытого этапа ещё лежит в копилке: null — этап не закрыт,
-       0 — накоплено и потрачено по назначению. */
+       0 — было накоплено к сроку и потрачено. */
     milestoneFunded: () => Object.fromEntries([...dates].map(([gid, v]) => [gid, v.map((d, i) => {
       if (!d) return null;
       const c = (pool.get(gid) ?? []).findLast(x => x.idx === i);

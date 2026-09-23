@@ -88,7 +88,7 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
   const sv = state.savings ?? {};
   const goals = sv.goals ?? [];
   const milestones = sv.goal_milestones ?? [];
-  const tracker = createTracker({ goals, milestones, plannedWindowDays: Number(cfg.get('planned_spend_window_days')) });
+  const tracker = createTracker({ goals, milestones });
   const initialPhase = tracker.snapshot();
   const txs = (sv.goal_transactions ?? []).filter(t => t.date).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   let txPtr = 0;

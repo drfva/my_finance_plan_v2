@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Копилки: траты и переводы</title>
+<style>
+  :root{--bg:#0f1115;--surface:#171a21;--surface-2:#1e222b;--text:#e7e9ee;--muted:#9aa3b2;--line:#2a2f3a;
+        --ok:#3ecf8e;--warn:#e0a458;--bad:#e06c75;--accent:#7aa2f7}
+  @media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f6f7f9;--surface:#fff;--surface-2:#f0f2f6;
+        --text:#1b1f27;--muted:#6b7482;--line:#e2e6ec;--ok:#12855c;--warn:#a96a12;--bad:#c0392b;--accent:#2f6fd0}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1040px;margin:0 auto;padding:32px 16px 64px}
+  h1{font-size:26px;margin:0 0 6px}
+  .lead{color:var(--muted);margin:0 0 24px;max-width:70ch}
+  .rules{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:0 0 28px}
+  .rules ol{margin:8px 0 0;padding-left:20px}
+  .rules li{margin:6px 0}
+  .case{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:0 0 18px}
+  h2{font-size:17px;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  .num{flex:none;width:26px;height:26px;border-radius:8px;background:var(--surface-2);color:var(--accent);
+       font-size:13px;display:grid;place-items:center}
+  .note{color:var(--muted);margin:0 0 14px;font-size:14px}
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse;width:100%;min-width:560px;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-top:1px solid var(--line);vertical-align:top}
+  thead th{border-top:0;color:var(--muted);font-weight:600;font-size:13px}
+  thead th span{display:block;font-weight:400;color:var(--muted);opacity:.8;font-size:12px}
+  td span{display:block;color:var(--muted);font-size:12px}
+  td.ev{min-width:190px}
+  td.bal{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
+  td.bal.neg{color:var(--bad)}
+  td.closed b{color:var(--ok)} td.late b{color:var(--warn)} td.open b{color:var(--muted);font-weight:600}
+  tbody tr:first-child td{color:var(--muted)}
+  footer{color:var(--muted);font-size:13px;margin-top:24px}
+</style></head><body><div class="wrap">
+<h1>Копилки: как траты и переводы двигают этапы</h1>
+<p class="lead">Все цифры ниже посчитаны настоящим движком (<code>createTracker</code> из <code>src/engine/savings.js</code>), а не нарисованы руками. Каждая строка — состояние копилки после очередного события.</p>
+<div class="rules"><b>Правила</b>
+<ol>
+  <li>Деньги копилки лежат одной суммой. Пополнения её увеличивают, траты и переводы уменьшают — на свою дату.</li>
+  <li>Этап закрыт, если на его срок денег хватало. Закрытый этап держит свою сумму в резерве, всё сверх — прогресс следующего этапа.</li>
+  <li>Отток съедает сначала прогресс текущего этапа, потом резервы закрытых — начиная с последнего.</li>
+  <li>Если у закрытого этапа <b>срок ещё впереди</b> — он открывается заново: на его дату денег уже не хватит.</li>
+  <li>Если <b>срок прошёл</b> — этап остаётся закрытым (на ту дату он был накоплен), а его резерв уходит вместе с деньгами.</li>
+  <li>Вид оттока — трата или перевод в другую копилку — роли не играет. Важна только дата.</li>
+</ol></div>
+<section class="case">
+    <h2><span class="num">1</span>Пополнение закрывает этап</h2>
+    <p class="note">Денег хватило — этап закрыт датой пополнения, остаток идёт в прогресс следующего.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · до 05.10</span></th><th>Этап 2<span>20 000 ₽ · до 01.12</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">старт</td>
+      <td class="bal ">0 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td><td class="open"><b>открыт</b><span>ждёт очереди</span></td>
+    </tr><tr>
+      <td class="ev"><b>01.10</b> перевод 15 000<span>перевод в копилку</span></td>
+      <td class="bal ">15 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td><td class="open"><b>открыт</b><span>набрано 5 000 ₽ из 20 000 ₽</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<section class="case">
+    <h2><span class="num">2</span>Трата до срока этапа — этап открывается заново</h2>
+    <p class="note">Ваш пример: перевод 10 000 01.10, этап 05.10 на 10 000, трата 5 000 04.10. На 05.10 в копилке 5 000 — этап не успевает.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · до 05.10</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">старт</td>
+      <td class="bal ">0 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>01.10</b> перевод 10 000<span>перевод в копилку</span></td>
+      <td class="bal ">10 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>04.10</b> трата 5 000<span>трата</span></td>
+      <td class="bal ">5 000 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 5 000 ₽ из 10 000 ₽</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<section class="case">
+    <h2><span class="num">3</span>Трата после срока — этап засчитан навсегда</h2>
+    <p class="note">Тот же этап со сроком 03.10. К сроку деньги были — этап закрыт, история не меняется. Трата 04.10 просто уносит его резерв.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · до 03.10</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">старт</td>
+      <td class="bal ">0 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>01.10</b> перевод 10 000<span>перевод в копилку</span></td>
+      <td class="bal ">10 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>04.10</b> трата 5 000<span>трата</span></td>
+      <td class="bal ">5 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 5 000 ₽</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<section class="case">
+    <h2><span class="num">4</span>Трата задним числом, до срока — этап открывается</h2>
+    <p class="note">Срок 03.10, трата поставлена на 02.10. На 03.10 в копилке было 5 000 — значит этап не был накоплен.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · до 03.10</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">старт</td>
+      <td class="bal ">0 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>01.10</b> перевод 10 000<span>перевод в копилку</span></td>
+      <td class="bal ">10 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>02.10</b> трата 5 000 (задним числом)<span>трата</span></td>
+      <td class="bal ">5 000 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 5 000 ₽ из 10 000 ₽</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<section class="case">
+    <h2><span class="num">5</span>Перевод из копилки = трата</h2>
+    <p class="note">Вид оттока роли не играет: важна только дата относительно срока этапа. Сравните с кейсом 2 — результат тот же.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · до 05.10</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">старт</td>
+      <td class="bal ">0 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>01.10</b> перевод 10 000<span>перевод в копилку</span></td>
+      <td class="bal ">10 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>04.10</b> перевод в другую копилку 5 000<span>перевод из копилки</span></td>
+      <td class="bal ">5 000 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 5 000 ₽ из 10 000 ₽</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<section class="case">
+    <h2><span class="num">6</span>Отток съедает прогресс текущего этапа, закрытый не трогает</h2>
+    <p class="note">Резерв закрытого этапа — последнее, до чего доходит очередь. Пока хватает прогресса, закрытый этап цел.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · до 03.10</span></th><th>Этап 2<span>10 000 ₽ · до 01.12</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">старт</td>
+      <td class="bal ">0 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td><td class="open"><b>открыт</b><span>ждёт очереди</span></td>
+    </tr><tr>
+      <td class="ev"><b>01.10</b> перевод 16 000<span>перевод в копилку</span></td>
+      <td class="bal ">16 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td><td class="open"><b>открыт</b><span>набрано 6 000 ₽ из 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>10.10</b> трата 4 000<span>трата</span></td>
+      <td class="bal ">12 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td><td class="open"><b>открыт</b><span>набрано 2 000 ₽ из 10 000 ₽</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<section class="case">
+    <h2><span class="num">7</span>Отток глубже прогресса: срок прошёл — резерв уходит</h2>
+    <p class="note">Прогресс 6 000 съеден целиком, дальше ушло 6 000 из резерва первого этапа. Этап остаётся закрытым — на 03.10 он был накоплен.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · до 03.10</span></th><th>Этап 2<span>10 000 ₽ · до 01.12</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">старт</td>
+      <td class="bal ">0 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td><td class="open"><b>открыт</b><span>ждёт очереди</span></td>
+    </tr><tr>
+      <td class="ev"><b>01.10</b> перевод 16 000<span>перевод в копилку</span></td>
+      <td class="bal ">16 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td><td class="open"><b>открыт</b><span>набрано 6 000 ₽ из 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>10.10</b> трата 12 000<span>трата</span></td>
+      <td class="bal ">4 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 4 000 ₽</span></td><td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<section class="case">
+    <h2><span class="num">8</span>Откат двух этапов подряд</h2>
+    <p class="note">Оба срока впереди. Отток открывает сначала второй этап, потом первый; остаток денег становится прогрессом первого.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · до 01.11</span></th><th>Этап 2<span>10 000 ₽ · до 01.12</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">старт</td>
+      <td class="bal ">0 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td><td class="open"><b>открыт</b><span>ждёт очереди</span></td>
+    </tr><tr>
+      <td class="ev"><b>01.10</b> перевод 20 000<span>перевод в копилку</span></td>
+      <td class="bal ">20 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td><td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>10.10</b> трата 17 000<span>трата</span></td>
+      <td class="bal ">3 000 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 3 000 ₽ из 10 000 ₽</span></td><td class="open"><b>открыт</b><span>ждёт очереди</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<section class="case">
+    <h2><span class="num">9</span>Смешанный: один срок прошёл, другой впереди</h2>
+    <p class="note">Второй этап (срок 01.12) откатывается, первый (срок 03.10 прошёл) остаётся закрытым и только теряет резерв.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · до 03.10</span></th><th>Этап 2<span>10 000 ₽ · до 01.12</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">старт</td>
+      <td class="bal ">0 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td><td class="open"><b>открыт</b><span>ждёт очереди</span></td>
+    </tr><tr>
+      <td class="ev"><b>01.10</b> перевод 20 000<span>перевод в копилку</span></td>
+      <td class="bal ">20 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td><td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>10.10</b> трата 15 000<span>трата</span></td>
+      <td class="bal ">5 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 5 000 ₽</span></td><td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<section class="case">
+    <h2><span class="num">10</span>Этап без срока откатывается всегда</h2>
+    <p class="note">У этапа без срока дата закрытия — прогноз. Любой отток, который до него дотянулся, открывает его заново.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · без срока</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">старт</td>
+      <td class="bal ">0 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>01.10</b> перевод 10 000<span>перевод в копилку</span></td>
+      <td class="bal ">10 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>31.12</b> трата 4 000<span>трата</span></td>
+      <td class="bal ">6 000 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 6 000 ₽ из 10 000 ₽</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<section class="case">
+    <h2><span class="num">11</span>Начальный остаток копилки</h2>
+    <p class="note">Остаток закрывает этапы сразу на старте плана («уже накоплено»). Дальше он живёт по общим правилам: трата до срока откатывает этап.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · до 01.11</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">начальный остаток 12 000 ₽</td>
+      <td class="bal ">12 000 ₽</td>
+      <td class="closed"><b>закрыт на старте</b><span>резерв 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>10.10</b> трата 5 000<span>трата</span></td>
+      <td class="bal ">7 000 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 7 000 ₽ из 10 000 ₽</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<section class="case">
+    <h2><span class="num">12</span>Пополнение после отката закрывает этап заново</h2>
+    <p class="note">Дата закрытия — дата последнего пополнения, которого хватило. Если она позже срока, в интерфейсе будет «позже срока».</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · до 01.11</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">старт</td>
+      <td class="bal ">0 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>01.10</b> перевод 10 000<span>перевод в копилку</span></td>
+      <td class="bal ">10 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>10.10</b> трата 6 000<span>трата</span></td>
+      <td class="bal ">4 000 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 4 000 ₽ из 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>25.10</b> перевод 6 000<span>перевод в копилку</span></td>
+      <td class="bal ">10 000 ₽</td>
+      <td class="closed"><b>закрыт 25.10</b><span>резерв 10 000 ₽</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<section class="case">
+    <h2><span class="num">13</span>Трата больше, чем в копилке</h2>
+    <p class="note">Баланс уходит в минус — так видно, что трату нечем покрыть. Все этапы с ненаступившим сроком при этом открыты.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Событие</th><th>В копилке</th><th>Этап 1<span>10 000 ₽ · до 01.11</span></th></tr></thead>
+      <tbody><tr>
+      <td class="ev">старт</td>
+      <td class="bal ">0 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>01.10</b> перевод 10 000<span>перевод в копилку</span></td>
+      <td class="bal ">10 000 ₽</td>
+      <td class="closed"><b>закрыт 01.10</b><span>резерв 10 000 ₽</span></td>
+    </tr><tr>
+      <td class="ev"><b>10.10</b> трата 14 000<span>трата</span></td>
+      <td class="bal neg">-4 000 ₽</td>
+      <td class="open"><b>открыт</b><span>набрано 0 ₽ из 10 000 ₽</span></td>
+    </tr></tbody>
+    </table></div>
+  </section>
+<footer>Сгенерировано <code>tools/cases/build.mjs</code>.</footer>
+</div></body></html>
