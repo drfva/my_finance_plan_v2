@@ -10,6 +10,7 @@ import { createStore } from './core/store.js';
 import { ensureSignedIn, askNewPassword, recoveryPending, signOut } from './core/auth.js';
 import { createApp } from './ui/app.js';
 import { esc, byId } from './ui/dom.js';
+import { initLogger, log } from './core/logger.js';
 
 const APP = window.APP_CONFIG || { env: 'prod', url: '', key: '' };
 
@@ -17,6 +18,7 @@ const APP = window.APP_CONFIG || { env: 'prod', url: '', key: '' };
 const client = window.supabase.createClient(APP.url, APP.key, {
   auth: { experimental: { passkey: true } },
 });
+initLogger(client);
 
 function showFatal(title, err) {
   byId('root').innerHTML = `
