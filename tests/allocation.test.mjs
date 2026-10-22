@@ -364,6 +364,117 @@ function plan({ periods = payouts([1, 2, 3, 4, 5, 6]), goals = [], milestones = 
 const run = st => simulate(st, createConfig(st));
 const goal = (id, extra = {}) => ({ id, title: id, kind_code: 'bucket', currency_code: 'RUB', priority: 1, target_amount: 0, deadline: null, starting_balance: 0, pace_amount: 0, completed: false, ...extra });
 
+test('Подарки 63000 к 23.12 и Лазерка 12100 к 22.11 успевают без ручной правки; велосипед копится позже', () => {
+  const dates = ['2026-11-05', '2026-11-20', '2026-12-04', '2026-12-18', '2027-05-20'];
+  const periods = dates.map((date, i) => ({ id: `p${i}`, year: Number(date.slice(0, 4)), pay_date: date,
+    window_start: date, window_end: date, calc_mode: 'manual', income_net: [15000, 15000, 9000, 9000, 100000][i] }));
+  const st = plan({ periods, goals: [
+    goal('gifts', { kind_code: 'gifts', target_amount: 63000, starting_balance: 18500, deadline: '2026-12-23' }),
+    goal('laser', { target_amount: 12100, starting_balance: 8960, deadline: '2026-11-22' }),
+    goal('bike', { target_amount: 100000, deadline: '2027-06-01', priority: 2 }),
+  ] });
+  for (const manual of [false, true]) {
+    st.savings.savings_period_overrides = manual ? [{ period_id: 'p0', goal_id: 'gifts', amount: 12500 }] : [];
+    const sim = simulate(st, createConfig(st), { today: '2026-10-22' });
+    assert.ok(sim.milestoneDates.gifts[0] && sim.milestoneDates.gifts[0] <= '2026-12-23', `Подарки готовы к сроку: manual=${manual}; ${JSON.stringify(sim.rows.map(r => r.allocations))}`);
+    assert.ok(sim.milestoneDates.laser[0] && sim.milestoneDates.laser[0] <= '2026-11-22', 'Лазерка готова к сроку');
+    assert.ok(sim.milestoneDates.bike[0] && sim.milestoneDates.bike[0] <= '2027-06-01', 'Велосипед тоже успевает');
+    assert.ok(sim.rows.every(r => r.unallocated >= -0.01), 'не создаём дефицит');
+    if (manual) assert.equal(sim.rows[0].allocations.gifts, 12500, 'ручная сумма не меняется');
+    assert.ok(sim.rows[0].allocations.gifts > 11125 || manual, 'часть взноса переносится из бедных декабрьских выплат');
+  }
+});
+
+test('добавленный вручную взнос покрывает будущую трату: автопересчёт не оставляет новый недобор', () => {
+  const dates = ['2027-01-05', '2027-01-20', '2027-02-05', '2027-02-20'];
+  const periods = dates.map((d, i) => ({ id: `p${i}`, year: 2027, pay_date: d, window_start: d, window_end: d, income_net: 2250 }));
+  const st = plan({ periods, goals: [goal('g', { target_amount: 5000, deadline: '2027-02-25' }),
+    goal('later', { target_amount: 100000, deadline: '2027-12-31', priority: 2 })],
+    txs: [{ id: 'out', goal_id: 'g', date: '2027-02-10', kind: 'spend', amount: 1000 }],
+    overrides: [{ period_id: 'p0', goal_id: 'g', amount: 2250 }] });
+  const sim = run(st);
+  assert.equal(sim.rows[0].allocations.g, 2250);
+  assert.equal(goalBalanceAt(sim, st.savings.goals[0], st.savings.goal_transactions, '2027-02-25'), 5000);
+  assert.ok(sim.milestoneDates.g[0] <= '2027-02-25');
+  assert.ok(sim.rows.every(r => r.unallocated >= -0.01));
+});
+
+test('распределение: ближайшая и следующая цели успевают при разных размерах четырёх выплат', () => {
+  const dates = ['2026-11-05', '2026-11-20', '2026-12-04', '2026-12-18', '2027-05-20'];
+  for (const a of [1000, 2000, 4000]) for (const b of [1000, 2000, 4000])
+    for (const c of [1000, 2000, 4000]) for (const d of [1000, 2000, 4000]) {
+      if (a + b + c + d < 7000) continue;
+      const amounts = [a, b, c, d, 10000];
+      const periods = dates.map((date, i) => ({ id: `p${i}`, year: Number(date.slice(0, 4)), pay_date: date,
+        window_start: date, window_end: date, income_net: amounts[i] }));
+      const st = plan({ periods, goals: [goal('gift', { kind_code: 'gifts', target_amount: 5000, deadline: '2026-12-23' }),
+        goal('soon', { target_amount: 2000, deadline: '2026-11-22' }), goal('later', { target_amount: 10000, deadline: '2027-06-01', priority: 2 })] });
+      const sim = run(st);
+      const label = amounts.join('/');
+      assert.ok(sim.milestoneDates.soon[0] && sim.milestoneDates.soon[0] <= '2026-11-22', `ближайшая: ${label}`);
+      assert.ok(sim.milestoneDates.gift[0] && sim.milestoneDates.gift[0] <= '2026-12-23', `подарок: ${label}`);
+      for (const r of sim.rows) {
+        assert.ok(r.unallocated >= -0.01, `без дефицита: ${label}`);
+        const allocated = Object.values(r.allocations).reduce((s, x) => s + x, 0);
+        assert.ok(Math.abs(r.totalIncome - allocated - r.unallocated) < 0.01, 'деньги не появляются из расчёта');
+      }
+    }
+});
+
+test('фиксация выплаты с одной ручной суммой сохраняет также остальные автоматические отчисления', () => {
+  const st = plan({ periods: payouts([1], { net: 1000 }), goals: [goal('a', { target_amount: 500 }), goal('b', { target_amount: 2000, priority: 2 })] });
+  const id = st.income.periods[0].id;
+  st.savings.savings_period_overrides = [{ period_id: id, goal_id: 'a', amount: 200 }];
+  const before = run(st);
+  const frozen = freezePeriods(st, before, [id]);
+  st.income.periods = frozen.periods;
+  st.savings.savings_period_overrides = frozen.savings_period_overrides;
+  st.debts.credit_payment_overrides = frozen.credit_payment_overrides;
+  const after = run(st);
+  assert.deepEqual(after.byId.get(id).allocations, before.byId.get(id).allocations);
+});
+
+test('несколько этапов Подарков: заранее учитывается следующий срок, штатная трата не удваивает потребность', () => {
+  const dates = ['2026-11-05', '2026-11-20', '2026-12-04', '2026-12-18'];
+  const periods = dates.map((date, i) => ({ id: `p${i}`, year: 2026, pay_date: date, window_start: date, window_end: date, income_net: [6000, 0, 1000, 1000][i] }));
+  const st = plan({ periods, goals: [goal('gifts', { kind_code: 'gifts' }), goal('bike', { target_amount: 100000, deadline: '2027-06-01' })],
+    milestones: [{ id: 'nov', goal_id: 'gifts', target: 5000, deadline: '2026-11-22' }, { id: 'dec', goal_id: 'gifts', target: 3000, deadline: '2026-12-23' }],
+    txs: [{ id: 'spend', goal_id: 'gifts', milestone_id: 'nov', date: '2026-11-22', amount: 5000, kind: 'spend' }] });
+  const sim = run(st);
+  assert.equal(sim.rows[0].allocations.gifts, 6000);
+  assert.ok(sim.milestoneDates.gifts[0] <= '2026-11-22');
+  assert.ok(sim.milestoneDates.gifts[1] <= '2026-12-23');
+  assert.equal(goalBalanceAt(sim, st.savings.goals[0], st.savings.goal_transactions, '2026-12-23'), 3000);
+  assert.equal(sim.rows.reduce((s, r) => s + (r.allocations.gifts ?? 0), 0), 8000);
+});
+
+test('будущий ручной взнос учитывается заранее, в том числе в зафиксированной выплате', () => {
+  for (const locked of [false, true]) {
+    const periods = payouts([1], { net: 10000 });
+    periods[1].locked = locked;
+    const st = plan({ periods, goals: [goal('g', { target_amount: 5000, deadline: '2027-02-10' }), goal('later', { target_amount: 100000, priority: 2 })],
+      overrides: [{ period_id: periods[1].id, goal_id: 'g', amount: 5000 }] });
+    const sim = run(st);
+    assert.equal(sim.rows[0].allocations.g, undefined, 'нет ненужного двойного накопления');
+    assert.equal(sim.rows[1].allocations.g, 5000);
+    assert.equal(goalBalanceAt(sim, st.savings.goals[0], [], '2027-02-10'), 5000);
+  }
+});
+
+test('рассрочка: пересчёт сохраняет ручные поля будущих платежей и делит остаток между автоматическими', async () => {
+  const { buildInstallmentSchedule, rebuildFuture } = await import('../src/engine/debts.js');
+  const inst = { id: 'i', total: 1000, parts: 4, every_n: 1, period_unit: 'month', first_date: '2027-01-10' };
+  const payments = buildInstallmentSchedule(inst);
+  payments[1].amount = 500;
+  payments[1].pay_date = '2027-02-15';
+  payments[1].manual_fields = ['amount', 'pay_date'];
+  const next = rebuildFuture({ ...inst, total: 1400 }, payments, '2027-02-01');
+  assert.equal(next[1].amount, 500);
+  assert.equal(next[1].pay_date, '2027-02-15');
+  assert.deepEqual(next[1].manual_fields, ['amount', 'pay_date']);
+  assert.deepEqual(next.map(p => p.amount), [250, 500, 325, 325]);
+});
+
 test('закрытая цель: будущая ручная сумма освобождается, история и баланс сохраняются', () => {
   for (const archived of [false, true]) {
     const periods = payouts([1], { net: 1000 });
@@ -470,7 +581,7 @@ test('закрытая цель без этапов: накопленная су
   assert.deepEqual(sim.milestoneDates.g, ['pre']);
 });
 
-test('конвейер: совпадает с расчётом старой версии на её плане', () => {
+test('конвейер: сохраняет доход и обязательные расходы старого плана, распределение учитывает будущие траты', () => {
   const fx = JSON.parse(fs.readFileSync(new URL('./fixtures/legacy-2027.json', import.meta.url), 'utf8'));
   // старая версия не откладывала темп подушки раньше копилок — для сверки выключаем
   const sim = simulate(fx.state, createConfig(fx.state), { paceFirst: false });
@@ -490,10 +601,8 @@ test('конвейер: совпадает с расчётом старой ве
     near(r.categoriesTotal + r.installmentsTotal, e.expenses, `${e.id} расходы`);
     if (i >= firstVac) return;
     near(r.totalIncome, e.income, `${e.id} доход`);
-    near(r.unallocated, e.unallocated, `${e.id} остаток`);
-    for (const k of new Set([...Object.keys(e.allocations), ...Object.keys(r.allocations)])) near(r.allocations[k], e.allocations[k], `${e.id} → ${k}`);
-    for (const k of new Set([...Object.keys(e.debtPayments), ...Object.keys(r.debtPayments)])) near(r.debtPayments[k], e.debtPayments[k], `${e.id} карта ${k}`);
-    for (const k of Object.keys(e.balances)) near(r.goalBalances[k], e.balances[k], `${e.id} баланс ${k}`);
+    const sum = x => Object.values(x).reduce((a, b) => a + b, 0);
+    near(r.totalIncome, r.categoriesTotal + r.installmentsTotal + sum(r.allocations) + sum(r.debtPayments) + r.unallocated, `${e.id} сохранение денег`);
   });
 });
 
@@ -585,7 +694,7 @@ test('после расчёта: баланс на дату, прогноз ка
     ops: [{ id: 'o', card_id: 'k', op_date: '2027-03-01', amount: 30000, kind: 'spend' }],
   });
   const sim = run(st);
-  assert.equal(goalBalanceAt(sim, st.savings.goals[0], txs, '2027-02-12'), 30000 - 20000);
+  assert.equal(goalBalanceAt(sim, st.savings.goals[0], txs, '2027-02-12'), 30000, 'план заранее восполнил трату до срока цели');
   const fc = cardForecast(sim, st.debts.credit_cards[0], st.debts.credit_card_ops, '2027-03-02');
   assert.equal(fc.state.debt, 30000);
   assert.equal(fc.cycle.deadline, '2027-03-31');

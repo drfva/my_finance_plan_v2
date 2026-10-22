@@ -249,6 +249,21 @@ test('store: архив, видимость и отсутствие приори
   });
 });
 
+test('store: происхождение дохода и ручные поля графика сохраняются после повторной загрузки', async () => {
+  const client = fakeClient(makeState({ income: { periods: [{ id: 'p', income_net: 1000 }] },
+    debts: { installment_payments: [{ id: 'i-1', installment_id: 'i', amount: 100 }] } }));
+  const timers = manualTimers();
+  const store = createStore({ client, ...timers });
+  await store.load();
+  store.update('income', d => { d.periods[0].income_manual = true; });
+  store.update('debts', d => { d.installment_payments[0].manual_fields = ['amount']; });
+  await timers.tick();
+  const loaded = createStore({ client });
+  await loaded.load();
+  assert.equal(loaded.state.income.periods[0].income_manual, true);
+  assert.deepEqual(loaded.state.debts.installment_payments[0].manual_fields, ['amount']);
+});
+
 test('store: настройки — только изменённые ключи, null для сброса, название плана', async () => {
   const client = fakeClient(makeState());
   const timers = manualTimers();

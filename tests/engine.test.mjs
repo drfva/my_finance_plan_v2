@@ -7,7 +7,7 @@ import { createCalendar, payoutSchedule } from '../src/engine/calendar.js';
 import { salaryForWindow, rateOn } from '../src/engine/salary.js';
 import { taxOn, scaleForYear, taxForPayment, taxParts, grossFromNet, estimateMonthlyNet } from '../src/engine/tax.js';
 import { averageDailyEarnings, vacationFormula, splitVacationPay } from '../src/engine/vacation.js';
-import { computeIncome, generateYear } from '../src/engine/income.js';
+import { computeIncome, generateYear, classifyIncomePeriods } from '../src/engine/income.js';
 import { createConfig } from '../src/core/config.js';
 import { addDays, daysInclusive, addMonths } from '../src/engine/dates.js';
 
@@ -282,6 +282,57 @@ const vacState = extra => ({
     ],
     ...extra,
   },
+});
+
+test('доход: изменение отпуска, оклада и календаря обновляет автоматические выплаты и сохраняет ручные', () => {
+  const st = vacState({ vacations: [{ id: 'v', start_date: '2027-08-10', end_date: '2027-08-17' }],
+    income_history: [{ year: 2027, month: 7, amount: 230000 }] });
+  for (const p of st.income.periods) p.income_manual = false;
+  const before = computeIncome(st, VAC_CFG);
+  st.income.vacations[0].end_date = '2027-08-25';
+  const after = computeIncome(st, VAC_CFG);
+  assert.notEqual(after.byId.get('p2').salary, before.byId.get('p2').salary);
+  assert.equal(after.byId.get('p2').salary, after.byId.get('p2').formula.net);
+  assert.notEqual(after.byId.get('p2').vacationGross, before.byId.get('p2').vacationGross);
+  const p = st.income.periods[0];
+  p.income_net = 54321;
+  p.income_manual = true;
+  st.income.salary_rates = [{ ...RATES[0], amount: 500000 }];
+  const withRate = computeIncome(st, VAC_CFG);
+  assert.equal(withRate.byId.get('p1').salary, 54321);
+  assert.notEqual(withRate.byId.get('p2').salary, after.byId.get('p2').salary);
+  st.income.account_calendar_days = [{ date: '2027-08-26', kind: 'holiday' }];
+  const withDay = computeIncome(st, VAC_CFG);
+  assert.notEqual(withDay.byId.get('p2').salary, withRate.byId.get('p2').salary);
+  assert.equal(withDay.byId.get('p1').salary, 54321);
+  assert.equal(withDay.monthIncome(2027, 8), withDay.periods.reduce((s, r) => s + r.salary, 0));
+});
+
+test('доход: старые отличающиеся суммы сохраняются; совпадающие с формулой включают авто', () => {
+  const st = vacState({ vacations: [] });
+  const inc = computeIncome(st, VAC_CFG);
+  st.income.periods[0].income_net = inc.byId.get('p1').formula.net;
+  const classified = classifyIncomePeriods(computeIncome(st, VAC_CFG));
+  assert.deepEqual(classified, [{ id: 'p1', manual: false }, { id: 'p2', manual: true }]);
+  st.income.periods[0].income_manual = false;
+  st.income.periods[0].locked = true;
+  st.income.salary_rates = [{ ...RATES[0], amount: 1000000 }];
+  assert.equal(computeIncome(st, VAC_CFG).byId.get('p1').salary, st.income.periods[0].income_net);
+});
+
+test('доход: новый год создаётся с автоматическими суммами, ручная премия не становится окладом', () => {
+  const st = vacState({ vacations: [], periods: [] });
+  const fresh = generateYear(st, VAC_CFG, 2027);
+  assert.ok(fresh.length > 0);
+  assert.ok(fresh.every(p => p.income_manual === false));
+  st.income.periods = fresh;
+  const before = computeIncome(st, VAC_CFG);
+  st.income.salary_rates = [{ ...RATES[0], amount: 500000 }];
+  const after = computeIncome(st, VAC_CFG);
+  assert.notEqual(after.periods[0].salary, before.periods[0].salary);
+  st.income.periods.push({ id: 'bonus', year: 2027, pay_date: '2027-08-20', window_start: '2027-08-01', window_end: '2027-08-31',
+    calc_mode: 'manual', income_manual: false, income_net: 10000 });
+  assert.equal(computeIncome(st, VAC_CFG).byId.get('bonus').salary, 10000);
 });
 
 test('отпускные: своя сумма — это начислено, в план идёт остаток после налога', () => {

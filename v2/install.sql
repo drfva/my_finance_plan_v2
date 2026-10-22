@@ -7,7 +7,7 @@
 -- Пользователей для входа создайте отдельно в Authentication -> Users.
 -- Финансовый план создаётся при первом входе через bootstrap_user.
 --
--- Собран из v2/sql/001_schema.sql ... 007_goal_archive.sql в указанном ниже порядке.
+-- Собран из v2/sql/001_schema.sql ... 008_income_manual.sql в указанном ниже порядке.
 -- Исходные SQL включены без изменения. При их изменении пересоберите этот файл.
 -- Старые sql/001_base.sql ... 006_schedule.sql и 000_reset_public.sql НЕ включены.
 -- Это установочный файл, а не скрипт переноса старой базы на v2.
@@ -1589,6 +1589,23 @@ update public.goals set priority = null where completed;
 comment on column public.goals.archived is 'Убрана в архив Копилок/Подушек; возврат из архива не открывает цель.';
 comment on column public.goals.hidden_overview is 'Скрыта пользователем с Обзора; архив сам по себе не скрывает цель.';
 comment on column public.goals.priority is 'Очередь активных целей своего типа; у закрытой цели NULL.';
+
+notify pgrst, 'reload schema';
+
+
+-- =====================================================================
+-- SOURCE: v2/sql/008_income_manual.sql
+-- =====================================================================
+
+-- Различаем ручной доход и автоматически рассчитанный; NULL — старые записи.
+alter table public.periods add column if not exists income_manual boolean;
+comment on column public.periods.income_manual is
+  'TRUE: сумма закреплена вручную; FALSE: незакреплённая выплата пересчитывается по формуле; NULL: происхождение старой суммы ещё не определено.';
+
+alter table public.installment_payments
+  add column if not exists manual_fields text[] not null default '{}';
+comment on column public.installment_payments.manual_fields is
+  'Поля графика, исправленные вручную: amount и pay_date. При пересборке сохраняются.';
 
 notify pgrst, 'reload schema';
 

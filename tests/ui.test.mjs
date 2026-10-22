@@ -7,6 +7,10 @@ import { createFormat } from '../src/core/format.js';
 import { handle as handleGoals, milestoneStatus, goalSummary, goalCard, render as renderGoals, moveGoal } from '../src/ui/goals.js';
 import { render as renderReserves } from '../src/ui/reserves.js';
 import { render as renderDashboard, handle as handleDashboard } from '../src/ui/dashboard.js';
+import { render as renderPeriods, handle as handlePeriods } from '../src/ui/periods.js';
+import { calendarCard, handle as handleSettings } from '../src/ui/settings.js';
+import { render as renderInstallments } from '../src/ui/installments.js';
+import { render as renderGifts } from '../src/ui/gifts.js';
 import { simulate, goalProgressAt, goalBalanceAt } from '../src/engine/allocation.js';
 import { createConfig } from '../src/core/config.js';
 import fs from 'node:fs';
@@ -36,6 +40,75 @@ function goalContext(goals, milestones = []) {
   return { state, cfg, store: fakeStore(state), fmt, canEdit: true, today: '2027-03-01', year: 2027,
     ui: { open: new Set(), draft: { dashboard: { view: 'saved' } } }, sim: simulate(state, cfg, { today: '2027-03-01' }) };
 }
+
+test('производственный календарь: месяцы, високосный февраль, свои дни и счётчик рабочих дней', () => {
+  const ctx = goalContext([]);
+  ctx.ui.open.add('set:calendar');
+  ctx.ui.draft.settings = { calendarMonth: '2028-02' };
+  let html = calendarCard(ctx);
+  assert.equal((html.match(/data-calendar-day=/g) ?? []).length, 29);
+  assert.match(html, /2028-02-29/);
+  assert.match(html, /Рабочих: 20/);
+  assert.doesNotMatch(html, /<table|class="own/);
+  assert.equal(handleSettings(click('calendar-month', '2028-12:1'), ctx), true);
+  assert.equal(ctx.ui.draft.settings.calendarMonth, '2029-01');
+  assert.equal(handleSettings(click('calendar-month', '2029-01:-1'), ctx), true);
+  assert.equal(ctx.ui.draft.settings.calendarMonth, '2028-12');
+  ctx.ui.draft.settings.calendarMonth = '2028-02';
+  assert.equal(handleSettings(click('calendar-day', '2028-02-07'), ctx), true);
+  assert.equal(handleSettings(click('calendar-set', '2028-02-07:holiday'), ctx), true);
+  const refresh = () => { ctx.sim = simulate(ctx.state, ctx.cfg); };
+  refresh();
+  html = calendarCard(ctx);
+  assert.match(html, /Рабочих: 19/);
+  assert.match(html, /По календарю/);
+  assert.equal(ctx.sim.income.calendar.day('2028-02-07').working, false);
+  handleSettings(click('calendar-set', '2028-02-07:workday'), ctx);
+  refresh();
+  assert.equal(ctx.sim.income.calendar.day('2028-02-07').working, true);
+  handleSettings(click('calendar-set', '2028-02-07:default'), ctx);
+  assert.deepEqual(ctx.state.income.account_calendar_days, []);
+  const viewer = { ...ctx, canEdit: false };
+  assert.doesNotMatch(calendarCard(viewer), /data-calendar-set=/);
+  assert.equal(handleSettings(click('calendar-set', '2028-02-07:holiday'), viewer), false);
+  assert.equal(handleSettings(click('calendar-set', '2028-02-30:holiday'), ctx), false);
+});
+
+test('ручной доход закрепляется вместе с числом и отмечается рамкой; «по формуле» возвращает авто', () => {
+  const ctx = goalContext([]);
+  ctx.state.income.periods = [{ id: 'p', year: 2027, pay_date: '2027-03-20', window_start: '2027-03-01', window_end: '2027-03-15',
+    income_net: 10000, calc_mode: 'auto', income_manual: false }];
+  ctx.state.income.salary_rates = [{ id: 'rate', effective_from: '2027-01-01', amount: 100000, is_gross: false }];
+  const refresh = () => { ctx.sim = simulate(ctx.state, ctx.cfg); ctx.income = ctx.sim.income; };
+  refresh();
+  ctx.ui.open.add('period:p');
+  applyEdit(ctx.store, el({ edit: 'income|periods|income_net', key: '{"id":"p"}', type: 'money' }, '12345'), fmt);
+  assert.equal(ctx.state.income.periods[0].income_manual, true);
+  refresh();
+  assert.match(renderPeriods(ctx), /class="own num"[^>]*data-edit="income\|periods\|income_net"/);
+  assert.equal(ctx.income.byId.get('p').salary, 12345);
+  assert.equal(handlePeriods(click('fill-income', 'p'), ctx), true);
+  assert.equal(ctx.state.income.periods[0].income_manual, false);
+  refresh();
+  assert.doesNotMatch(renderPeriods(ctx), /class="own num"[^>]*data-edit="income\|periods\|income_net"/);
+  assert.equal(ctx.income.byId.get('p').salary, ctx.income.byId.get('p').formula.net);
+});
+
+test('расчётные поля: ручные отпускные, платежи рассрочки и суммы подарков отмечаются', () => {
+  const ctx = goalContext([]);
+  ctx.state.income.vacations = [{ id: 'v', pay_manual: false, pay_amount: 0 }];
+  applyEdit(ctx.store, el({ edit: 'income|vacations|pay_amount', key: '{"id":"v"}', type: 'money' }, '1000'), fmt);
+  assert.equal(ctx.state.income.vacations[0].pay_manual, true);
+  ctx.state.debts.installments = [{ id: 'i', title: 'Покупка', total: 1000, parts: 2, every_n: 1, period_unit: 'month' }];
+  ctx.state.debts.installment_payments = [{ id: 'i-1', installment_id: 'i', pay_date: '2027-04-01', amount: 500 }];
+  applyEdit(ctx.store, el({ edit: 'debts|installment_payments|amount', key: '{"id":"i-1"}', type: 'money' }, '700'), fmt);
+  assert.deepEqual(ctx.state.debts.installment_payments[0].manual_fields, ['amount']);
+  ctx.ui.open.add('inst:i');
+  assert.match(renderInstallments(ctx), /class="own num"[^>]*data-edit="debts\|installment_payments\|amount"/);
+  ctx.state.gifts = { gift_events: [{ id: 'e', title: 'Праздник', month: 12, day: 23, repeat_kind: 'yearly' }],
+    gift_event_amounts: [{ event_id: 'e', year: 2027, amount: 1000 }] };
+  assert.match(renderGifts(ctx), /class="own num"[^>]*data-edit="gifts\|gift_event_amounts\|amount"/);
+});
 
 test('архив: скрывает только список своего раздела; возврат не открывает цель и не меняет снимок', () => {
   for (const kind of ['bucket', 'reserve']) {
