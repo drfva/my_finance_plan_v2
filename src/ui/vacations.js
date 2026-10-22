@@ -2,10 +2,9 @@
 
 import { esc, card, table, input, checkbox, addButton, delButton, button, pill } from './dom.js';
 import { uid } from './edit.js';
-import { renderSick, handleSick } from './sick.js';
 
 export const code = 'vacations';
-export const title = () => 'Отпуска и больничные';
+export const title = () => 'Отпуска';
 
 export function render(ctx) {
   const { state, fmt, canEdit, income, ui } = ctx;
@@ -60,7 +59,7 @@ export function render(ctx) {
           'Откуда', 'Выплатят', '', ''],
         rows: rows.length ? rows : ['<tr><td colspan="10" class="muted">Отпусков нет</td></tr>'] }),
     })}
-    ${renderSick(ctx)}`;
+    `;
 }
 
 /* Как считаем: 12 месяцев в gross → СДЗ → начислено → НДФЛ → на руки */
@@ -113,7 +112,6 @@ function howCalculated(ctx, v, f, parts, totals) {
 }
 
 export function handle(ev, ctx) {
-  if (handleSick(ev, ctx)) return true;
   if (!ctx.canEdit) return false;
   const { store, income } = ctx;
   const el = ev.target.closest('[data-vac-formula]');

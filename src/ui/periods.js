@@ -40,10 +40,11 @@ function head(ctx, r) {
   const p = r.period;
   const debts = Object.values(r.debtPayments).reduce((s, x) => s + x, 0);
   const pills = [
-    p.sick_leave_id ? pill('пособие по больничному') : p.calc_mode === 'manual'
+    p.sick_leave_id ? pill('больничный') : p.calc_mode === 'manual'
       ? pill(`${KIND_TITLES[p.manual_kind] ?? 'разовая'}${p.taxable === false ? ', без налога' : ''}`) : '',
     p.locked ? pill('🔒 зафиксирована') : '',
     r.income.vacationPay > 0.5 ? pill(`отпускные ${fmt.money(r.income.vacationPay)}`) : '',
+    r.income.sickPay > 0.5 ? pill(`больничный ${fmt.money(r.income.sickPay)}`) : '',
     r.income.extraIncome > 0.5 ? pill(`разовый доход ${fmt.money(r.income.extraIncome)}`) : '',
     debts > 0.5 ? pill(`долги ${fmt.money(debts)}`) : '',
     r.free < -0.5 ? pill('дефицит', 'danger') : (r.unallocated < -0.5 ? pill(`не хватает ${fmt.money(-r.unallocated)}`, 'warn') : ''),
@@ -175,9 +176,12 @@ function body(ctx, r) {
              начислено ${esc(fmt.money(f.gross))}, налог ${esc(fmt.money(f.tax))}
              ${canEdit && (p.income_manual || Math.abs(r.income.salary - f.net) > 0.5)
                ? button({ action: 'fill-income', value: p.id, label: 'подставить по формуле', cls: 'ghost small' }) : ''}`
-          : p.sick_leave_id ? 'Сумма и дата задаются в разделе «Отпуска и больничные». Начислено ' + esc(fmt.money(r.income.gross)) + ', НДФЛ ' + esc(fmt.money(r.income.tax)) : 'оклада на этот период нет'}</div>
+          : p.sick_leave_id ? 'Больничный по прежней схеме. Начислено ' + esc(fmt.money(r.income.gross)) + ', НДФЛ ' + esc(fmt.money(r.income.tax)) : 'оклада на этот период нет'}</div>
         ${r.income.vacationPay > 0.5 ? `<div class="small-note">+ отпускные ${esc(fmt.money(r.income.vacationPay))} на руки
           (начислено ${esc(fmt.money(r.income.vacationGross))}) за ${r.income.vacations.reduce((sum, x) => sum + x.days, 0)} дн.</div>` : ''}
+        ${r.income.sickParts?.length ? `<div class="small-note">+ больничный <b>${esc(fmt.money(r.income.sickPay))}</b> на руки
+          (начислено ${esc(fmt.money(r.income.sickGross))}, НДФЛ ${esc(fmt.money(r.income.sickTax))}).
+          За дни болезни в этом расчётном периоде; настройка — в разделе «Больничные».</div>` : ''}
         ${r.income.extraIncome > 0.5 ? `<div class="small-note">+ разовый доход ${esc(fmt.money(r.income.extraIncome))}</div>` : ''}
       </div>
       ${field('Комментарий', input({ edit: 'income|periods|note', key: { id: p.id }, value: p.note, disabled: !canEdit }))}

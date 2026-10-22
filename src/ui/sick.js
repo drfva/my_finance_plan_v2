@@ -3,6 +3,11 @@ import { esc, card, section, input, select, checkbox, field, pill, button, delBu
 import { uid } from './edit.js';
 import { sickParameters, sickPeriodId } from '../engine/sick.js';
 
+export const code = 'sick';
+export const title = () => 'Больничные';
+export const render = ctx => renderSick(ctx);
+export const handle = (ev, ctx) => handleSick(ev, ctx);
+
 const options = entries => entries.map(([value, label]) => ({ value, label }));
 export const earningsHelp = () => `<details class="info-box" style="margin-bottom:16px;">
   <summary><b>Какой заработок указывать для больничного?</b></summary>
@@ -59,10 +64,13 @@ export function renderSick(ctx) {
       const title = payer === 'employer' ? 'Работодатель' : 'СФР';
       const gross = payer === 'employer' ? f?.employerGross ?? 0 : f?.sfrGross ?? 0;
       const row = income.byId.get(sickPeriodId(s.id, payer));
+      const parts = income.periods.flatMap(r => (r.sickParts ?? []).filter(x => x.leave_id === s.id && x.payer === payer));
+      const net = row?.salary ?? parts.reduce((n, x) => n + x.net, 0);
+      const tax = row?.tax ?? parts.reduce((n, x) => n + x.tax, 0);
       const own = s[`${payer}_net`] !== null && s[`${payer}_net`] !== undefined;
       return `<div class="card" style="margin:0;">
-        <h3>${title}</h3><div class="small-note">Начислено: <b>${esc(fmt.money(gross, 'RUB'))}</b>${row ? ` · НДФЛ: ${esc(fmt.money(row.tax, 'RUB'))} · на руки: <b>${esc(fmt.money(row.salary, 'RUB'))}</b>` : ''}</div>
-        ${control(`${payer}_pay_date`, 'Дата поступления', 'date', undefined, 'В этот день появится отдельная выплата в Доходах.')}
+        <h3>${title}</h3><div class="small-note">Начислено: <b>${esc(fmt.money(gross, 'RUB'))}</b> · в плане НДФЛ: ${esc(fmt.money(tax, 'RUB'))} · на руки: <b>${esc(fmt.money(net, 'RUB'))}</b></div>
+        ${control(`${payer}_pay_date`, 'Фактическая дата поступления (необязательно)', 'date', undefined, 'Для справки. В плане больничный включён в выплаты оклада за дни болезни, как отпускные.')}
         ${control(`${payer}_net`, 'Подтверждённая сумма на руки (необязательно)', 'money', undefined, 'Пустое поле — расчёт НДФЛ по шкале; 0 — подтверждённый ноль.', own ? 'own' : '')}
         ${payer === 'sfr' ? control('sfr_prior_tax_base', 'Пособия СФР ранее в году вне плана, до НДФЛ, ₽', 'money', 0, 'СФР — отдельный налоговый агент. Суммы из плана учитываются автоматически.') : ''}
         ${canEdit && own ? button({ action: 'sick-reset-net', value: `${s.id}|${payer}`, label: 'Вернуть расчёт по формуле', cls: 'ghost small' }) : ''}
@@ -71,11 +79,18 @@ export function renderSick(ctx) {
     }).join('');
     const notices = [...(f?.errors ?? []), ...(f?.warnings ?? [])];
     if (s.benefit_enabled && f && !f.errors.length) {
-      for (const payer of ['employer', 'sfr']) {
-        if ((payer === 'employer' ? f.employerGross : f.sfrGross) > 0 && !income.byId.has(sickPeriodId(s.id, payer))) notices.push(`Укажите корректную дату поступления от ${payer === 'employer' ? 'работодателя' : 'СФР'} не раньше начала листа: эта часть пока не включена в доход.`);
-      }
+      if (income.warnings.some(w => w.code === 'sick_outside_plan' && w.sick_leave_id === s.id)) notices.push('Часть дней болезни не попала в расчётные периоды оклада. Добавьте соответствующие выплаты: эта часть больничного пока не включена в план.');
+      if (income.warnings.some(w => w.code === 'sick_locked_period' && w.sick_leave_id === s.id)) notices.push('Часть больничного попала в уже зафиксированную выплату оклада. Её история сохранена; чтобы добавить больничный, сначала разблокируйте эту выплату в Доходах.');
       if (income.warnings.some(w => w.code === 'sick_no_tax_scale' && w.sick_leave_id === s.id)) notices.push('Нет налоговой шкалы: заполните её в Настройках или укажите подтверждённую сумму на руки. До этого поступление равно нулю.');
     }
+    const splitRows = income.periods.flatMap(r => (r.sickParts ?? []).filter(x => x.leave_id === s.id).map(x => `<tr>
+      <td>${esc(fmt.date(r.period.pay_date))}</td><td>${esc(fmt.date(r.period.window_start))}–${esc(fmt.date(r.period.window_end))}</td>
+      <td>${x.payer === 'employer' ? 'Работодатель' : 'СФР'}</td><td class="num">${x.days}</td>
+      <td class="num">${esc(fmt.money(x.gross, 'RUB'))}</td><td class="num">${esc(fmt.money(x.net, 'RUB'))}</td>
+      <td>${r.period.locked ? 'зафиксировано' : ''}</td></tr>`));
+    const distribution = splitRows.length ? `<h3 style="margin-top:16px;">Больничный по выплатам оклада</h3>${table({
+      head: ['Выплата', 'Расчётный период', 'Плательщик', 'Дней', 'Начислено', 'На руки', ''], rows: splitRows,
+    })}` : '';
     const formula = f && !f.disabled && !f.errors.length && s.reason !== 'manual'
       ? `<div class="info-box" style="margin:12px 0;">В базу: ${esc(fmt.money(f.base, 'RUB'))} ÷ ${f.denominator} дней, с учётом минимума и максимума средний дневной: <b>${esc(fmt.number(f.daily, 2))} ₽</b>.<br>
           По стажу: ${Math.round(f.staffRate * 100)}% (для ребёнка до 8 лет — 100%). Оплачено ${f.paidDays} из ${f.count} календарных дней.<br>
@@ -83,12 +98,12 @@ export function renderSick(ctx) {
          <details><summary>Расшифровка по дням</summary><p class="small-note">Дневные суммы показаны с округлением. Итог каждого плательщика округляется до копеек после суммирования.</p>${table({ head: ['Дата', 'Плательщик', '%', 'Начислено, ₽'], rows: f.days.map(d => `<tr><td>${esc(fmt.date(d.date))}</td><td>${d.payer === 'employer' ? 'Работодатель' : 'СФР'}</td><td>${d.paid ? Math.round(d.rate * 100) : 'не оплачивается'}</td><td class="num">${esc(fmt.number(d.amount, 2))} ₽</td></tr>`) })}</details>` : '';
     return section({ key: `sick:${s.id}`, open: ui.open.has(`sick:${s.id}`),
       title: `${s.note || 'Больничный'} · ${fmt.date(s.start_date)}–${fmt.date(s.end_date)}`,
-      actions: `${pill(s.benefit_enabled ? f?.errors.length ? 'нужны данные' : 'расчёт пособия' : 'только отсутствие', f?.errors.length ? 'warn' : '')}${canEdit ? delButton({ domain: 'income', table: 'sick_leaves', key,
-        confirm: 'Удалить больничный и связанные выплаты, включая закреплённые, со всеми их отчислениями?' }) : ''}`,
+      actions: `${pill(s.benefit_enabled ? f?.errors.length ? 'нужны данные' : 'больничный' : 'только отсутствие', f?.errors.length ? 'warn' : '')}${canEdit ? delButton({ domain: 'income', table: 'sick_leaves', key,
+        confirm: 'Удалить больничный? Будущие выплаты оклада пересчитаются, их закреплённые части сохранятся. Отдельные выплаты по прежней схеме удалятся вместе с их отчислениями.' }) : ''}`,
       body: `<div class="grid cols-3">
         ${control('start_date', 'Начало листа', 'date')}${control('end_date', 'Конец листа', 'date')}${control('note', 'Название / комментарий')}
-      </div>${check('benefit_enabled', 'Рассчитывать пособие и включать поступления в план')}
-      <div class="small-note">При выключенном расчёте даты всё равно исключают рабочие дни из оклада. Ранее закреплённые поступления сохраняются.</div>
+      </div>${check('benefit_enabled', 'Рассчитывать больничный и включать в выплаты оклада')}
+      <div class="small-note">При выключенном расчёте даты всё равно исключают рабочие дни из оклада. В зафиксированных выплатах история сохраняется.</div>
       ${s.benefit_enabled ? `<div class="grid cols-3" style="margin-top:12px;">
         ${choice('reason', 'Причина', [['illness', 'Своя болезнь / бытовая травма'], ['child', 'Уход за ребёнком'], ['family', 'Уход за взрослым родственником'], ['manual', 'Особый случай: подтверждённые суммы']], 'illness')}
         ${control('insurance_years', 'Страховой стаж: полных лет', 'int', undefined, 'Общий страховой стаж на начало случая, не только у текущего работодателя.')}
@@ -99,7 +114,7 @@ export function renderSick(ctx) {
         ${control('employment_fraction', 'Доля ставки', 'number', 1, 'Полная ставка — 1, половина — 0,5. Применяется к минимуму.')}
       </div>${care}${s.reason === 'manual' ? `<div class="grid cols-2">${control('employer_gross', 'Начислено работодателем, ₽', 'money')}${control('sfr_gross', 'Начислено СФР, ₽', 'money')}</div><p class="small-note">Для производственной травмы, профзаболевания, ограничений по инвалидности, нарушения режима, увольнения и других особых случаев внесите суммы из подтверждённого расчёта.</p>` : advanced}
       ${notices.length ? `<div class="info-box" style="margin:12px 0;">${notices.map(t => `<p>${esc(t)}</p>`).join('')}</div>` : ''}
-      ${formula}<div class="grid cols-2" style="margin-top:16px;">${payers}</div>` : ''}`,
+      ${formula}${distribution}<div class="grid cols-2" style="margin-top:16px;">${payers}</div>` : ''}`,
     });
   }).join('');
   return card({ title: 'Больничные',
@@ -107,7 +122,7 @@ export function renderSick(ctx) {
       id: uid('sick'), start_date: ctx.today, end_date: ctx.today, note: '', benefit_enabled: true, reason: 'illness',
       insurance_months: 0, district_coefficient: 1, employment_fraction: 1, treatment: 'outpatient',
     } }) : '',
-    note: 'Оклад уменьшается за рабочие дни болезни. Пособие оплачивает календарные дни и приходит отдельными выплатами. База, ограничения и расчёт пособия — в рублях. '
+    note: 'Оклад уменьшается за рабочие дни болезни, а больничный за попавшие в расчётный период календарные дни добавляется к той же выплате. Как отпускные, он распределяется по периодам оклада. База, ограничения и расчёт — в рублях. '
       + 'Автоматическая формула — для застрахованного работника по трудовому договору. Для ГПХ, ИП и самозанятости используйте подтверждённые суммы особого случая.',
     body: earningsHelp() + (content || '<div class="muted">Больничных нет.</div>'),
   });

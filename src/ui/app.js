@@ -25,11 +25,12 @@ import * as reserves from './reserves.js';
 import * as credits from './credits.js';
 import * as installments from './installments.js';
 import * as vacations from './vacations.js';
+import * as sick from './sick.js';
 import * as settings from './settings.js';
 import * as ledger from './ledger.js';
 import { attachSettings } from './settings.js';
 
-const TABS = [dashboard, periods, categories, facts, goals, gifts, reserves, credits, installments, vacations, settings];
+const TABS = [dashboard, periods, categories, facts, goals, gifts, reserves, credits, installments, vacations, sick, settings];
 /* Вкладки без кнопки в шапке: открываются из других разделов (кнопкой в карточке) */
 const HIDDEN = [ledger];
 const ALL_TABS = [...TABS, ...HIDDEN];
@@ -129,7 +130,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   /* Прошедшие выплаты фиксируются: расчёт превращается в факт и больше не меняется */
   function freezePast(ctx) {
     if (!ctx.canEdit) return false;
-    const ids = ctx.sim.rows.filter(r => !r.period.locked && !r.income.sick?.pendingTax && r.period.pay_date < ctx.today).map(r => r.period.id);
+    const ids = ctx.sim.rows.filter(r => !r.period.locked && !r.income.sick?.pendingTax && !r.income.sickPendingTax && r.period.pay_date < ctx.today).map(r => r.period.id);
     if (!ids.length) return false;
     const patch = freezePeriods(ctx.state, ctx.sim, ids, ctx.fmt.round);
     store.update('income', d => { d.periods = patch.periods; });

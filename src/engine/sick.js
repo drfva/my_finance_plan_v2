@@ -141,31 +141,54 @@ export function computeSickLeaves(inc) {
     });
 }
 
-/* Реальные строки выплат сохраняются в БД, чтобы отчисления и фиксация истории
-   могли ссылаться на них обычными внешними ключами. Закреплённые не перестраиваем. */
-export function sickPeriods(inc, formulas) {
-  const expected = new Map();
-  for (const f of formulas) {
-    if (f.disabled || f.errors.length) continue;
-    const s = f.leave;
-    for (const payer of ['employer', 'sfr']) {
-      const gross = payer === 'employer' ? f.employerGross : f.sfrGross;
-      const date = s[`${payer}_pay_date`];
-      if (!(gross > 0) || !isValid(date || '') || date < s.start_date) continue;
-      const id = sickPeriodId(s.id, payer);
-      expected.set(id, { id, year: Number(date.slice(0, 4)), slot_order: null,
-        title: `Больничный · ${payer === 'employer' ? 'работодатель' : 'СФР'}`,
-        pay_date: date, window_start: date, window_end: date, calc_mode: 'manual', manual_kind: null,
-        taxable: true, income_manual: false, income_net: 0, locked: false, note: '',
-        sick_leave_id: s.id, sick_payer: payer, sick_gross: gross });
+/* Переход со старых отдельных поступлений: будущие убираем, закреплённые
+   сохраняем как факт. Новых отдельных выплат больничного больше нет. */
+export function sickPeriods(inc) {
+  return (inc.periods ?? []).filter(p => !p.sick_leave_id || p.locked);
+}
+
+/* Больничный относится к выплате оклада за дни болезни, как отпускные.
+   У обычного расчёта берём начисление каждого календарного дня, поэтому
+   смена МРОТ по месяцам и процентов ухода не теряется при делении.
+   Подтверждённые начисления особого случая делятся пропорционально дням. */
+export function splitSickPay(f, periods) {
+  if (f.disabled || f.errors.length) return [];
+  const s = f.leave;
+  const regular = periods.filter(p => !p.sick_leave_id && p.calc_mode !== 'manual')
+    .sort((a, b) => String(a.pay_date).localeCompare(String(b.pay_date)) || String(a.id).localeCompare(String(b.id)));
+  const result = [];
+  for (const payer of ['employer', 'sfr']) {
+    // Уже полученная по прежней схеме сумма не начисляется повторно в окладе.
+    if (periods.some(p => p.locked && p.sick_leave_id === s.id && p.sick_payer === payer)) continue;
+    const total = payer === 'employer' ? f.employerGross : f.sfrGross;
+    if (!(total > 0)) continue;
+    const daily = s.reason === 'manual'
+      ? [...eachDay(s.start_date, s.end_date)].map(date => ({ date, amount: total / daysInclusive(s.start_date, s.end_date) }))
+      : f.days.filter(d => d.payer === payer && d.paid && d.amount > 0);
+    const byPeriod = new Map();
+    let covered = 0;
+    for (const d of daily) {
+      const p = regular.find(p => p.window_start && p.window_end && p.window_start <= d.date && d.date <= p.window_end);
+      if (!p) continue;
+      covered++;
+      const part = byPeriod.get(p.id) ?? { period_id: p.id, leave_id: s.id, payer, gross: 0, days: 0 };
+      part.gross += d.amount;
+      part.days++;
+      byPeriod.set(p.id, part);
     }
+    const parts = [...byPeriod.values()];
+    const net = s[`${payer}_net`];
+    let givenGross = 0, givenNet = 0;
+    parts.forEach((part, i) => {
+      const last = i === parts.length - 1 && covered === daily.length;
+      part.gross = last ? cents(total - givenGross) : cents(part.gross);
+      givenGross += part.gross;
+      if (net !== null && net !== undefined) {
+        part.manualNet = last ? cents(Number(net) - givenNet) : cents(Number(net) * part.gross / total);
+        givenNet += part.manualNet;
+      }
+    });
+    result.push(...parts);
   }
-  const periods = [];
-  for (const p of inc.periods ?? []) {
-    if (!p.sick_leave_id || p.locked) { periods.push(p); expected.delete(p.id); continue; }
-    const next = expected.get(p.id);
-    if (next) periods.push({ ...p, ...next });
-    expected.delete(p.id);
-  }
-  return [...periods, ...expected.values()];
+  return result;
 }

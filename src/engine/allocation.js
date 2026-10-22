@@ -82,7 +82,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   /* ---------------------------------------------------------- расходы и рассрочки */
   const exp = state.expenses ?? {};
   const percentBase = stage('categories')?.params?.percent_base === 'gross'
-    ? p => inc.byId.get(p.id)?.formula?.gross ?? (p.sick_leave_id ? inc.byId.get(p.id)?.gross ?? 0 : 0)
+    ? p => (inc.byId.get(p.id)?.formula?.gross ?? (p.sick_leave_id ? inc.byId.get(p.id)?.gross ?? 0 : 0)) + (inc.byId.get(p.id)?.sickGross ?? 0)
     : p => inc.byId.get(p.id)?.total ?? 0;
   const expenses = planExpenses({
     categories: exp.expense_categories ?? [],
@@ -671,7 +671,13 @@ export function forecastBeyondPlan(sim, goal, milestoneIndex = null) {
   // темп: среднее пополнение за последние выплаты, где цель вообще получала деньги
   const regular = rows.filter(r => !r.period.sick_leave_id);
   const tail = regular.slice(-12);
-  const got = tail.reduce((s, r) => s + (r.allocations[goal.id] ?? 0), 0);
+  const got = tail.reduce((s, r) => {
+    const pool = Object.values(r.allocations).reduce((n, amount) => n + amount, 0) + Math.max(0, r.unallocated);
+    // Больничный уже увеличил фактический прогресс. Для продления регулярного
+    // темпа убираем его разовую часть из доступного для накопления остатка.
+    const regularShare = pool > 0 ? Math.max(0, pool - (r.income.sickPay ?? 0)) / pool : 0;
+    return s + (r.allocations[goal.id] ?? 0) * regularShare;
+  }, 0);
   const perPayout = tail.length ? got / tail.length : 0;
   if (perPayout <= 0.5) return null;
 
@@ -708,7 +714,8 @@ export function proposeRedistribution(sim, closedGoal, balance, date, txs) {
 export function freezePeriods(state, sim, ids, round = Math.round) {
   const set = new Set(ids);
   const periods = (state.income?.periods ?? []).map(p => (set.has(p.id)
-    ? { ...p, income_net: sim.byId.get(p.id)?.income.salary ?? p.income_net, locked: true } : p));
+    ? { ...p, income_net: sim.byId.get(p.id)?.income.salary ?? p.income_net, locked: true,
+        ...(!p.sick_leave_id ? { sick_snapshot: sim.byId.get(p.id)?.income.sickParts ?? [] } : {}) } : p));
   const savings = [...(state.savings?.savings_period_overrides ?? [])];
   const payments = [...(state.debts?.credit_payment_overrides ?? [])];
   for (const id of set) {
