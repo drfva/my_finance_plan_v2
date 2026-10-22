@@ -78,7 +78,7 @@ export function render(ctx) {
   const txs = state.savings?.goal_transactions ?? [];
   const balance = goalBalanceAt(ctx.sim, g, txs, ctx.today);
   const total = goalTotal(g, state.savings?.goal_milestones ?? []);
-  const progress = goalProgressAt(ctx.sim, g, ctx.sim.planEnd || ctx.today);
+  const progress = goalProgressAt(ctx.sim, g, g.completed ? ctx.today : ctx.sim.planEnd || ctx.today);
 
   return card({
     title: `История баланса: ${g.title}`,

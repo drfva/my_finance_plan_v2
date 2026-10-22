@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import { planExpenses, inSeason } from '../src/engine/expenses.js';
 import { buildInstallmentSchedule, installmentsByPeriod, newCardState, cardApplyOp, cardApplyPayment } from '../src/engine/debts.js';
 import { createTracker, cycleDates, giftAmountForYear, syncGenerated, milestonesOf } from '../src/engine/savings.js';
-import { simulate, freezePeriods, goalBalanceAt, reservePaceSuggestion, proposeRedistribution, cardForecast } from '../src/engine/allocation.js';
+import { simulate, freezePeriods, goalBalanceAt, goalProgressAt, snapshotGoalCompletion, reservePaceSuggestion, proposeRedistribution, cardForecast } from '../src/engine/allocation.js';
 import { createFx } from '../src/engine/fx.js';
 import { createConfig } from '../src/core/config.js';
 
@@ -363,6 +363,78 @@ function plan({ periods = payouts([1, 2, 3, 4, 5, 6]), goals = [], milestones = 
 }
 const run = st => simulate(st, createConfig(st));
 const goal = (id, extra = {}) => ({ id, title: id, kind_code: 'bucket', currency_code: 'RUB', priority: 1, target_amount: 0, deadline: null, starting_balance: 0, pace_amount: 0, completed: false, ...extra });
+
+test('закрытая цель: накопленный будущий этап сохраняется после траты и перевода', () => {
+  for (const kind of ['spend', 'transfer_out']) {
+    const g = goal('g', { starting_balance: 100 });
+    const st = plan({ periods: [], goals: [g], milestones: [
+      { id: 'm1', goal_id: 'g', target: 100, deadline: '2027-06-01' },
+      { id: 'm2', goal_id: 'g', target: 100, deadline: '2027-07-01' },
+    ], txs: [{ id: 'out', goal_id: 'g', date: '2027-03-02', amount: 100, kind }] });
+    const before = run(st);
+    assert.equal(before.milestoneDates.g[0], null, 'в открытой цели будущая трата откатывает этап');
+    g.completion_snapshot = snapshotGoalCompletion(before, g, '2027-03-01');
+    g.completed = true;
+    const sim = run(JSON.parse(JSON.stringify(st))); // повторная загрузка сохранённого плана
+    const savedGoal = sim.goals[0];
+    assert.equal(goalProgressAt(sim, savedGoal, '2027-03-03'), 100);
+    assert.deepEqual(sim.milestoneDates.g, ['pre', null]);
+    assert.deepEqual(sim.milestoneFunded.g, [0, null]);
+    assert.equal(goalBalanceAt(sim, savedGoal, st.savings.goal_transactions, '2027-03-03'), 0);
+    assert.deepEqual(sim.ledgerOf('g').at(-1).reopened, []);
+    assert.deepEqual(sim.finalPhase.phase.g, { idx: 1, saved: 0 });
+  }
+});
+
+test('закрытая цель: частичный прогресс неизменен при минусе и последующих пополнениях', () => {
+  const g = goal('g', { starting_balance: 150 });
+  const st = plan({ periods: [], goals: [g], milestones: [
+    { id: 'm1', goal_id: 'g', target: 100, deadline: '2027-06-01' },
+    { id: 'm2', goal_id: 'g', target: 100, deadline: '2027-07-01' },
+  ], txs: [
+    { id: 'out', goal_id: 'g', date: '2027-03-02', amount: 180, kind: 'spend' },
+    { id: 'in', goal_id: 'g', date: '2027-03-04', amount: 500, kind: 'deposit' },
+  ] });
+  g.completion_snapshot = snapshotGoalCompletion(run(st), g, '2027-03-01');
+  g.completed = true;
+  const sim = run(st);
+  assert.equal(goalProgressAt(sim, g, '2027-03-03'), 150);
+  assert.equal(goalBalanceAt(sim, g, st.savings.goal_transactions, '2027-03-03'), -30);
+  assert.equal(goalProgressAt(sim, g, '2027-03-05'), 150);
+  assert.equal(goalBalanceAt(sim, g, st.savings.goal_transactions, '2027-03-05'), 470);
+  assert.deepEqual(sim.milestoneDates.g, ['pre', null], 'пополнение не закрывает новые этапы закрытой цели');
+  assert.deepEqual(sim.finalPhase.phase.g, { idx: 1, saved: 50 });
+});
+
+test('снимок закрытия учитывает движения до сегодняшнего дня и исключает будущие', () => {
+  const g = goal('g', { starting_balance: 200 });
+  const st = plan({ periods: [], goals: [g], milestones: [
+    { id: 'm1', goal_id: 'g', target: 100, deadline: '2027-06-01' },
+    { id: 'm2', goal_id: 'g', target: 100, deadline: '2027-07-01' },
+    { id: 'm3', goal_id: 'g', target: 100, deadline: '2027-08-01' },
+  ], txs: [
+    { id: 'past', goal_id: 'g', date: '2027-02-28', amount: 80, kind: 'spend' },
+    { id: 'today', goal_id: 'g', date: '2027-03-01', amount: 10, kind: 'deposit' },
+    { id: 'future', goal_id: 'g', date: '2027-03-02', amount: 500, kind: 'deposit' },
+  ] });
+  const snapshot = snapshotGoalCompletion(run(st), g, '2027-03-01');
+  assert.equal(snapshot.progress, 130);
+  assert.deepEqual(snapshot.phase, { idx: 1, saved: 30 });
+  assert.deepEqual(snapshot.milestones.map(m => m.date), ['pre', null, null]);
+});
+
+test('закрытая цель без этапов: накопленная сумма сохраняется после последней выплаты плана', () => {
+  const g = goal('g', { starting_balance: 100, target_amount: 100, deadline: '2027-12-31' });
+  const st = plan({ periods: [], goals: [g], txs: [
+    { id: 'out', goal_id: 'g', date: '2027-03-01', amount: 100, kind: 'spend' },
+  ] });
+  g.completion_snapshot = snapshotGoalCompletion(run(st), g, '2027-02-28');
+  g.completed = true;
+  const sim = run(st);
+  assert.equal(goalProgressAt(sim, g, '2027-03-01'), 100);
+  assert.equal(goalBalanceAt(sim, g, st.savings.goal_transactions, '2027-03-01'), 0);
+  assert.deepEqual(sim.milestoneDates.g, ['pre']);
+});
 
 test('конвейер: совпадает с расчётом старой версии на её плане', () => {
   const fx = JSON.parse(fs.readFileSync(new URL('./fixtures/legacy-2027.json', import.meta.url), 'utf8'));

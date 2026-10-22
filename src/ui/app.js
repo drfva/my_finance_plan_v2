@@ -8,7 +8,7 @@
 
 import { esc, byId } from './dom.js';
 import { attachEditing } from './edit.js';
-import { simulate, freezePeriods } from '../engine/allocation.js';
+import { simulate, freezePeriods, snapshotGoalCompletion } from '../engine/allocation.js';
 import { computeIncome } from '../engine/income.js';
 import { createSecurity } from '../core/security.js';
 import { tourNeeded, tourPanel, tourHandle } from './tour.js';
@@ -197,6 +197,17 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     if (ensureGiftsGoal(ctx)) return;  // состояние изменилось — отрисовка придёт событием
     syncGeneratedRows(ctx);
     if (freezePast(ctx)) return;      // состояние изменилось — отрисовка придёт событием
+    // Старые закрытые цели ещё не содержат снимка: закрепляем доступную историю
+    // на сегодня. Первоначальная дата их закрытия в прежней модели не хранилась.
+    const missing = ctx.canEdit ? (ctx.state.savings?.goals ?? [])
+      .filter(g => g.completed && !g.completion_snapshot) : [];
+    if (missing.length) {
+      const snapshots = new Map(missing.map(g => [g.id, snapshotGoalCompletion(ctx.sim, g, ctx.today)]));
+      store.update('savings', d => {
+        for (const g of d.goals) if (snapshots.has(g.id)) g.completion_snapshot = snapshots.get(g.id);
+      });
+      return;
+    }
     if (!ui.tab || !ALL_TABS.some(t => t.code === ui.tab)) {
       const start = ctx.cfg.get('start_tab');
       ui.tab = TABS.some(t => t.code === start) ? start : 'dashboard';

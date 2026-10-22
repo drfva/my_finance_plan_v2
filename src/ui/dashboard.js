@@ -6,7 +6,7 @@
 --------------------------------------------------------------------- */
 
 import { esc, card, table, pill } from './dom.js';
-import { goalBalanceAt, forecastBeyondPlan } from '../engine/allocation.js';
+import { goalBalanceAt, goalProgressAt, forecastBeyondPlan } from '../engine/allocation.js';
 import { goalTotal } from '../engine/savings.js';
 import { giftPlanTable } from './gifts.js';
 
@@ -284,12 +284,12 @@ function yearGoalCard(ctx, g, allocated, { withStages, extra = '' }) {
   const whole = goalTotal(g, state.savings?.goal_milestones ?? []) || (Number(g.target_amount) || 0);
   const yearTarget = mine.reduce((acc, x) => acc + (Number(x.m.target) || 0), 0);
   const upcoming = withStages ? (withForecast.find(x => x.done && x.done !== 'pre' && !inYear(x)) ?? null) : null;
-  const total = yearTarget || (upcoming ? (Number(upcoming.m.target) || 0) : whole);
-  const basis = yearTarget ? 'цель года' : (upcoming ? 'до ближайшей цели' : (withStages ? 'до общей суммы' : 'общая сумма'));
+  const total = g.completed ? whole : yearTarget || (upcoming ? (Number(upcoming.m.target) || 0) : whole);
+  const basis = g.completed ? 'общая сумма' : yearTarget ? 'цель года' : (upcoming ? 'до ближайшей цели' : (withStages ? 'до общей суммы' : 'общая сумма'));
 
   const base = goalBalanceAt(sim, g, txs, `${year - 1}-12-31`);
   const added = allocated.get(g.id) ?? 0;
-  const end = base + added;
+  const end = g.completed ? goalProgressAt(sim, g, ctx.today) : base + added;
   const pct = v => (total > 0 ? Math.max(0, Math.min(100, Math.round(v / total * 100))) : 0);
   const done = total > 0 && end >= total - 0.5;
 

@@ -2,7 +2,7 @@
 
 import { esc, card, table, num, cell, row, input, select, checkbox, addButton, delButton, button, pill, field } from './dom.js';
 import { uid } from './edit.js';
-import { goalBalanceAt, goalProgressAt, proposeRedistribution, forecastBeyondPlan } from '../engine/allocation.js';
+import { goalBalanceAt, goalProgressAt, proposeRedistribution, forecastBeyondPlan, snapshotGoalCompletion } from '../engine/allocation.js';
 import { goalTotal, cycleDates } from '../engine/savings.js';
 
 export const code = 'goals';
@@ -105,12 +105,17 @@ export function milestoneStatus(ctx, goal, m) {
        «накоплено и потрачено», иначе непонятно, почему в копилке пусто. */
     const funded = (sim.milestoneFunded?.[goal.id] ?? [])[i];
     const spent = funded != null && funded <= 0.0001 ? ' · потрачено' : '';
+    if (goal.completed && goal.completion_snapshot) {
+      return { label: (done === 'pre' ? 'уже накоплено' : `накоплено ${fmt.date(done)}`) + spent,
+        cls: 'ok', done, spent: !!spent };
+    }
     const label = (done === 'pre' ? 'уже накоплено'
       : m.deadline ? (done <= m.deadline ? `в графике (к ${fmt.date(done)})` : `позже срока (к ${fmt.date(done)})`)
       : `прогноз: к ${fmt.date(done)}`) + spent;
     const cls = (!m.deadline || done === 'pre' || done <= m.deadline) ? 'ok' : 'warn';
     return { label, cls, done, spent: !!spent };
   }
+  if (goal.completed) return { label: 'не накоплено до закрытия цели', cls: '', done: null };
   // внутри плана этап не закрывается — продлеваем текущий темп пополнения дальше
   const far = forecastBeyondPlan(sim, goal, i);
   if (far) {
@@ -186,7 +191,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
 
   const total = goalTotal(g, state.savings?.goal_milestones ?? []);
   const hasTarget = total > 0;
-  const progress = goalProgressAt(sim, g, sim.planEnd || ctx.today);
+  const progress = goalProgressAt(sim, g, g.completed ? ctx.today : sim.planEnd || ctx.today);
   const pct = total > 0 ? Math.max(0, Math.min(100, Math.round(progress / total * 100))) : 0;
   const balance = goalBalanceAt(sim, g, state.savings?.goal_transactions ?? [], ctx.today);
   const cycleCount = (state.savings?.goal_cycles ?? []).filter(c => c.goal_id === g.id).length;
@@ -361,9 +366,24 @@ export function handle(ev, ctx) {
   const close = ev.target.closest('[data-goal-close]');
   if (close) {
     const id = close.dataset.goalClose;
+    const goal = ctx.state.savings.goals.find(g => g.id === id);
+    if (!goal) return false;
+    const snapshot = goal.completed ? null : snapshotGoalCompletion(ctx.sim, goal, ctx.today);
     store.update('savings', d => {
       const g = d.goals.find(x => x.id === id);
-      if (g) g.completed = !g.completed;
+      if (g && !g.completed) {
+        // Включая сегодняшнюю выплату: закрытие не должно убирать уже накопленные
+        // отчисления, даже если сама выплата ещё не зафиксирована.
+        const overrides = d.savings_period_overrides ?? (d.savings_period_overrides = []);
+        for (const r of ctx.sim.rows) {
+          const amount = r.allocations[id] ?? 0;
+          if (r.period.pay_date > ctx.today || amount <= 0) continue;
+          const own = overrides.find(o => o.period_id === r.period.id && o.goal_id === id);
+          if (own) own.amount = amount;
+          else overrides.push({ period_id: r.period.id, goal_id: id, amount });
+        }
+      }
+      if (g) { g.completed = !g.completed; g.completion_snapshot = snapshot; }
     });
     return true;
   }

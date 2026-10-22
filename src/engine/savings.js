@@ -17,7 +17,10 @@
    этапы, чей срок ещё впереди — к ним мы ещё идём, и на их дату денег уже не
    хватит. Вид оттока (трата или перевод) роли не играет.
 
-   Инварианта: баланс копилки = сумма резервов закрытых этапов + прогресс
+   У вручную закрытой цели completion_snapshot хранит прогресс на дату закрытия.
+   После этой даты движения меняют баланс и остатки резервов, но не этот прогресс.
+
+   Для открытой цели: баланс копилки = сумма резервов закрытых этапов + прогресс
    текущего (в минусе резервы и прогресс нулевые, а минус — это долг, который
    закрывает первое же пополнение).
 
@@ -51,6 +54,8 @@ const isOutflow = kind => kind === 'spend' || kind === 'transfer_out';
 /* ------------------------------------------------------------------ учёт этапов */
 
 export function createTracker({ goals, milestones, today = '' }) {
+  const completions = new Map(goals.filter(g => g.completed && g.completion_snapshot)
+    .map(g => [g.id, g.completion_snapshot]));
   const ms = new Map();
   const balance = new Map();
   const idx = new Map();
@@ -75,26 +80,44 @@ export function createTracker({ goals, milestones, today = '' }) {
 
   /* Запись движения: сколько стало в копилке и что при этом случилось с этапами */
   function entry(gid, date, delta, before, note) {
-    const after = dates.get(gid);
+    const frozen = completionAt(gid, date);
+    const after = frozen ? milestoneDates(gid) : dates.get(gid);
     const closed = [], reopened = [];
     after.forEach((v, i) => {
       if (v && !before[i]) closed.push(i);
       if (!v && before[i]) reopened.push(i);
     });
     const funded = (i) => {
+      if (frozen) {
+        const reservedBefore = ms.get(gid).slice(0, i)
+          .reduce((sum, m, n) => sum + (after[n] ? m.target : 0), 0);
+        return Math.min(ms.get(gid)[i].target, Math.max(0, balance.get(gid) - reservedBefore));
+      }
       const c = (pool.get(gid) ?? []).findLast(x => x.idx === i);
       return c ? Math.max(0, c.left) : 0;
     };
     return {
       goal_id: gid, date, delta,
       balance: balance.get(gid),
-      phase: { ...phase(gid) },
-      closed, reopened,
+      phase: { ...phase(gid, date || '') },
+      closed: frozen ? [] : closed,
+      reopened: frozen ? [] : reopened,
       drained: after.map((v, i) => (v && funded(i) <= 0.0001 ? i : -1)).filter(i => i >= 0),
       note,
     };
   }
-  const phase = gid => ({ idx: idx.get(gid) ?? 0, saved: phaseSaved.get(gid) ?? 0 });
+  const completionAt = (gid, date) => {
+    const snapshot = completions.get(gid);
+    return snapshot && date >= snapshot.date ? snapshot : null;
+  };
+  const phase = (gid, date = '9999-12-31') => completionAt(gid, date)?.phase
+    ?? { idx: idx.get(gid) ?? 0, saved: phaseSaved.get(gid) ?? 0 };
+  const milestoneDates = gid => {
+    const snapshot = completions.get(gid);
+    if (!snapshot) return [...dates.get(gid)];
+    const frozen = new Map(snapshot.milestones.map(m => [m.id, m.date]));
+    return ms.get(gid).map(m => frozen.get(m.id) ?? null);
+  };
 
   for (const g of goals) {
     const list = milestonesOf(g, milestones);
@@ -187,22 +210,33 @@ export function createTracker({ goals, milestones, today = '' }) {
     ledger: gid => log.filter(e => e.goal_id === gid),
     balance: gid => balance.get(gid) ?? 0,
     deposit, withdraw, apply,
-    snapshot() {
+    snapshot(date = '9999-12-31') {
       const out = { balances: {}, phase: {} };
       for (const gid of ms.keys()) {
         out.balances[gid] = balance.get(gid);
-        out.phase[gid] = { idx: idx.get(gid), saved: phaseSaved.get(gid) };
+        out.phase[gid] = { ...phase(gid, date) };
       }
       return out;
     },
-    milestoneDates: () => Object.fromEntries([...dates].map(([k, v]) => [k, [...v]])),
+    milestoneDates: () => Object.fromEntries([...dates.keys()].map(gid => [gid, milestoneDates(gid)])),
     /* Сколько денег закрытого этапа ещё лежит в копилке: null — этап не закрыт,
        0 — было накоплено к сроку и потрачено. */
-    milestoneFunded: () => Object.fromEntries([...dates].map(([gid, v]) => [gid, v.map((d, i) => {
-      if (!d) return null;
-      const c = (pool.get(gid) ?? []).findLast(x => x.idx === i);
-      return c ? Math.max(0, c.left) : 0;
-    })])),
+    milestoneFunded: () => Object.fromEntries([...dates].map(([gid, v]) => {
+      if (completions.has(gid)) {
+        let available = Math.max(0, balance.get(gid));
+        return [gid, milestoneDates(gid).map((date, i) => {
+          if (!date) return null;
+          const funded = Math.min(available, ms.get(gid)[i].target);
+          available -= funded;
+          return funded;
+        })];
+      }
+      return [gid, v.map((d, i) => {
+        if (!d) return null;
+        const c = (pool.get(gid) ?? []).findLast(x => x.idx === i);
+        return c ? Math.max(0, c.left) : 0;
+      })];
+    })),
   };
 }
 

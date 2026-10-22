@@ -90,7 +90,7 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
   const goals = sv.goals ?? [];
   const milestones = sv.goal_milestones ?? [];
   const tracker = createTracker({ goals, milestones, today });
-  const initialPhase = tracker.snapshot();
+  const initialPhase = tracker.snapshot('');
   const txs = (sv.goal_transactions ?? []).filter(t => t.date).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   let txPtr = 0;
   const applyTxUpTo = date => {
@@ -407,7 +407,7 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
       }
     }
 
-    const snap = tracker.snapshot();
+    const snap = tracker.snapshot(p.pay_date);
     rows.push({
       period: p,
       income: r,
@@ -475,9 +475,31 @@ export function goalBalanceAt(sim, goal, txs, date) {
 
 /* Сколько засчитано в цель на дату */
 export function goalProgressAt(sim, goal, date) {
+  if (goal.completed && goal.completion_snapshot && date >= goal.completion_snapshot.date) {
+    return goal.completion_snapshot.progress;
+  }
   const row = lastRowAtOrBefore(sim, date);
   const phase = (row ? row.phase : sim.initialPhase.phase)[goal.id] ?? { idx: 0, saved: 0 };
   return progressOf(sim.milestonesOf(goal), phase);
+}
+
+/* Фиксируем только уже случившиеся движения: прогноз будущих выплат не засчитывается.
+   Повторяем журнал, чтобы учесть также траты/пополнения между выплатами и после
+   последней выплаты. При повторном открытии снимок больше не используется. */
+export function snapshotGoalCompletion(sim, goal, date) {
+  const milestones = sim.milestonesOf(goal);
+  const tracker = createTracker({ goals: [{ ...goal, completed: false }], milestones, today: date });
+  for (const e of sim.ledgerOf(goal.id)) {
+    if (!e.date || e.date > date) continue;
+    if (e.delta >= 0) tracker.deposit(goal.id, e.delta, e.date);
+    else tracker.withdraw(goal.id, -e.delta, e.date);
+  }
+  const phase = tracker.phase(goal.id);
+  const dates = tracker.milestoneDates()[goal.id];
+  return {
+    date, phase, progress: progressOf(milestones, phase),
+    milestones: milestones.map((m, i) => ({ id: m.id, date: dates[i] })),
+  };
 }
 
 /* Сколько цели не хватает до общей суммы на дату и ближайший срок незакрытого этапа */
@@ -541,6 +563,7 @@ export function reservePaceSuggestion(sim, goal, today) {
    темп дальше. Возвращает { date, perPayout, payouts, beyondPlan: true } или null,
    когда цели ничего не достаётся — тогда прогноза нет вовсе. */
 export function forecastBeyondPlan(sim, goal, milestoneIndex = null) {
+  if (goal.completed) return null;
   const rows = sim.rows;
   if (!rows.length) return null;
   const last = rows[rows.length - 1];

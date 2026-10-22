@@ -4,6 +4,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyEdit, deleteRow, addRow, findRow } from '../src/ui/edit.js';
 import { createFormat } from '../src/core/format.js';
+import { handle as handleGoals, milestoneStatus } from '../src/ui/goals.js';
+import { simulate, goalProgressAt, goalBalanceAt } from '../src/engine/allocation.js';
+import { createConfig } from '../src/core/config.js';
+import fs from 'node:fs';
 
 const fmt = createFormat({ locale: 'ru-RU', currency: 'RUB', rounding: 1, currencies: [{ code: 'RUB', symbol: '₽' }] });
 
@@ -15,6 +19,46 @@ function fakeStore(state) {
   };
 }
 const el = (dataset, value) => ({ dataset, value, checked: value === true });
+
+test('закрытие цели сохраняет сегодняшнее пополнение и прогресс после перезагрузки; возврат снимает фиксацию', () => {
+  const state = JSON.parse(fs.readFileSync(new URL('../tools/preview/state.json', import.meta.url), 'utf8'));
+  const g = { id: 'closed-test', title: 'Цель', kind_code: 'bucket', currency_code: 'RUB',
+    target_amount: 200, starting_balance: 0, priority: 1, completed: false };
+  const periods = [
+    { id: 'today', year: 2027, pay_date: '2027-03-01', window_start: '2027-03-01', window_end: '2027-03-15', income_net: 100 },
+    { id: 'future', year: 2027, pay_date: '2027-03-20', window_start: '2027-03-16', window_end: '2027-03-31', income_net: 100 },
+  ];
+  state.income = { periods };
+  state.expenses = {};
+  state.debts = {};
+  state.savings = { goals: [g], goal_milestones: [
+    { id: 'm1', goal_id: g.id, target: 100, deadline: '2027-06-01' },
+    { id: 'm2', goal_id: g.id, target: 100, deadline: '2027-07-01' },
+  ], goal_transactions: [] };
+  const store = fakeStore(state);
+  const run = () => simulate(state, createConfig(state), { today: '2027-03-01' });
+  const ctx = { store, state, ui: {}, today: '2027-03-01', sim: run() };
+  const ev = { target: { closest: selector => selector === '[data-goal-close]' ? { dataset: { goalClose: g.id } } : null } };
+  assert.equal(goalProgressAt(ctx.sim, g, '2027-03-20'), 200, 'до закрытия есть будущий прогноз');
+  assert.equal(handleGoals(ev, ctx), true);
+  assert.equal(g.completed, true);
+  assert.equal(g.completion_snapshot.progress, 100, 'засчитано только накопленное на сегодня');
+  assert.equal(state.savings.savings_period_overrides[0].amount, 100);
+  state.savings.goal_transactions.push({ id: 'out', goal_id: g.id, date: ctx.today, kind: 'transfer_out', amount: 100 });
+  const restored = JSON.parse(JSON.stringify(state));
+  const sim = simulate(restored, createConfig(restored), { today: '2027-03-01' });
+  assert.equal(goalProgressAt(sim, restored.savings.goals[0], ctx.today), 100);
+  assert.equal(goalBalanceAt(sim, g, restored.savings.goal_transactions, ctx.today), 0);
+  assert.equal(sim.byId.get('today').allocations[g.id], 100, 'закрытие не убирает сегодняшнее отчисление');
+  assert.equal(sim.byId.get('future').allocations[g.id], undefined);
+  assert.equal(milestoneStatus({ sim, fmt }, restored.savings.goals[0], state.savings.goal_milestones[0]).cls, 'ok');
+  assert.equal(milestoneStatus({ sim, fmt }, restored.savings.goals[0], state.savings.goal_milestones[1]).done, null);
+  ctx.sim = run();
+  assert.equal(handleGoals(ev, ctx), true);
+  assert.equal(g.completed, false);
+  assert.equal(g.completion_snapshot, null);
+  assert.ok(run().byId.get('future').allocations[g.id] > 0, 'открытая снова цель получает деньги');
+});
 
 test('правка: число, дата, галочка и неразобранное значение', () => {
   const store = fakeStore({ income: { periods: [{ id: 'p1', income_net: 0, locked: false, pay_date: '2027-01-20' }] } });
