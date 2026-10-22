@@ -82,7 +82,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   /* ---------------------------------------------------------- расходы и рассрочки */
   const exp = state.expenses ?? {};
   const percentBase = stage('categories')?.params?.percent_base === 'gross'
-    ? p => inc.byId.get(p.id)?.formula?.gross ?? 0
+    ? p => inc.byId.get(p.id)?.formula?.gross ?? (p.sick_leave_id ? inc.byId.get(p.id)?.gross ?? 0 : 0)
     : p => inc.byId.get(p.id)?.total ?? 0;
   const expenses = planExpenses({
     categories: exp.expense_categories ?? [],
@@ -669,15 +669,16 @@ export function forecastBeyondPlan(sim, goal, milestoneIndex = null) {
   if (need <= 0.5) return null;
 
   // темп: среднее пополнение за последние выплаты, где цель вообще получала деньги
-  const tail = rows.slice(-12);
+  const regular = rows.filter(r => !r.period.sick_leave_id);
+  const tail = regular.slice(-12);
   const got = tail.reduce((s, r) => s + (r.allocations[goal.id] ?? 0), 0);
   const perPayout = tail.length ? got / tail.length : 0;
   if (perPayout <= 0.5) return null;
 
   const payouts = Math.ceil(need / perPayout);
   // средний промежуток между выплатами плана
-  const first = rows[0].period.pay_date;
-  const span = rows.length > 1 ? (Date.parse(last.period.pay_date) - Date.parse(first)) / (rows.length - 1) : 30 * 864e5;
+  const first = regular[0].period.pay_date;
+  const span = regular.length > 1 ? (Date.parse(regular.at(-1).period.pay_date) - Date.parse(first)) / (regular.length - 1) : 30 * 864e5;
   const date = new Date(Date.parse(last.period.pay_date) + payouts * span).toISOString().slice(0, 10);
   return { date, perPayout, payouts, beyondPlan: true };
 }

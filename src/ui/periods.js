@@ -40,7 +40,7 @@ function head(ctx, r) {
   const p = r.period;
   const debts = Object.values(r.debtPayments).reduce((s, x) => s + x, 0);
   const pills = [
-    p.calc_mode === 'manual'
+    p.sick_leave_id ? pill('пособие по больничному') : p.calc_mode === 'manual'
       ? pill(`${KIND_TITLES[p.manual_kind] ?? 'разовая'}${p.taxable === false ? ', без налога' : ''}`) : '',
     p.locked ? pill('🔒 зафиксирована') : '',
     r.income.vacationPay > 0.5 ? pill(`отпускные ${fmt.money(r.income.vacationPay)}`) : '',
@@ -161,21 +161,21 @@ function body(ctx, r) {
       ${canEdit ? (p.locked
         ? button({ action: 'unlock', value: p.id, label: '🔓 Разблокировать' })
         : button({ action: 'freeze', value: p.id, label: '🔒 Зафиксировать' })) : ''}
-      ${canEdit && p.calc_mode === 'manual' ? delButton({ domain: 'income', table: 'periods', key: { id: p.id }, label: 'Удалить выплату', cls: 'ghost small', confirm: 'Удалить эту выплату вместе с её ручными суммами?' }) : ''}
+      ${canEdit && p.calc_mode === 'manual' && !p.sick_leave_id ? delButton({ domain: 'income', table: 'periods', key: { id: p.id }, label: 'Удалить выплату', cls: 'ghost small', confirm: 'Удалить эту выплату вместе с её ручными суммами?' }) : ''}
 
     </div>
 
     <div class="grid cols-3">
-      ${field('Дата выплаты', input({ edit: 'income|periods|pay_date', key: { id: p.id }, value: p.pay_date, type: 'date', disabled: !canEdit }))}
+      ${field('Дата выплаты', input({ edit: 'income|periods|pay_date', key: { id: p.id }, value: p.pay_date, type: 'date', disabled: !canEdit || !!p.sick_leave_id }))}
       <div class="field"><label>Доход на руки</label>
-        ${input({ edit: 'income|periods|income_net', key: { id: p.id }, value: r.income.salary, type: 'money', disabled: !canEdit,
-          cls: p.income_manual || p.calc_mode === 'manual' ? 'own' : '' })}
+        ${input({ edit: 'income|periods|income_net', key: { id: p.id }, value: r.income.salary, type: 'money', disabled: !canEdit || !!p.sick_leave_id,
+          cls: p.sick_leave_id ? (r.income.sick?.manual ? 'own' : '') : p.income_manual || p.calc_mode === 'manual' ? 'own' : '' })}
         <div class="small-note">${f
           ? `${esc(fmt.money(f.net))} по формуле: ${f.workedDays} из ${f.windowDays} рабочих дней,
              начислено ${esc(fmt.money(f.gross))}, налог ${esc(fmt.money(f.tax))}
              ${canEdit && (p.income_manual || Math.abs(r.income.salary - f.net) > 0.5)
                ? button({ action: 'fill-income', value: p.id, label: 'подставить по формуле', cls: 'ghost small' }) : ''}`
-          : 'оклада на этот период нет'}</div>
+          : p.sick_leave_id ? 'Сумма и дата задаются в разделе «Отпуска и больничные». Начислено ' + esc(fmt.money(r.income.gross)) + ', НДФЛ ' + esc(fmt.money(r.income.tax)) : 'оклада на этот период нет'}</div>
         ${r.income.vacationPay > 0.5 ? `<div class="small-note">+ отпускные ${esc(fmt.money(r.income.vacationPay))} на руки
           (начислено ${esc(fmt.money(r.income.vacationGross))}) за ${r.income.vacations.reduce((sum, x) => sum + x.days, 0)} дн.</div>` : ''}
         ${r.income.extraIncome > 0.5 ? `<div class="small-note">+ разовый доход ${esc(fmt.money(r.income.extraIncome))}</div>` : ''}

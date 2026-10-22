@@ -2,14 +2,14 @@
 
 import { esc, card, table, input, checkbox, addButton, delButton, button, pill } from './dom.js';
 import { uid } from './edit.js';
+import { renderSick, handleSick } from './sick.js';
 
 export const code = 'vacations';
-export const title = () => 'Отпуска';
+export const title = () => 'Отпуска и больничные';
 
 export function render(ctx) {
   const { state, fmt, canEdit, income, ui } = ctx;
   const vacations = (state.income?.vacations ?? []).slice().sort((a, b) => ((a.start_date || '') < (b.start_date || '') ? -1 : 1));
-  const sick = (state.income?.sick_leaves ?? []).slice().sort((a, b) => ((a.start_date || '') < (b.start_date || '') ? -1 : 1));
 
   const rows = vacations.map(v => {
     const info = income.vacations.find(x => x.vacation.id === v.id);
@@ -44,12 +44,6 @@ export function render(ctx) {
     ${open ? `<tr><td colspan="10" style="background:var(--surface-2);">${howCalculated(ctx, v, f, parts, { gross, net })}</td></tr>` : ''}`;
   });
 
-  const sickRows = sick.map(s => `<tr>
-    <td>${input({ edit: 'income|sick_leaves|start_date', key: { id: s.id }, value: s.start_date, type: 'date', disabled: !canEdit })}</td>
-    <td>${input({ edit: 'income|sick_leaves|end_date', key: { id: s.id }, value: s.end_date, type: 'date', disabled: !canEdit })}</td>
-    <td>${input({ edit: 'income|sick_leaves|note', key: { id: s.id }, value: s.note, disabled: !canEdit })}</td>
-    <td>${canEdit ? delButton({ domain: 'income', table: 'sick_leaves', key: { id: s.id } }) : ''}</td></tr>`);
-
   return `
     <div class="row wrap" style="gap:8px;">
       ${pill('Дни отпуска и больничного окладом не оплачиваются: за отпуск идут отпускные')}
@@ -66,14 +60,7 @@ export function render(ctx) {
           'Откуда', 'Выплатят', '', ''],
         rows: rows.length ? rows : ['<tr><td colspan="10" class="muted">Отпусков нет</td></tr>'] }),
     })}
-    ${card({
-      title: 'Больничные',
-      actions: canEdit ? addButton({ domain: 'income', table: 'sick_leaves', label: '+ больничный',
-        row: { id: uid('sick'), start_date: ctx.today, end_date: ctx.today, note: '' } }) : '',
-      note: 'Дни болезни уменьшают оклад и исключаются из расчётных дней для отпускных. '
-        + 'Само пособие по больничному пока не рассчитывается и автоматически в доход не добавляется.',
-      body: table({ head: ['С', 'По', 'Комментарий', ''], rows: sickRows.length ? sickRows : ['<tr><td colspan="4" class="muted">Больничных нет</td></tr>'] }),
-    })}`;
+    ${renderSick(ctx)}`;
 }
 
 /* Как считаем: 12 месяцев в gross → СДЗ → начислено → НДФЛ → на руки */
@@ -126,6 +113,8 @@ function howCalculated(ctx, v, f, parts, totals) {
 }
 
 export function handle(ev, ctx) {
+  if (handleSick(ev, ctx)) return true;
+  if (!ctx.canEdit) return false;
   const { store, income } = ctx;
   const el = ev.target.closest('[data-vac-formula]');
   if (!el) return false;

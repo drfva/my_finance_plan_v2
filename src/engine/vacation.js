@@ -28,20 +28,20 @@
    округления уходит в последнюю часть, чтобы сумма частей совпадала с отпускными.
 --------------------------------------------------------------------- */
 
-import { parts, daysInMonth, monthsBefore, monthEnd, daysInclusive, overlap } from './dates.js';
+import { parts, daysInMonth, monthsBefore, monthEnd, daysInclusive, overlap, eachDay } from './dates.js';
 import { rateOn, daysInWindow } from './salary.js';
 
 /* Календарные дни месяца, попавшие в перечисленные периоды */
 function daysInMonthFrom(y, m, ranges) {
   const from = `${y}-${String(m).padStart(2, '0')}-01`;
   const to = monthEnd(y, m);
-  let days = 0;
+  const days = new Set();
   for (const r of ranges) {
     if (!r.start_date || !r.end_date) continue;
     const o = overlap(r.start_date, r.end_date, from, to);
-    if (o) days += daysInclusive(o.from, o.to);
+    if (o) for (const date of eachDay(o.from, o.to)) days.add(date);
   }
-  return days;
+  return days.size;
 }
 
 /* Коэффициент индексации месяца: перемножаем все повышения «для всех»,
@@ -80,7 +80,7 @@ export function averageDailyEarnings({
     const dim = daysInMonth(mo.y, mo.m);
     const sickDays = Math.min(daysInMonthFrom(mo.y, mo.m, sickLeaves), dim);
     const vacDays = Math.min(daysInMonthFrom(mo.y, mo.m, otherVacations), dim);
-    const excludedDays = Math.min(sickDays + vacDays, dim);
+    const excludedDays = Math.min(daysInMonthFrom(mo.y, mo.m, [...sickLeaves, ...otherVacations]), dim);
     const workedDays = dim - excludedDays;
     const coef = excludedDays > 0 ? (avgDaysInMonth / dim) * workedDays : avgDaysInMonth;
     return { y: mo.y, m: mo.m, income: base * factor, baseIncome: base, factor,

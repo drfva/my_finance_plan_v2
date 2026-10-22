@@ -71,6 +71,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   const ui = { tab: null, year: null, goal: null, open: new Set(), draft: {}, notice: null };
   const security = client ? createSecurity(client, () => render()) : null;
   let lastSync = '';
+  let syncingSick = false;
 
   const cfg = () => store.config();
   const fmt = () => cfg().formatter();
@@ -128,7 +129,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   /* Прошедшие выплаты фиксируются: расчёт превращается в факт и больше не меняется */
   function freezePast(ctx) {
     if (!ctx.canEdit) return false;
-    const ids = ctx.sim.rows.filter(r => !r.period.locked && r.period.pay_date < ctx.today).map(r => r.period.id);
+    const ids = ctx.sim.rows.filter(r => !r.period.locked && !r.income.sick?.pendingTax && r.period.pay_date < ctx.today).map(r => r.period.id);
     if (!ids.length) return false;
     const patch = freezePeriods(ctx.state, ctx.sim, ids, ctx.fmt.round);
     store.update('income', d => { d.periods = patch.periods; });
@@ -191,7 +192,24 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   }
 
   function render() {
+    if (syncingSick) return;
     const ctx = context();
+    if (ctx.canEdit && JSON.stringify(ctx.state.income?.periods ?? []) !== JSON.stringify(ctx.income.preparedPeriods)) {
+      const next = ctx.income.preparedPeriods;
+      const ids = new Set(next.map(p => p.id));
+      const removed = new Set((ctx.state.income?.periods ?? []).filter(p => !ids.has(p.id)).map(p => p.id));
+      syncingSick = true;
+      try {
+        store.update('income', d => { d.periods = next; });
+        for (const [domain, table] of [['expenses', 'expense_period_overrides'], ['savings', 'savings_period_overrides'], ['debts', 'credit_payment_overrides']]) {
+          if ((store.state[domain]?.[table] ?? []).some(r => removed.has(r.period_id))) {
+            store.update(domain, d => { d[table] = d[table].filter(r => !removed.has(r.period_id)); });
+          }
+        }
+      } finally { syncingSick = false; }
+      render();
+      return;
+    }
     const unclassified = ctx.canEdit ? classifyIncomePeriods(ctx.income) : [];
     if (unclassified.length) {
       const flags = new Map(unclassified.map(p => [p.id, p.manual]));

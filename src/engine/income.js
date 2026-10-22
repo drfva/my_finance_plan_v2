@@ -28,6 +28,7 @@ import { rateOn, salaryForWindow, absenceRanges } from './salary.js';
 import { scaleForYear, taxForPayment, taxParts, grossFromNet, estimateMonthlyNet } from './tax.js';
 import { vacationFormula, vacationPay, splitVacationPay } from './vacation.js';
 import { createFx } from './fx.js';
+import { computeSickLeaves, sickPeriods } from './sick.js';
 
 const byDate = (a, b) => (a.pay_date < b.pay_date ? -1 : a.pay_date > b.pay_date ? 1 : String(a.id).localeCompare(String(b.id)));
 
@@ -64,13 +65,18 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
   const absences = absenceRanges(vacations, sickLeaves);
   const slots = inc.payout_slots ?? [];
   const history = new Map((inc.income_history ?? []).map(h => [`${h.year}-${h.month}`, h]));
-  const periods = [...(inc.periods ?? []), ...extraPeriods].sort(byDate);
+  const sickInfo = computeSickLeaves(inc);
+  if (cfg.get('base_currency') !== 'RUB') {
+    for (const f of sickInfo) if (!f.disabled) f.errors.push('Автоматические поступления больничного поддерживаются в плане с базовой валютой RUB: суммы пособия и НДФЛ считаются в рублях.');
+  }
+  const preparedPeriods = sickPeriods(inc, sickInfo);
+  const periods = [...preparedPeriods, ...extraPeriods].sort(byDate);
   const warnings = [];
 
   /* 1. Оклад по формуле для каждой выплаты */
   const formulaGross = new Map();
   for (const p of periods) {
-    formulaGross.set(p.id, salaryForWindow({
+    formulaGross.set(p.id, p.sick_leave_id ? null : salaryForWindow({
       start: p.window_start, end: p.window_end, rates, calendar, absences, round,
     }));
   }
@@ -86,6 +92,10 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
     for (const p of periods) {
       const payYear = Number(p.pay_date.slice(0, 4));
       if (payYear !== cumYear) { cum = 0; cumYear = payYear; }
+      if (p.sick_leave_id) {
+        if (p.sick_payer === 'employer') cum += Number(p.sick_gross) || 0;
+        continue;
+      }
       const scale = scaleForYear(scales, brackets, payYear);
       const net = Number(p.income_net) || 0;
       const taxable = p.taxable !== false;
@@ -105,6 +115,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
   for (const s of slots) slotsPerYear.set(Number(s.year), (slotsPerYear.get(Number(s.year)) ?? 0) + 1);
   const periodsByMonth = new Map();
   for (const p of periods) {
+    if (p.sick_leave_id) continue;
     if (!p.window_start) continue;
     const key = `${Number(p.window_start.slice(0, 4))}-${Number(p.window_start.slice(5, 7))}`;
     if (!periodsByMonth.has(key)) periodsByMonth.set(key, []);
@@ -112,7 +123,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
   }
   /* В средний заработок идёт то, что платит этот работодатель: оклад по графику
      и премии. Подработка и подарки — нет, даже если облагаются налогом. */
-  const inAverage = p => p.taxable !== false
+  const inAverage = p => !p.sick_leave_id && p.taxable !== false
     && (p.calc_mode !== 'manual' || p.manual_kind === 'bonus');
   function monthGross(y, m) {
     const key = `${y}-${m}`;
@@ -128,7 +139,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
   function monthIncome(y, m) {
     const key = `${y}-${m}`;
     const list = periodsByMonth.get(key) ?? [];
-    return list.reduce((s, p) => s + (rowsById.get(p.id)?.salary ?? (Number(p.income_net) || 0)), 0);
+    return list.filter(p => !p.sick_leave_id).reduce((s, p) => s + (rowsById.get(p.id)?.salary ?? (Number(p.income_net) || 0)), 0);
   }
 
   /* 3. Отпускные: формула, сумма в плане, деление по выплатам */
@@ -141,7 +152,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
       formula,
       pay,
       payDate: v.start_date ? calendar.workingDayBefore(v.start_date) : null,
-      split: splitVacationPay(v, pay, periods),
+      split: splitVacationPay(v, pay, periods.filter(p => !p.sick_leave_id)),
     };
   });
   const vacationByPeriod = new Map();
@@ -167,7 +178,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
       if (converted === null) { warnings.push({ code: 'no_fx_rate', extra_income_id: e.id, currency: e.currency_code }); continue; }
       amount = round(converted);
     }
-    const target = [...periods].reverse().find(p => p.pay_date <= e.date);
+    const target = [...periods].reverse().find(p => !p.sick_leave_id && p.pay_date <= e.date);
     if (!target) { warnings.push({ code: 'extra_before_plan', extra_income_id: e.id }); continue; }
     if (!extrasByPeriod.has(target.id)) extrasByPeriod.set(target.id, []);
     extrasByPeriod.get(target.id).push({ extra_income_id: e.id, amount });
@@ -176,10 +187,28 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
   /* 5. Налог нарастающим итогом за год даты выплаты и итог выплаты */
   let cum = 0;
   let cumYear = null;
+  const sfrCumulative = new Map();
   const rows = periods.map(p => {
     const payYear = Number(p.pay_date.slice(0, 4));
     if (payYear !== cumYear) { cum = 0; cumYear = payYear; }
     const scale = scaleForYear(scales, brackets, payYear);
+
+    if (p.sick_leave_id) {
+      const leave = sickLeaves.find(s => s.id === p.sick_leave_id);
+      const payer = p.sick_payer;
+      const gross = Number(p.sick_gross) || 0;
+      const before = payer === 'sfr' ? Math.max(sfrCumulative.get(payYear) ?? 0, Number(leave?.sfr_prior_tax_base) || 0) : cum;
+      const manualNet = leave?.[`${payer}_net`];
+      const hasManual = manualNet !== null && manualNet !== undefined && manualNet !== '';
+      const net = p.locked ? Number(p.income_net) || 0 : hasManual ? Math.max(0, Number(manualNet) || 0)
+        : gross - taxForPayment(gross, before, scale);
+      if (!scale && !p.locked && !hasManual) warnings.push({ code: 'sick_no_tax_scale', sick_leave_id: leave?.id });
+      const paidNet = !scale && !p.locked && !hasManual ? 0 : net;
+      if (payer === 'sfr') sfrCumulative.set(payYear, before + gross); else cum += gross;
+      return { period: p, formula: null, salary: paidNet, sick: { leave, payer, gross, manual: hasManual, pendingTax: !scale && !p.locked && !hasManual },
+        vacationPay: 0, vacationGross: 0, vacationTax: 0, vacations: [], extraIncome: 0, extras: [],
+        gross, tax: gross - paidNet, taxParts: taxParts(gross, before, scale), total: paidNet };
+    }
 
     const g = formulaGross.get(p.id);
     let formula = null;
@@ -235,6 +264,8 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
 
   return {
     calendar,
+    preparedPeriods,
+    sickLeaves: sickInfo,
     periods: rows,
     byId: rowsById,
     vacations: vacationInfo,

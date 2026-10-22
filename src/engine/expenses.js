@@ -64,7 +64,7 @@ export function categoryShare(category, categories, items, date) {
    выплаченный до начала плана): выплата не берёт на себя чужую долю. */
 function monthShares(periods, splitMode, slots = []) {
   const byMonth = new Map();
-  for (const p of periods) {
+  for (const p of periods.filter(p => !p.sick_leave_id)) {
     const k = monthOf(p);
     if (!byMonth.has(k)) byMonth.set(k, []);
     byMonth.get(k).push(p);

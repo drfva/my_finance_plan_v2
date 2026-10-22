@@ -170,6 +170,20 @@ export function syncTransfer(store, tx) {
 export function deleteRow(store, domain, table, key) {
   const state = store.state;
   const row = findRow(state, domain, table, key);
+  if (domain === 'income' && table === 'sick_leaves') {
+    if (!row) return;
+    const ids = new Set((state.income?.periods ?? []).filter(p => p.sick_leave_id === row?.id).map(p => p.id));
+    store.update('income', d => {
+      d.sick_leaves = (d.sick_leaves ?? []).filter(s => !matches(s, key));
+      d.periods = (d.periods ?? []).filter(p => !ids.has(p.id));
+    });
+    for (const [depDomain, depTable] of [['expenses', 'expense_period_overrides'], ['savings', 'savings_period_overrides'], ['debts', 'credit_payment_overrides']]) {
+      if ((state[depDomain]?.[depTable] ?? []).some(r => ids.has(r.period_id))) {
+        store.update(depDomain, d => { d[depTable] = d[depTable].filter(r => !ids.has(r.period_id)); });
+      }
+    }
+    return;
+  }
 
   // перевод удаляется парой
   if (domain === 'savings' && table === 'goal_transactions') {
@@ -184,6 +198,13 @@ export function deleteRow(store, domain, table, key) {
   // год плана уносит и свои выплаты со всеми их ручными суммами
   if (domain === 'income' && table === 'plan_years') {
     const year = Number(row?.year ?? key.year);
+    if ((state.income?.sick_leaves ?? []).some(s => ['employer_pay_date', 'sfr_pay_date'].some(c => Number(s[c]?.slice(0, 4)) === year))) {
+      store.update('income', d => {
+        for (const s of d.sick_leaves ?? []) for (const c of ['employer_pay_date', 'sfr_pay_date']) {
+          if (Number(s[c]?.slice(0, 4)) === year) s[c] = null;
+        }
+      });
+    }
     for (const p of (state.income?.periods ?? []).filter(x => Number(x.year) === year)) {
       deleteRow(store, 'income', 'periods', { id: p.id });
     }
@@ -197,6 +218,10 @@ export function deleteRow(store, domain, table, key) {
   }
   store.update(domain, d => {
     if (!d[table]) return;
+    if (domain === 'income' && table === 'periods' && row?.sick_leave_id) {
+      const s = d.sick_leaves?.find(s => s.id === row.sick_leave_id);
+      if (s) s[`${row.sick_payer}_pay_date`] = null;
+    }
     d[table] = d[table].filter(r => !matches(r, key));
   });
 }
