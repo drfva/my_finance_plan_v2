@@ -58,7 +58,7 @@ export function render(ctx) {
       title: 'Отпуска',
       actions: canEdit ? addButton({ domain: 'income', table: 'vacations', label: '+ отпуск',
         row: { id: uid('vac'), title: 'Отпуск', start_date: `${ctx.year}-06-01`, end_date: `${ctx.year}-06-14`, pay_amount: 0, pay_manual: false } }) : '',
-      note: 'Считаем по Положению № 922: средний дневной заработок из начисленных сумм за 12 месяцев, потом НДФЛ — и получается «на руки». '
+      note: 'Средний дневной заработок считаем из начисленных сумм за 12 месяцев, потом НДФЛ — и получается «на руки». '
         + 'Своя сумма вписывается тоже начисленной. Деньги делятся между выплатами по дням отпуска в их расчётных периодах, '
         + 'а фактически приходят одной суммой в дату из колонки «Выплатят».',
       body: table({ head: ['Название', 'С', 'По',
@@ -70,7 +70,8 @@ export function render(ctx) {
       title: 'Больничные',
       actions: canEdit ? addButton({ domain: 'income', table: 'sick_leaves', label: '+ больничный',
         row: { id: uid('sick'), start_date: ctx.today, end_date: ctx.today, note: '' } }) : '',
-      note: 'Уменьшают коэффициент месяца в расчёте среднего заработка.',
+      note: 'Дни болезни уменьшают оклад и исключаются из расчётных дней для отпускных. '
+        + 'Само пособие по больничному пока не рассчитывается и автоматически в доход не добавляется.',
       body: table({ head: ['С', 'По', 'Комментарий', ''], rows: sickRows.length ? sickRows : ['<tr><td colspan="4" class="muted">Больничных нет</td></tr>'] }),
     })}`;
 }

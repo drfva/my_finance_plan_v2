@@ -167,6 +167,71 @@ test('Обзор: глазик скрывает только выбранную 
   assert.equal(handleGoals(click('goal-close', 'a'), viewer), false);
 });
 
+test('Обзор: цель видна в годы накопления и закрытия, но не в последующие; архив не заменяет годовой отбор', () => {
+  const goal = { id: 'phone', title: 'Айфон', kind_code: 'bucket', currency_code: 'RUB',
+    priority: 1, target_amount: 100, deadline: '2027-06-01', starting_balance: 0 };
+  const ctx = goalContext([goal]);
+  ctx.state.income.periods = [2026, 2027].map(year => ({
+    id: `p${year}`, year, pay_date: `${year}-05-20`, calc_mode: 'manual', income_net: 100, locked: true,
+  }));
+  ctx.state.savings.savings_period_overrides = [
+    { period_id: 'p2026', goal_id: goal.id, amount: 40 },
+    { period_id: 'p2027', goal_id: goal.id, amount: 60 },
+  ];
+  const refresh = () => { ctx.sim = simulate(ctx.state, ctx.cfg, { today: ctx.today }); };
+  const shown = year => { ctx.year = year; return /data-goal-hide-overview="phone"/.test(renderDashboard(ctx)); };
+  refresh();
+  assert.equal(shown(2026), true);
+  assert.equal(shown(2027), true);
+  assert.equal(shown(2028), false, 'автоматически накопленная цель закончилась в 2027');
+  Object.assign(goal, { completed: true, archived: true, completion_snapshot: {
+    date: '2027-05-20', progress: 100, phase: { idx: 1, saved: 0 }, milestones: [],
+  } });
+  refresh();
+  assert.equal(shown(2026), true);
+  assert.equal(shown(2027), true, 'закрытая архивная цель остаётся в своём году');
+  assert.equal(shown(2028), false);
+  goal.hidden_overview = true;
+  assert.equal(shown(2026), false);
+  assert.equal(shown(2027), false);
+  handleGoals(click('goal-show-overview', goal.id), ctx);
+  assert.equal(shown(2027), true);
+  assert.equal(shown(2028), false, 'возврат глазиком сохраняет годовой отбор');
+  goal.completion_snapshot.date = '2026-12-01';
+  assert.equal(shown(2027), false, 'ручное закрытие раньше срока ограничивает год показа');
+});
+
+test('Обзор: опаздывающая и незавершённая цель остаётся видимой; у подушки без закрытия сохраняется баланс', () => {
+  const goals = [
+    { id: 'late', title: 'Поздний прогноз', kind_code: 'bucket', target_amount: 100, deadline: '2027-12-01' },
+    { id: 'open', title: 'Без прогноза', kind_code: 'bucket', target_amount: 100, deadline: '2027-12-01' },
+    { id: 'reserve', title: 'Подушка', kind_code: 'reserve', target_amount: 100, starting_balance: 100 },
+  ].map(g => ({ currency_code: 'RUB', ...g }));
+  const ctx = goalContext(goals);
+  ctx.sim.milestoneDates.late = ['2028-02-01'];
+  ctx.year = 2028;
+  const html = renderDashboard(ctx);
+  assert.match(html, /data-goal-hide-overview="late"/);
+  assert.match(html, /data-goal-hide-overview="open"/);
+  assert.match(html, /data-goal-hide-overview="reserve"/);
+});
+
+test('переключатель годов: до трёх соседних кнопок, края окна и остальные годы', async () => {
+  const { yearWindow } = await import('../src/ui/app.js');
+  const three = [2026, 2027, 2028];
+  for (const year of three) assert.deepEqual(yearWindow(three, year), { shown: three, past: [], future: [] });
+  for (const year of [2026, 2027]) assert.deepEqual(yearWindow([...three, 2029], year), {
+    shown: three, past: [], future: [2029],
+  });
+  for (const year of [2028, 2029]) assert.deepEqual(yearWindow([...three, 2029], year), {
+    shown: [2027, 2028, 2029], past: [2026], future: [],
+  });
+  assert.deepEqual(yearWindow([2025, ...three, 2029], 2027), { shown: three, past: [2025], future: [2029] });
+  assert.deepEqual(yearWindow([2030, 2026, 2028], 2028), { shown: [2026, 2028, 2030], past: [], future: [] });
+  assert.deepEqual(yearWindow([2027], 2027), { shown: [2027], past: [], future: [] });
+  assert.deepEqual(yearWindow([], 2027), { shown: [], past: [], future: [] });
+});
+
 test('приоритет: закрытые цели пропускаются стрелками, в архив можно отправить только закрытую', () => {
   const a = { id: 'a', kind_code: 'bucket', priority: 1 };
   const b = { id: 'b', kind_code: 'bucket', priority: null, completed: true };

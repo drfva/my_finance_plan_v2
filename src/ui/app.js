@@ -54,6 +54,19 @@ export function planYears(state, today) {
   return list.length ? list : [Number(today.slice(0, 4)) + 1];
 }
 
+/* Показываем до трёх соседних годов. На краю списка дополняем окно
+   с другой стороны; остальные годы доступны в раскрывающихся списках. */
+export function yearWindow(list, current) {
+  const sorted = [...new Set(list)].sort((a, b) => a - b);
+  const i = Math.max(0, sorted.indexOf(current));
+  const from = Math.min(Math.max(0, i - 1), Math.max(0, sorted.length - 3));
+  return {
+    shown: sorted.slice(from, from + 3),
+    past: sorted.slice(0, from),
+    future: sorted.slice(from + 3),
+  };
+}
+
 export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   const ui = { tab: null, year: null, goal: null, open: new Set(), draft: {}, notice: null };
   const security = client ? createSecurity(client, () => render()) : null;
@@ -129,21 +142,6 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       late[t.code]?.size ? '<i class="late-dot" title="Есть сроки, в которые план не укладывается"></i>' : ''}</button>`).join('');
   }
 
-  /* Годы для переключателя: прошлый, текущий и следующий. Остальное прячется
-     в «Архив годов» и «Ещё» — списки открываются кнопкой. */
-  function yearWindow(list, current) {
-    const sorted = [...list].sort((a, b) => a - b);
-    const i = Math.max(0, sorted.indexOf(current));
-    let from = Math.max(0, i - 1);
-    if (i === 0) from = 0;
-    const shown = sorted.slice(from, from + 3);
-    return {
-      shown,
-      past: sorted.filter(y => y < shown[0]),
-      future: sorted.filter(y => y > shown[shown.length - 1]),
-    };
-  }
-
   function shell(ctx, body) {
     const tab = ALL_TABS.find(t => t.code === ui.tab);
     const late = lateYears(ctx);
@@ -158,9 +156,9 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
           list.some(y => lateHere.has(y)) ? '<i class="late-dot"></i>' : ''}</button>
         ${ui.open.has(key) ? list.map(yearBtn).join('') : ''}` : '');
       yearBtns = `<div class="month-tabs" style="margin:0;">
-        ${more('years-past', win.past, 'Архив годов')}
+        ${more('years-past', win.past, 'Предыдущие годы')}
         ${win.shown.map(yearBtn).join('')}
-        ${more('years-next', win.future, 'Ещё')}
+        ${more('years-next', win.future, 'Будущие годы')}
       </div>`;
     }
     const tabActions = tab?.actions ? tab.actions(ctx) : '';

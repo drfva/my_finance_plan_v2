@@ -345,7 +345,24 @@ function savedView(ctx) {
   for (const r of rows) for (const [id, v] of Object.entries(r.allocations ?? {})) allocated.set(id, (allocated.get(id) ?? 0) + v);
 
   const all = (state.savings?.goals ?? []).slice().sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
-  const of = kind => all.filter(g => g.kind_code === kind && !g.hidden_overview);
+  // Глазик дополняет годовой отбор. Архив сам по себе видимость не меняет.
+  const alive = g => {
+    const list = sim.milestonesOf(g);
+    const dates = sim.milestoneDates[g.id] ?? [];
+    const endYears = list.flatMap((m, i) => [m.deadline, dates[i]])
+      .filter(d => d && d !== 'pre').map(d => Number(String(d).slice(0, 4)));
+    if (g.completed) {
+      const closed = g.completion_snapshot?.date;
+      const lastYear = closed ? Number(closed.slice(0, 4)) : Math.max(...endYears);
+      // У старой закрытой цели без дат невозможно восстановить год закрытия.
+      return !Number.isFinite(lastYear) || year <= lastYear;
+    }
+    if (g.kind_code === 'reserve' || (allocated.get(g.id) ?? 0) > 0.5) return true;
+    if (list.some((m, i) => !dates[i])) return true;
+    const planStartYear = sim.rows.length ? Number(sim.rows[0].period.pay_date.slice(0, 4)) : year;
+    return year <= Math.max(planStartYear, ...endYears);
+  };
+  const of = kind => all.filter(g => g.kind_code === kind && !g.hidden_overview && (kind === 'gifts' || alive(g)));
 
   const section = (heading, list, opts) => (list.length ? `
     <h3 style="margin:22px 0 0;font-size:16px;">${esc(heading)}</h3>

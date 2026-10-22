@@ -320,6 +320,21 @@ test('доход: старые отличающиеся суммы сохран�
   assert.equal(computeIncome(st, VAC_CFG).byId.get('p1').salary, st.income.periods[0].income_net);
 });
 
+test('больничный: уменьшает автоматический оклад, отдельное пособие в доход пока не добавляется', () => {
+  const st = vacState({ vacations: [] });
+  st.income.periods.forEach(p => { p.income_manual = false; });
+  const before = computeIncome(st, VAC_CFG);
+  st.income.sick_leaves = [{ id: 's', start_date: '2027-08-10', end_date: '2027-08-15' }];
+  const after = computeIncome(st, VAC_CFG);
+  assert.ok(after.byId.get('p1').salary < before.byId.get('p1').salary);
+  assert.equal(after.byId.get('p2').salary, before.byId.get('p2').salary);
+  assert.ok(after.monthGross(2027, 8) < before.monthGross(2027, 8));
+  assert.ok(after.periods.every(r => r.total === r.salary), 'нет расчёта и автоматического зачисления пособия');
+  st.income.periods[0].locked = true;
+  st.income.periods[0].income_net = 12345;
+  assert.equal(computeIncome(st, VAC_CFG).byId.get('p1').salary, 12345);
+});
+
 test('доход: новый год создаётся с автоматическими суммами, ручная премия не становится окладом', () => {
   const st = vacState({ vacations: [], periods: [] });
   const fresh = generateYear(st, VAC_CFG, 2027);
