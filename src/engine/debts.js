@@ -65,16 +65,25 @@ export function rebuildFuture(inst, payments, today, units = []) {
   const left = Math.max(0, total - paid);
   const partsLeft = Math.max(0, parts - past.length);
   if (!partsLeft) return [...past];
-  const base = Math.floor(left / partsLeft);
-  const rest = left - base * partsLeft;
+  const future = Array.from({ length: partsLeft }, (_, k) => own.find(p => p.id === `${inst.id}-${past.length + k + 1}`));
+  const fixed = future.filter(p => p?.manual_fields?.includes('amount'));
+  const available = Math.max(0, left - fixed.reduce((s, p) => s + (Number(p.amount) || 0), 0));
+  const autoCount = partsLeft - fixed.length;
+  const base = autoCount ? Math.floor(available / autoCount) : 0;
+  const rest = available - base * autoCount;
   const out = [...past];
+  let autoIndex = 0;
   for (let k = 0; k < partsLeft; k++) {
     const i = past.length + k;
+    const previous = future[k];
+    const fields = previous?.manual_fields ?? [];
+    const amount = fields.includes('amount') ? previous.amount : base + (autoIndex++ < rest ? 1 : 0);
     out.push({
       id: `${inst.id}-${i + 1}`,
       installment_id: inst.id,
-      pay_date: inst.first_date ? nthDate(inst.first_date, i, inst.every_n, inst.period_unit, units) : null,
-      amount: base + (k < rest ? 1 : 0),
+      pay_date: fields.includes('pay_date') ? previous.pay_date : inst.first_date ? nthDate(inst.first_date, i, inst.every_n, inst.period_unit, units) : null,
+      amount,
+      ...(fields.length ? { manual_fields: fields } : {}),
       paid: false,
       sort_order: i + 1,
     });

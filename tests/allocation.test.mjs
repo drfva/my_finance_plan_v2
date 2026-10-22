@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import { planExpenses, inSeason } from '../src/engine/expenses.js';
 import { buildInstallmentSchedule, installmentsByPeriod, newCardState, cardApplyOp, cardApplyPayment } from '../src/engine/debts.js';
 import { createTracker, cycleDates, giftAmountForYear, syncGenerated, milestonesOf } from '../src/engine/savings.js';
-import { simulate, freezePeriods, goalBalanceAt, goalProgressAt, snapshotGoalCompletion, reservePaceSuggestion, proposeRedistribution, cardForecast } from '../src/engine/allocation.js';
+import { simulate, freezePeriods, goalBalanceAt, goalProgressAt, snapshotGoalCompletion, reservePaceSuggestion, proposeRedistribution, cardForecast, goalNeedAt, forecastBeyondPlan } from '../src/engine/allocation.js';
 import { createFx } from '../src/engine/fx.js';
 import { createConfig } from '../src/core/config.js';
 
@@ -363,6 +363,40 @@ function plan({ periods = payouts([1, 2, 3, 4, 5, 6]), goals = [], milestones = 
 }
 const run = st => simulate(st, createConfig(st));
 const goal = (id, extra = {}) => ({ id, title: id, kind_code: 'bucket', currency_code: 'RUB', priority: 1, target_amount: 0, deadline: null, starting_balance: 0, pace_amount: 0, completed: false, ...extra });
+
+test('закрытая цель: будущая ручная сумма освобождается, история и баланс сохраняются', () => {
+  for (const archived of [false, true]) {
+    const periods = payouts([1], { net: 1000 });
+    const [past, future] = periods;
+    past.locked = true;
+    const closed = goal('closed', { completed: true, archived, priority: null, target_amount: 500,
+      completion_snapshot: { date: past.pay_date, progress: 200, phase: { idx: 0, saved: 200 }, milestones: [] } });
+    const active = goal('active', { target_amount: 10000 });
+    const st = plan({ periods, goals: [closed, active], overrides: [
+      { period_id: past.id, goal_id: closed.id, amount: 200 },
+      { period_id: future.id, goal_id: closed.id, amount: 900 },
+    ] });
+    const sim = simulate(st, createConfig(st), { today: past.pay_date });
+    assert.equal(sim.byId.get(past.id).allocations.closed, 200);
+    assert.equal(sim.byId.get(future.id).allocations.closed, undefined);
+    assert.equal(sim.byId.get(future.id).allocations.active, 1000, 'освободившаяся сумма доступна активным целям');
+    assert.equal(goalBalanceAt(sim, closed, [], future.pay_date), 200);
+    assert.equal(goalProgressAt(sim, closed, future.pay_date), 200);
+    assert.deepEqual(goalNeedAt(sim, closed, [], past.pay_date), { need: 0, deadline: '' });
+    assert.equal(reservePaceSuggestion(sim, closed, past.pay_date).suggested, 0);
+    assert.equal(forecastBeyondPlan(sim, closed), null);
+    assert.equal(st.savings.savings_period_overrides.length, 2, 'исходная история не удалена');
+  }
+});
+
+test('скрытие с Обзора не меняет расчёт и прогноз активной цели', () => {
+  const st = plan({ goals: [goal('g', { target_amount: 10000 })] });
+  const before = run(st);
+  st.savings.goals[0].hidden_overview = true;
+  const after = run(st);
+  assert.deepEqual(after.rows, before.rows);
+  assert.deepEqual(after.milestoneDates, before.milestoneDates);
+});
 
 test('закрытая цель: накопленный будущий этап сохраняется после траты и перевода', () => {
   for (const kind of ['spend', 'transfer_out']) {

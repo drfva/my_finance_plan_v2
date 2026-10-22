@@ -2,7 +2,7 @@
 
 import { esc, addButton, pill, field, input, card, table } from './dom.js';
 import { uid } from './edit.js';
-import { goalCard, handle as goalsHandle } from './goals.js';
+import { goalCard, goalList, handle as goalsHandle } from './goals.js';
 import { reservePaceSuggestion } from '../engine/allocation.js';
 
 export const code = 'reserves';
@@ -11,9 +11,10 @@ export const title = () => 'Подушки';
 export function render(ctx) {
   const { state, fmt, canEdit, sim } = ctx;
   const goals = (state.savings?.goals ?? []).filter(g => g.kind_code === 'reserve')
-    .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+    .sort((a, b) => (a.priority ?? Infinity) - (b.priority ?? Infinity));
 
-  const cards = goals.map(g => {
+  const renderCard = g => {
+    if (g.completed || g.archived) return goalCard(ctx, g);
     const s = reservePaceSuggestion(sim, g, ctx.today);
     const hint = s.payoutsLeft
       ? `Чтобы успеть к сроку этапа, нужно ${esc(fmt.money(s.needPer, g.currency_code))} с выплаты (осталось ${s.payoutsLeft}).
@@ -27,14 +28,14 @@ export function render(ctx) {
     </div>
     <div class="small-note">${hint}</div>`;
     return goalCard(ctx, g, { extraFields: extra });
-  }).join('');
+  };
 
   return `
     <div class="row between wrap" style="gap:8px;">
       ${pill('Подушка получает свой темп за выплату, а после копилок — остаток')}
-      ${canEdit ? addButton({ domain: 'savings', table: 'goals', cls: 'primary small', label: '+ подушка', row: { id: uid('goal'), title: 'Новая подушка', kind_code: 'reserve', currency_code: ctx.cfg.get('base_currency'), priority: goals.length + 1, target_amount: 0, starting_balance: 0, pace_amount: 0, completed: false } }) : ''}
+      ${canEdit ? addButton({ domain: 'savings', table: 'goals', cls: 'primary small', label: '+ подушка', row: { id: uid('goal'), title: 'Новая подушка', kind_code: 'reserve', currency_code: ctx.cfg.get('base_currency'), priority: goals.filter(g => !g.completed && !g.archived).length + 1, target_amount: 0, starting_balance: 0, pace_amount: 0, completed: false } }) : ''}
     </div>
-    ${cards || '<div class="card muted">Подушек пока нет.</div>'}`;
+    ${goalList(ctx, goals, renderCard, 'reserve')}`;
 }
 
 export const handle = goalsHandle;

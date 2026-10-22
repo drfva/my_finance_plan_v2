@@ -121,6 +121,11 @@ export function applyEdit(store, el, fmt) {
       return;
     }
     row[column] = value;
+    if (domain === 'income' && table === 'periods' && column === 'income_net') row.income_manual = true;
+    if (domain === 'income' && table === 'vacations' && column === 'pay_amount') row.pay_manual = true;
+    if (domain === 'debts' && table === 'installment_payments' && ['amount', 'pay_date'].includes(column)) {
+      row.manual_fields = [...new Set([...(row.manual_fields ?? []), column])];
+    }
     /* Этап или трату, созданные шаблоном, правка закрепляет: с этого момента
        повторяющееся накопление и праздники это вхождение не перезаписывают. */
     if (domain === 'savings' && (table === 'goal_milestones' || table === 'goal_transactions')
@@ -216,13 +221,6 @@ export function attachEditing(container, store, getCtx, onError) {
       if (domain === 'savings' && table === 'goal_transactions') {
         const tx = findRow(store.state, domain, table, key);
         if (tx) syncTransfer(store, tx);
-      }
-      // своя сумма отпускных: как только её ввели, отпуск перестаёт считаться по формуле
-      if (domain === 'income' && table === 'vacations' && column === 'pay_amount') {
-        store.update('income', d => {
-          const v = (d.vacations ?? []).find(x => x.id === key.id);
-          if (v) v.pay_manual = true;
-        });
       }
       if (domain === 'debts' && table === 'installments' && SCHEDULE_FIELDS.has(column)) {
         const inst = findRow(store.state, domain, table, key);

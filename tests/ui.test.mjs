@@ -4,7 +4,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyEdit, deleteRow, addRow, findRow } from '../src/ui/edit.js';
 import { createFormat } from '../src/core/format.js';
-import { handle as handleGoals, milestoneStatus } from '../src/ui/goals.js';
+import { handle as handleGoals, milestoneStatus, goalSummary, goalCard, render as renderGoals, moveGoal } from '../src/ui/goals.js';
+import { render as renderReserves } from '../src/ui/reserves.js';
+import { render as renderDashboard, handle as handleDashboard } from '../src/ui/dashboard.js';
 import { simulate, goalProgressAt, goalBalanceAt } from '../src/engine/allocation.js';
 import { createConfig } from '../src/core/config.js';
 import fs from 'node:fs';
@@ -19,6 +21,115 @@ function fakeStore(state) {
   };
 }
 const el = (dataset, value) => ({ dataset, value, checked: value === true });
+
+const click = (action, id) => ({ target: { closest: selector => selector === `[data-${action}]`
+  ? { dataset: { [action.replace(/-([a-z])/g, (_, c) => c.toUpperCase())]: id } } : null } });
+
+function goalContext(goals, milestones = []) {
+  const state = JSON.parse(fs.readFileSync(new URL('../tools/preview/state.json', import.meta.url), 'utf8'));
+  state.income = { periods: [] };
+  state.expenses = {};
+  state.debts = {};
+  state.gifts = {};
+  state.savings = { goals, goal_milestones: milestones, goal_transactions: [] };
+  const cfg = createConfig(state);
+  return { state, cfg, store: fakeStore(state), fmt, canEdit: true, today: '2027-03-01', year: 2027,
+    ui: { open: new Set(), draft: { dashboard: { view: 'saved' } } }, sim: simulate(state, cfg, { today: '2027-03-01' }) };
+}
+
+test('архив: скрывает только список своего раздела; возврат не открывает цель и не меняет снимок', () => {
+  for (const kind of ['bucket', 'reserve']) {
+    const goal = { id: 'g', title: 'Архивная цель', kind_code: kind, currency_code: 'RUB', priority: null,
+      completed: true, starting_balance: 100, target_amount: 100,
+      completion_snapshot: { date: '2027-02-01', progress: 100, phase: { idx: 1, saved: 0 }, milestones: [] } };
+    const ctx = goalContext([goal]);
+    const render = kind === 'bucket' ? renderGoals : renderReserves;
+    assert.match(render(ctx), /value="Архивная цель"/);
+    const snapshot = structuredClone(goal.completion_snapshot);
+    assert.equal(handleGoals(click('goal-archive', goal.id), ctx), true);
+    assert.equal(goal.archived, true);
+    assert.doesNotMatch(render(ctx), /value="Архивная цель"/);
+    assert.match(renderDashboard(ctx), /Архивная цель/, 'архив остаётся в Обзоре');
+    ctx.ui.open.add(`goal-archive:${kind}`);
+    const html = render(ctx);
+    assert.match(html, /value="Архивная цель"/);
+    assert.match(html, /Вернуть из архива/);
+    assert.doesNotMatch(html, /приоритет|data-goal-move/);
+    assert.equal(handleGoals(click('goal-archive', goal.id), ctx), true);
+    assert.equal(goal.archived, false);
+    assert.equal(goal.completed, true);
+    assert.equal(goal.priority, null);
+    assert.deepEqual(goal.completion_snapshot, snapshot);
+    assert.match(render(ctx), /Вернуть в работу/);
+    goal.archived = true;
+    assert.equal(handleGoals(click('goal-close', goal.id), ctx), true);
+    assert.equal(goal.completed, false);
+    assert.equal(goal.archived, false);
+    assert.equal(goal.priority, 1);
+    assert.equal(goal.completion_snapshot, null);
+  }
+});
+
+test('Обзор: глазик скрывает только выбранную цель, вернуть можно даже из архива', () => {
+  const goals = ['a', 'b'].map(id => ({ id, title: `Цель ${id}`, kind_code: 'bucket', currency_code: 'RUB',
+    priority: null, completed: true, archived: true, target_amount: 100, starting_balance: 0 }));
+  const ctx = goalContext(goals);
+  assert.match(renderDashboard(ctx), /data-goal-hide-overview="a"/);
+  assert.equal(handleDashboard(click('goal-hide-overview', 'a'), ctx), true);
+  const html = renderDashboard(ctx);
+  assert.doesNotMatch(html, /Цель a/);
+  assert.match(html, /Цель b/);
+  const restored = JSON.parse(JSON.stringify(ctx.state));
+  assert.equal(restored.savings.goals[0].hidden_overview, true, 'видимость хранится вместе с целью');
+  ctx.ui.open.add('goal-archive:bucket');
+  assert.match(renderGoals(ctx), /Показать на Обзоре/);
+  assert.equal(handleGoals(click('goal-show-overview', 'a'), ctx), true);
+  assert.match(renderDashboard(ctx), /Цель a/);
+  assert.equal(goals[0].archived, true);
+  assert.equal(goals[0].completed, true);
+  const viewer = { ...ctx, canEdit: false };
+  assert.doesNotMatch(renderDashboard(viewer), /data-goal-hide-overview/);
+  assert.equal(handleDashboard(click('goal-hide-overview', 'a'), viewer), false);
+  assert.equal(handleGoals(click('goal-archive', 'a'), viewer), false);
+  assert.equal(handleGoals(click('goal-close', 'a'), viewer), false);
+});
+
+test('приоритет: закрытые цели пропускаются стрелками, в архив можно отправить только закрытую', () => {
+  const a = { id: 'a', kind_code: 'bucket', priority: 1 };
+  const b = { id: 'b', kind_code: 'bucket', priority: null, completed: true };
+  const c = { id: 'c', kind_code: 'bucket', priority: 2 };
+  const reserve = { id: 'r', kind_code: 'reserve', priority: 1 };
+  const ctx = goalContext([a, b, c, reserve]);
+  assert.equal(moveGoal(ctx, 'a', 'down'), true);
+  assert.deepEqual([a.priority, b.priority, c.priority, reserve.priority], [2, null, 1, 1]);
+  assert.equal(moveGoal(ctx, 'b', 'down'), false);
+  assert.equal(handleGoals(click('goal-archive', 'a'), ctx), false);
+  assert.equal(a.archived, undefined);
+});
+
+test('сводка цели: ближайшая будущая дата, предупреждение видно без раскрытия, метки «потрачено» нет', () => {
+  const goal = { id: 'g', title: 'Этапы', kind_code: 'bucket', priority: 1, currency_code: 'RUB', target_amount: 0 };
+  const ms = [
+    { id: 'old', goal_id: 'g', title: 'Старый', target: 100, deadline: '2027-01-01' },
+    { id: 'late', goal_id: 'g', title: 'Опаздывает', target: 100, deadline: '2027-02-01' },
+    { id: 'next', goal_id: 'g', title: 'Ближайший', target: 100, deadline: '2027-04-01' },
+    { id: 'later', goal_id: 'g', title: 'Дальний', target: 100, deadline: '2027-10-01' },
+  ];
+  const ctx = goalContext([goal], ms);
+  ctx.sim.milestoneDates.g = ['2027-01-01', '2027-07-01', '2027-08-01', '2027-11-01'];
+  ctx.sim.milestoneFunded.g = [0, 0, 100, 100];
+  assert.equal(goalSummary(ctx, goal).next.m.id, 'next', 'прошлые даты пропущены, ближайший срок раньше прогноза');
+  const html = goalCard(ctx, goal);
+  assert.match(html, /goal-late/);
+  assert.match(html, /Есть этапы позже срока/);
+  assert.match(html, /Ближайший: позже срока/);
+  assert.doesNotMatch(html, /потрачено/);
+  assert.doesNotMatch(milestoneStatus(ctx, goal, ms[0]).label, /потрачено/);
+  ctx.sim.milestoneDates.g[1] = '2027-03-05';
+  assert.equal(goalSummary(ctx, goal).next.m.id, 'late', 'ближайший будущий прогноз тоже учитывается');
+  ctx.today = '2028-01-01';
+  assert.equal(goalSummary(ctx, goal).next, null, 'не возвращаемся к первому этапу, если будущих нет');
+});
 
 test('закрытие цели сохраняет сегодняшнее пополнение и прогресс после перезагрузки; возврат снимает фиксацию', () => {
   const state = JSON.parse(fs.readFileSync(new URL('../tools/preview/state.json', import.meta.url), 'utf8'));
@@ -37,11 +148,12 @@ test('закрытие цели сохраняет сегодняшнее поп
   ], goal_transactions: [] };
   const store = fakeStore(state);
   const run = () => simulate(state, createConfig(state), { today: '2027-03-01' });
-  const ctx = { store, state, ui: {}, today: '2027-03-01', sim: run() };
+  const ctx = { store, state, canEdit: true, ui: {}, today: '2027-03-01', sim: run() };
   const ev = { target: { closest: selector => selector === '[data-goal-close]' ? { dataset: { goalClose: g.id } } : null } };
   assert.equal(goalProgressAt(ctx.sim, g, '2027-03-20'), 200, 'до закрытия есть будущий прогноз');
   assert.equal(handleGoals(ev, ctx), true);
   assert.equal(g.completed, true);
+  assert.equal(g.priority, null);
   assert.equal(g.completion_snapshot.progress, 100, 'засчитано только накопленное на сегодня');
   assert.equal(state.savings.savings_period_overrides[0].amount, 100);
   state.savings.goal_transactions.push({ id: 'out', goal_id: g.id, date: ctx.today, kind: 'transfer_out', amount: 100 });
@@ -56,6 +168,7 @@ test('закрытие цели сохраняет сегодняшнее поп
   ctx.sim = run();
   assert.equal(handleGoals(ev, ctx), true);
   assert.equal(g.completed, false);
+  assert.equal(g.priority, 1);
   assert.equal(g.completion_snapshot, null);
   assert.ok(run().byId.get('future').allocations[g.id] > 0, 'открытая снова цель получает деньги');
 });

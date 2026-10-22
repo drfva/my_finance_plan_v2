@@ -47,7 +47,7 @@ export function render(ctx) {
       <td style="width:170px;">${input({ edit: 'gifts|gift_events|day', key: { id: e.id }, value: eventDate(e, year),
         type: 'monthday', disabled: !canEdit })}</td>
       <td style="width:150px;">${input({ edit: 'gifts|gift_event_amounts|amount', key: { event_id: e.id, year },
-        value: set ? amount : '', placeholder: fmt.money(amount), type: 'money', disabled: !canEdit })}</td>
+        value: set ? amount : '', placeholder: fmt.money(amount), type: 'money', disabled: !canEdit, cls: set ? 'own' : '' })}</td>
       <td style="width:180px;">${select({ edit: 'gifts|gift_events|repeat_kind', key: { id: e.id }, value: e.repeat_kind, disabled: !canEdit,
         options: [{ value: 'yearly', label: 'Каждый год' }, { value: 'once', label: 'Один раз' }] })}</td>
       <td style="width:40px;">${canEdit ? delButton({ domain: 'gifts', table: 'gift_events', key: { id: e.id },

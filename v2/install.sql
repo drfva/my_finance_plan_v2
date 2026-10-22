@@ -7,7 +7,7 @@
 -- Пользователей для входа создайте отдельно в Authentication -> Users.
 -- Финансовый план создаётся при первом входе через bootstrap_user.
 --
--- Собран из v2/sql/001_schema.sql ... 006_goal_completion.sql в указанном ниже порядке.
+-- Собран из v2/sql/001_schema.sql ... 007_goal_archive.sql в указанном ниже порядке.
 -- Исходные SQL включены без изменения. При их изменении пересоберите этот файл.
 -- Старые sql/001_base.sql ... 006_schedule.sql и 000_reset_public.sql НЕ включены.
 -- Это установочный файл, а не скрипт переноса старой базы на v2.
@@ -1569,6 +1569,26 @@ alter table public.goals
 
 comment on column public.goals.completion_snapshot is
   'Снимок ручного закрытия: дата, прогресс, состояние текущего этапа и даты накопленных этапов. Движения после закрытия меняют баланс, но не прогресс. При возврате в работу снимок очищается.';
+
+notify pgrst, 'reload schema';
+
+
+-- =====================================================================
+-- SOURCE: v2/sql/007_goal_archive.sql
+-- =====================================================================
+
+-- Архив и видимость целей в Обзоре независимы от закрытия цели.
+-- Выполнить после 006_goal_completion.sql перед обновлением приложения.
+alter table public.goals
+  add column if not exists archived boolean not null default false,
+  add column if not exists hidden_overview boolean not null default false;
+
+alter table public.goals alter column priority drop not null;
+update public.goals set priority = null where completed;
+
+comment on column public.goals.archived is 'Убрана в архив Копилок/Подушек; возврат из архива не открывает цель.';
+comment on column public.goals.hidden_overview is 'Скрыта пользователем с Обзора; архив сам по себе не скрывает цель.';
+comment on column public.goals.priority is 'Очередь активных целей своего типа; у закрытой цели NULL.';
 
 notify pgrst, 'reload schema';
 

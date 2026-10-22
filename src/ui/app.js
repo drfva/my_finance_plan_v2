@@ -9,11 +9,11 @@
 import { esc, byId } from './dom.js';
 import { attachEditing } from './edit.js';
 import { simulate, freezePeriods, snapshotGoalCompletion } from '../engine/allocation.js';
-import { computeIncome } from '../engine/income.js';
+import { computeIncome, classifyIncomePeriods } from '../engine/income.js';
 import { createSecurity } from '../core/security.js';
 import { tourNeeded, tourPanel, tourHandle } from './tour.js';
 import { lateYears } from './alerts.js';
-import { syncGenerated } from '../engine/savings.js';
+import { syncGenerated, normalizeGoalPriorities } from '../engine/savings.js';
 
 import * as dashboard from './dashboard.js';
 import * as periods from './periods.js';
@@ -194,6 +194,14 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
 
   function render() {
     const ctx = context();
+    const unclassified = ctx.canEdit ? classifyIncomePeriods(ctx.income) : [];
+    if (unclassified.length) {
+      const flags = new Map(unclassified.map(p => [p.id, p.manual]));
+      store.update('income', d => {
+        for (const p of d.periods ?? []) if (flags.has(p.id)) p.income_manual = flags.get(p.id);
+      });
+      return;
+    }
     if (ensureGiftsGoal(ctx)) return;  // состояние изменилось — отрисовка придёт событием
     syncGeneratedRows(ctx);
     if (freezePast(ctx)) return;      // состояние изменилось — отрисовка придёт событием
@@ -201,9 +209,12 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     // на сегодня. Первоначальная дата их закрытия в прежней модели не хранилась.
     const missing = ctx.canEdit ? (ctx.state.savings?.goals ?? [])
       .filter(g => g.completed && !g.completion_snapshot) : [];
-    if (missing.length) {
+    const normalized = normalizeGoalPriorities(ctx.state.savings?.goals ?? []);
+    const prioritiesChanged = ctx.canEdit && normalized.some((g, i) => g.priority !== ctx.state.savings.goals[i].priority);
+    if (missing.length || prioritiesChanged) {
       const snapshots = new Map(missing.map(g => [g.id, snapshotGoalCompletion(ctx.sim, g, ctx.today)]));
       store.update('savings', d => {
+        d.goals = normalized;
         for (const g of d.goals) if (snapshots.has(g.id)) g.completion_snapshot = snapshots.get(g.id);
       });
       return;

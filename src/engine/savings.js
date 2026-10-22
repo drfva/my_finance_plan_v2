@@ -40,6 +40,18 @@ const byDeadline = (a, b) => {
   return ka < kb ? -1 : ka > kb ? 1 : (a.sort_order ?? 0) - (b.sort_order ?? 0);
 };
 
+/* Закрытые цели не занимают места в очереди. Порядок остальных сохраняется. */
+export function normalizeGoalPriorities(goals) {
+  const priorities = new Map();
+  const kinds = new Set(goals.map(g => g.kind_code));
+  for (const kind of kinds) {
+    goals.filter(g => g.kind_code === kind && !g.completed && !g.archived)
+      .sort((a, b) => (a.priority ?? Infinity) - (b.priority ?? Infinity))
+      .forEach((g, i) => priorities.set(g.id, i + 1));
+  }
+  return goals.map(g => ({ ...g, priority: priorities.get(g.id) ?? null }));
+}
+
 /* Этапы цели по порядку набора */
 export function milestonesOf(goal, milestones) {
   const own = milestones.filter(m => m.goal_id === goal.id).sort(byDeadline);
@@ -209,6 +221,7 @@ export function createTracker({ goals, milestones, today = '' }) {
     /* Все движения по копилке по порядку: пополнения плана, траты и переводы */
     ledger: gid => log.filter(e => e.goal_id === gid),
     balance: gid => balance.get(gid) ?? 0,
+    reserves: gid => (pool.get(gid) ?? []).map(c => ({ ...c })),
     deposit, withdraw, apply,
     snapshot(date = '9999-12-31') {
       const out = { balances: {}, phase: {} };

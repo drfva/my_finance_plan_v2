@@ -312,7 +312,12 @@ function yearGoalCard(ctx, g, allocated, { withStages, extra = '' }) {
     : next ? pill(`прогноз: ${fmt.date(next.done)}`) : '';
 
   return `<div class="card goal-card">
-    <div class="row between" style="gap:10px;"><h3>${esc(g.title)}</h3>${head}</div>
+    <div class="row between" style="gap:10px;"><h3>${esc(g.title)}</h3>
+      <div class="row" style="gap:8px;">${head}${ctx.canEdit ? `<button class="ghost small goal-eye" data-goal-hide-overview="${esc(g.id)}"
+        title="Скрыть с Обзора" aria-label="Скрыть цель «${esc(g.title)}» с Обзора">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>
+        </svg></button>` : ''}</div></div>
     ${total > 0
       ? `<div class="progress${end > total + 0.5 ? ' over' : ''}">
            <i class="year-start" style="width:${pct(base)}%"></i><i style="width:${pct(end)}%"></i></div>
@@ -340,18 +345,7 @@ function savedView(ctx) {
   for (const r of rows) for (const [id, v] of Object.entries(r.allocations ?? {})) allocated.set(id, (allocated.get(id) ?? 0) + v);
 
   const all = (state.savings?.goals ?? []).slice().sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
-  const of = kind => all.filter(g => g.kind_code === kind);
-
-  /* Копилка, у которой в этом году нечего закрывать и которая уже набрана
-     (или закрыта руками), в обзор года не идёт — она только мешает. */
-  const alive = g => {
-    if (g.completed) return false;
-    const list = sim.milestonesOf(g);
-    const dates = sim.milestoneDates[g.id] ?? [];
-    const left = list.some((m, i) => !dates[i] || dates[i] === null);
-    const open = list.some((m, i) => dates[i] && dates[i] !== 'pre' && dates[i] >= `${year}-01-01`);
-    return left || open || (allocated.get(g.id) ?? 0) > 0.5;
-  };
+  const of = kind => all.filter(g => g.kind_code === kind && !g.hidden_overview);
 
   const section = (heading, list, opts) => (list.length ? `
     <h3 style="margin:22px 0 0;font-size:16px;">${esc(heading)}</h3>
@@ -365,7 +359,7 @@ function savedView(ctx) {
   </div>`).join('');
 
   return `
-    ${section('Копилки', of('bucket').filter(alive), { withStages: true })}
+    ${section('Копилки', of('bucket'), { withStages: true })}
     ${section('Подушки', of('reserve'), { withStages: false })}
     ${gifts}`;
 }
@@ -421,6 +415,14 @@ export function render(ctx) {
 }
 
 export function handle(ev, ctx) {
+  const hide = ev.target.closest('[data-goal-hide-overview]');
+  if (hide) {
+    if (!ctx.canEdit) return false;
+    const goal = (ctx.state.savings?.goals ?? []).find(g => g.id === hide.dataset.goalHideOverview);
+    if (!goal || !['bucket', 'reserve'].includes(goal.kind_code)) return false;
+    ctx.store.update('savings', d => { d.goals.find(g => g.id === goal.id).hidden_overview = true; });
+    return true;
+  }
   const btn = ev.target.closest('[data-ov]');
   if (!btn) return false;
   (ctx.ui.draft.dashboard ?? (ctx.ui.draft.dashboard = {})).view = btn.dataset.ov;

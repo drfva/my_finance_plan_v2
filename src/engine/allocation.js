@@ -47,7 +47,21 @@ import { createFx } from './fx.js';
 
 const SAVINGS_STAGES = ['gifts', 'buckets', 'reserves'];
 
-export function simulate(state, cfg, { income = null, round = Math.round, paceFirst = true, today = '' } = {}) {
+/* Сначала строим план, затем проверяем доступность будущих выплат. Если позднее
+   денег мало, переносим нужное накопление вперёд за счёт менее срочных целей. */
+export function simulate(state, cfg, options = {}) {
+  const income = options.income ?? computeIncome(state, cfg, { round: options.round });
+  let result = simulatePlan(state, cfg, { ...options, income });
+  for (let i = 0; i < 4; i++) {
+    const next = simulatePlan(state, cfg, { ...options, income, reference: result });
+    const same = next.rows.every((r, n) => JSON.stringify(r.allocations) === JSON.stringify(result.rows[n].allocations));
+    result = next;
+    if (same) break;
+  }
+  return result;
+}
+
+function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst = true, today = '', reference = null } = {}) {
   const inc = income ?? computeIncome(state, cfg, { round });
   const periods = inc.periods.map(r => r.period);
   const warnings = [...inc.warnings];
@@ -100,7 +114,15 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
   let curPeriodId = null;        // выплата, из которой идёт текущее отчисление — для «движений»
 
   const savingsOv = new Map();
+  const goalsById = new Map(goals.map(g => [g.id, g]));
+  const periodsById = new Map(periods.map(p => [p.id, p]));
   for (const o of sv.savings_period_overrides ?? []) {
+    const g = goalsById.get(o.goal_id);
+    const p = periodsById.get(o.period_id);
+    if (!g || !p) continue;
+    // Ручные суммы закрытой цели сохраняют историю, но не будущие пополнения.
+    if ((g.completed || g.archived) && !(g.completion_snapshot?.date
+      ? p.pay_date <= g.completion_snapshot.date : p.locked && (!today || p.pay_date <= today))) continue;
     if (!savingsOv.has(o.period_id)) savingsOv.set(o.period_id, new Map());
     savingsOv.get(o.period_id).set(o.goal_id, Number(o.amount) || 0);
   }
@@ -157,7 +179,39 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
   }
 
   /* ---------------------------------------------------------- требования целей */
-  const periodsBetween = (from, to) => periods.filter(q => q.pay_date >= from && q.pay_date <= to).length;
+  function futureCapacity(g, p, deadline) {
+    if (!reference) return Infinity;
+    const currentStage = stageOfGoal(g);
+    const priority = stage(currentStage)?.priority ?? Infinity;
+    let capacity = 0;
+    for (const r of reference.rows) {
+      const q = r.period;
+      if (q.pay_date <= p.pay_date || q.pay_date > deadline || q.locked) continue;
+      const fixed = savingsOv.get(q.id);
+      // Ручная сумма этой цели является пределом именно этой выплаты.
+      if (fixed?.has(g.id)) {
+        capacity += fixed.get(g.id);
+        continue;
+      }
+      let free = Math.max(0, r.unallocated);
+      for (const other of goals) {
+        if (fixed?.has(other.id)) continue;
+        const amount = r.allocations[other.id] ?? 0;
+        if (other.id === g.id) { free += amount; continue; }
+        const otherStage = stageOfGoal(other);
+        const otherPriority = stage(otherStage)?.priority ?? Infinity;
+        const { idx } = r.phase[other.id] ?? { idx: 0 };
+        const ms = reference.milestonesOf(other);
+        const due = ms[Math.min(idx, ms.length - 1)]?.deadline || '9999-99-99';
+        const lower = (due > deadline && otherPriority >= priority)
+          || (due === deadline && (otherPriority > priority
+            || (otherStage === currentStage && (other.priority ?? 0) > (g.priority ?? 0))));
+        if (lower) free += Math.max(0, amount - (paceFirst && otherStage === 'reserves' ? Number(other.pace_amount) || 0 : 0));
+      }
+      capacity += free;
+    }
+    return fx.fromBase(capacity, g.currency_code, p.pay_date) ?? 0;
+  }
 
   /* Сколько цель просит из выплаты сейчас (темп) и сколько ей не хватает до конца
      текущего этапа — в валюте цели; deadline — срок, к которому она спешит */
@@ -165,32 +219,46 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
     const list = tracker.milestones(g.id);
     const { idx, saved } = tracker.phase(g.id);
     const reserve = stageOfGoal(g) === 'reserves';
-    if (idx >= list.length) return { g, reserve, remaining: 0, per: 0, deadline: '' };
-    const remaining = Math.max(0, list[idx].target - saved);
-
-    if (reserve) {
-      const stageDeadline = list[idx].deadline || '';
-      let stagePer = 0;
-      if (stageDeadline) {
-        const n = periodsBetween(p.pay_date, stageDeadline);
-        stagePer = n > 0 ? remaining / n : remaining;
-      }
-      const pace = Math.max(0, Number(g.pace_amount) || 0);
-      return { g, reserve, remaining, per: Math.min(remaining, Math.max(pace, stagePer)), deadline: stageDeadline };
-    }
-
     // этапы без срока впереди не прячут срок следующего: цель спешит к ближайшему сроку
-    let look = idx;
-    let need = remaining;
-    let deadline = list[idx].deadline || '';
+    let look = idx < list.length ? idx : list.findIndex(m => m.deadline && m.deadline > p.pay_date);
+    if (look < 0) return { g, reserve, remaining: 0, per: 0, deadline: '' };
+    let need = (idx < list.length ? list[idx].target : 0) - saved + Math.max(0, -tracker.balance(g.id));
+    let deadline = list[look]?.deadline || '';
     while (!deadline && look + 1 < list.length) {
       look++;
       need += list[look].target;
       deadline = list[look].deadline || '';
     }
-    const n = deadline ? periodsBetween(p.pay_date, deadline) : 0;
+    // Трата до срока может съесть текущий прогресс или открыть будущий этап.
+    // Резервы уже прошедших этапов оплачивают такие траты первыми.
+    const pools = tracker.reserves(g.id);
+    for (const t of txs) {
+      if (t.goal_id !== g.id || t.date <= p.pay_date || !deadline || t.date >= deadline) continue;
+      let amount = Math.abs(Number(t.amount) || 0);
+      if (t.kind !== 'spend' && t.kind !== 'transfer_out') { need -= amount; continue; }
+      for (const c of pools) {
+        if (!c.deadline || !(c.deadline <= t.date || (today && c.deadline < today))) continue;
+        const take = Math.min(amount, c.left);
+        c.left -= take;
+        amount -= take;
+      }
+      need += amount;
+    }
+    need = Math.max(0, need);
+    const remaining = need;
+    const eligible = periods.filter(q => q.pay_date >= p.pay_date && q.pay_date <= deadline);
+    let fixedFuture = 0;
+    let n = 0;
+    for (const q of eligible) {
+      const fixed = savingsOv.get(q.id);
+      if (q.pay_date > p.pay_date && fixed?.has(g.id)) fixedFuture += fx.fromBase(fixed.get(g.id), g.currency_code, q.pay_date) ?? 0;
+      else if (!q.locked && !fixed?.has(g.id)) n++;
+    }
     const overdue = Boolean(deadline && deadline < p.pay_date && need > 0);
-    const per = need <= 0 ? 0 : (deadline ? ((overdue || n <= 0) ? need : need / n) : 0);
+    const paced = Math.max(0, need - fixedFuture);
+    const even = deadline ? ((overdue || n <= 0) ? paced : paced / n) : 0;
+    const ahead = deadline ? Math.max(0, need - futureCapacity(g, p, deadline)) : 0;
+    const per = Math.min(remaining, Math.max(even, ahead, reserve ? Number(g.pace_amount) || 0 : 0));
     return { g, reserve, remaining, per, deadline };
   }
 
@@ -282,7 +350,7 @@ export function simulate(state, cfg, { income = null, round = Math.round, paceFi
     });
   }
 
-  const activeGoals = code => goals.filter(g => !g.completed && stageOfGoal(g) === code && stage(code));
+  const activeGoals = code => goals.filter(g => !g.completed && !g.archived && stageOfGoal(g) === code && stage(code));
 
   /* ---------------------------------------------------------- проход по выплатам */
   const rows = [];
@@ -504,6 +572,7 @@ export function snapshotGoalCompletion(sim, goal, date) {
 
 /* Сколько цели не хватает до общей суммы на дату и ближайший срок незакрытого этапа */
 export function goalNeedAt(sim, goal, txs, date) {
+  if (goal.completed || goal.archived) return { need: 0, deadline: '' };
   const list = sim.milestonesOf(goal);
   const row = lastRowAtOrBefore(sim, date);
   const phase = (row ? row.phase : sim.initialPhase.phase)[goal.id] ?? { idx: 0, saved: 0 };
@@ -538,6 +607,7 @@ export function cardForecast(sim, card, ops, date) {
 /* Темп подушки: сколько нужно за выплату, чтобы успеть к сроку этапа, и сколько
    в среднем свободно в будущих выплатах. Предлагается меньшее из двух. */
 export function reservePaceSuggestion(sim, goal, today) {
+  if (goal.completed || goal.archived) return { stage: null, need: 0, payoutsLeft: 0, needPer: 0, avgFree: 0, suggested: 0, enough: true };
   const future = sim.rows.filter(r => r.period.pay_date >= today);
   const list = sim.milestonesOf(goal);
   const row = lastRowAtOrBefore(sim, today);
@@ -563,7 +633,7 @@ export function reservePaceSuggestion(sim, goal, today) {
    темп дальше. Возвращает { date, perPayout, payouts, beyondPlan: true } или null,
    когда цели ничего не достаётся — тогда прогноза нет вовсе. */
 export function forecastBeyondPlan(sim, goal, milestoneIndex = null) {
-  if (goal.completed) return null;
+  if (goal.completed || goal.archived) return null;
   const rows = sim.rows;
   if (!rows.length) return null;
   const last = rows[rows.length - 1];
@@ -596,7 +666,7 @@ export function forecastBeyondPlan(sim, goal, milestoneIndex = null) {
    каждой не больше, чем ей не хватает */
 export function proposeRedistribution(sim, closedGoal, balance, date, txs) {
   const cands = sim.goals
-    .filter(g => g.id !== closedGoal.id && !g.completed)
+    .filter(g => g.id !== closedGoal.id && !g.completed && !g.archived)
     .map(g => ({ g, ...goalNeedAt(sim, g, txs, date) }))
     .sort((a, b) => {
       const ka = a.deadline || '9999-99-99';
@@ -616,15 +686,15 @@ export function proposeRedistribution(sim, closedGoal, balance, date, txs) {
    ненулевые погашения карт (уже вписанные ручные погашения не перезаписываются). */
 export function freezePeriods(state, sim, ids, round = Math.round) {
   const set = new Set(ids);
-  const periods = (state.income?.periods ?? []).map(p => (set.has(p.id) ? { ...p, locked: true } : p));
+  const periods = (state.income?.periods ?? []).map(p => (set.has(p.id)
+    ? { ...p, income_net: sim.byId.get(p.id)?.income.salary ?? p.income_net, locked: true } : p));
   const savings = [...(state.savings?.savings_period_overrides ?? [])];
   const payments = [...(state.debts?.credit_payment_overrides ?? [])];
   for (const id of set) {
     const row = sim.byId.get(id);
     if (!row) continue;
-    const hasOwn = savings.some(o => o.period_id === id);
-    if (!hasOwn) {
-      for (const [gid, amt] of Object.entries(row.allocations)) {
+    for (const [gid, amt] of Object.entries(row.allocations)) {
+      if (!savings.some(o => o.period_id === id && o.goal_id === gid)) {
         savings.push({ period_id: id, goal_id: gid, amount: round(amt) });
       }
     }

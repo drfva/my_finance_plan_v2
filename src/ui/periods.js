@@ -168,11 +168,12 @@ function body(ctx, r) {
     <div class="grid cols-3">
       ${field('Дата выплаты', input({ edit: 'income|periods|pay_date', key: { id: p.id }, value: p.pay_date, type: 'date', disabled: !canEdit }))}
       <div class="field"><label>Доход на руки</label>
-        ${input({ edit: 'income|periods|income_net', key: { id: p.id }, value: p.income_net, type: 'money', disabled: !canEdit })}
+        ${input({ edit: 'income|periods|income_net', key: { id: p.id }, value: r.income.salary, type: 'money', disabled: !canEdit,
+          cls: p.income_manual || p.calc_mode === 'manual' ? 'own' : '' })}
         <div class="small-note">${f
           ? `${esc(fmt.money(f.net))} по формуле: ${f.workedDays} из ${f.windowDays} рабочих дней,
              начислено ${esc(fmt.money(f.gross))}, налог ${esc(fmt.money(f.tax))}
-             ${canEdit && Math.abs((Number(p.income_net) || 0) - f.net) > 0.5
+             ${canEdit && (p.income_manual || Math.abs(r.income.salary - f.net) > 0.5)
                ? button({ action: 'fill-income', value: p.id, label: 'подставить по формуле', cls: 'ghost small' }) : ''}`
           : 'оклада на этот период нет'}</div>
         ${r.income.vacationPay > 0.5 ? `<div class="small-note">+ отпускные ${esc(fmt.money(r.income.vacationPay))} на руки
@@ -414,7 +415,7 @@ export function handle(ev, ctx) {
     if (net === undefined || net === null) throw new Error('Для этой выплаты нет оклада на дату — считать нечего');
     store.update('income', d => {
       const p = (d.periods ?? []).find(x => x.id === id);
-      if (p) p.income_net = net;
+      if (p) { p.income_net = net; p.income_manual = false; }
     });
     return true;
   }
@@ -434,7 +435,7 @@ export function handle(ev, ctx) {
         id: uid('p'), year: y, slot_order: null, title: 'Разовая выплата',
         pay_date: draft.pay_date,
         window_start: `${draft.window}-01`, window_end: `${draft.window}-${String(last).padStart(2, '0')}`,
-        calc_mode: 'manual', income_net: amount, note: draft.note ?? '',
+        calc_mode: 'manual', income_net: amount, income_manual: true, note: draft.note ?? '',
         ...(hasTaxableColumn(ctx) ? {
           taxable: draft.taxable === true || draft.taxable === 'true',
           ...(hasColumn(ctx, 'manual_kind') ? { manual_kind: draft.kind || null } : {}),

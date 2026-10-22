@@ -19,8 +19,8 @@ export function render(ctx) {
     const sum = own.reduce((s, p) => s + (Number(p.amount) || 0), 0);
     const open = ui.open.has(`inst:${i.id}`);
     const rows = own.map(p => `<div class="item-row ip-row" style="grid-template-columns:1fr 1fr auto auto;align-items:center;">
-      ${input({ edit: 'debts|installment_payments|pay_date', key: { id: p.id }, value: p.pay_date, type: 'date', disabled: !canEdit })}
-      ${input({ edit: 'debts|installment_payments|amount', key: { id: p.id }, value: p.amount, type: 'money', disabled: !canEdit })}
+      ${input({ edit: 'debts|installment_payments|pay_date', key: { id: p.id }, value: p.pay_date, type: 'date', disabled: !canEdit, cls: p.manual_fields?.includes('pay_date') ? 'own' : '' })}
+      ${input({ edit: 'debts|installment_payments|amount', key: { id: p.id }, value: p.amount, type: 'money', disabled: !canEdit, cls: p.manual_fields?.includes('amount') ? 'own' : '' })}
       <span class="small-note">${esc((sim.rows.find(r => r.installments.some(x => x.date === p.pay_date && x.installments.includes(i.id)))?.period.pay_date ?? '') ? 'из выплаты ' + fmt.date(sim.rows.find(r => r.installments.some(x => x.date === p.pay_date && x.installments.includes(i.id))).period.pay_date) : 'вне плана')}</span>
       ${canEdit ? delButton({ domain: 'debts', table: 'installment_payments', key: { id: p.id } }) : ''}
     </div>`).join('');
@@ -47,7 +47,7 @@ export function render(ctx) {
           ${canEdit ? button({ action: 'rebuild', value: i.id, label: 'Пересоздать график с нуля', title: 'Все платежи, включая прошедшие, будут созданы заново' }) : ''}
         </div>
         ${open ? `${rows}${canEdit ? addButton({ domain: 'debts', table: 'installment_payments', label: '+ платёж',
-          row: { id: uid('ip'), installment_id: i.id, pay_date: ctx.today, amount: 0, paid: false, sort_order: own.length + 1 } }) : ''}` : ''}`,
+          row: { id: uid('ip'), installment_id: i.id, pay_date: ctx.today, amount: 0, paid: false, sort_order: own.length + 1, manual_fields: ['amount', 'pay_date'] } }) : ''}` : ''}`,
     });
   }).join('');
 

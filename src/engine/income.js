@@ -14,8 +14,8 @@
      inc.monthGross(y,m)  → начислено за месяц (оклад и премии) — база для отпускных
 
    Правила, перенесённые из текущей версии:
-   * в плане всегда участвует income_net — введённый или записанный при создании
-     года доход на руки; formula — подсказка «по формуле»;
+   * автоматические незакреплённые выплаты пересчитываются по формуле;
+     income_manual сохраняет ручную сумму, locked — всю историю выплаты;
    * налог по формуле считается нарастающим итогом за год даты выплаты: в годовой
      доход по порядку дат входят фактические суммы выплат (пересчитанные в gross)
      и отпускные; выплата с taxable = false (по умолчанию — разовая) налогом не
@@ -30,6 +30,18 @@ import { vacationFormula, vacationPay, splitVacationPay } from './vacation.js';
 import { createFx } from './fx.js';
 
 const byDate = (a, b) => (a.pay_date < b.pay_date ? -1 : a.pay_date > b.pay_date ? 1 : String(a.id).localeCompare(String(b.id)));
+
+export const automaticIncome = p => p.calc_mode !== 'manual' && !p.locked && p.income_manual === false;
+
+/* У старых выплат происхождение суммы неизвестно. Отличающиеся значения
+   сохраняем, совпавшие с формулой подключаем к автоматическому пересчёту. */
+export function classifyIncomePeriods(income) {
+  return income.periods.filter(r => r.period.income_manual == null).map(r => ({
+    id: r.period.id,
+    manual: r.period.calc_mode === 'manual' || !r.formula
+      || Math.abs((Number(r.period.income_net) || 0) - r.formula.net) > 0.5,
+  }));
+}
 
 export function calendarFor(state, cfg) {
   const inc = state.income ?? {};
@@ -77,7 +89,10 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
       const scale = scaleForYear(scales, brackets, payYear);
       const net = Number(p.income_net) || 0;
       const taxable = p.taxable !== false;
-      const gross = taxable ? grossFromNet(net, cum, scale) : net;
+      const f = formulaGross.get(p.id);
+      const useFormula = f && (automaticIncome(p) || fillIds?.has(p.id));
+      const gross = useFormula ? f.grossTaxable + grossFromNet(f.grossNet, cum + f.grossTaxable, scale)
+        : taxable ? grossFromNet(net, cum, scale) : net;
       grossOfPeriod.set(p.id, { gross, taxable });
       if (taxable) cum += gross;
     }
@@ -113,7 +128,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
   function monthIncome(y, m) {
     const key = `${y}-${m}`;
     const list = periodsByMonth.get(key) ?? [];
-    return list.reduce((s, p) => s + (Number(p.income_net) || 0), 0);
+    return list.reduce((s, p) => s + (rowsById.get(p.id)?.salary ?? (Number(p.income_net) || 0)), 0);
   }
 
   /* 3. Отпускные: формула, сумма в плане, деление по выплатам */
@@ -175,7 +190,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
       warnings.push({ code: 'no_salary_rate', period_id: p.id });
     }
 
-    const useFormula = fillIds && fillIds.has(p.id) && formula;
+    const useFormula = formula && (automaticIncome(p) || fillIds?.has(p.id));
     const salary = useFormula ? formula.net : (Number(p.income_net) || 0);
     const cumBefore = cum;
     // разовая выплата без галочки «облагается налогом» в годовой доход не входит
@@ -216,10 +231,12 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
     };
   });
 
+  const rowsById = new Map(rows.map(r => [r.period.id, r]));
+
   return {
     calendar,
     periods: rows,
-    byId: new Map(rows.map(r => [r.period.id, r])),
+    byId: rowsById,
     vacations: vacationInfo,
     monthIncome,
     monthGross,
@@ -247,5 +264,5 @@ export function generateYear(state, cfg, year, { round = Math.round } = {}) {
     .filter(p => !existing.has(p.id) && !taken.has(`${p.year}|${p.slot_order}|${p.window_start}`));
   if (!fresh.length) return [];
   const result = computeIncome(state, cfg, { round, extraPeriods: fresh, fillIds: new Set(fresh.map(p => p.id)) });
-  return fresh.map(p => ({ ...p, income_net: result.byId.get(p.id)?.formula?.net ?? 0 }));
+  return fresh.map(p => ({ ...p, income_net: result.byId.get(p.id)?.formula?.net ?? 0, income_manual: false }));
 }

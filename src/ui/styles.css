@@ -396,3 +396,29 @@ nav.tabs button.active .late-dot,.month-tabs button.active .late-dot{background:
 
 /* минус в истории баланса копилки */
 .num .neg{color:var(--danger);}
+
+/* Опоздание видно без раскрытия этапов. */
+.goal-card.goal-late{border:1px solid var(--warn);}
+.goal-archive{margin-top:16px;}
+.goal-eye{display:inline-flex;align-items:center;justify-content:center;}
+
+.production-calendar{max-width:600px;margin:0 auto;}
+.calendar-nav{gap:12px;margin:12px 0 20px;}
+.calendar-nav h3{text-align:center;text-transform:capitalize;}
+.calendar-week,.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;}
+.calendar-week{text-align:center;font-size:12px;color:var(--muted);margin-bottom:8px;}
+button.calendar-day{position:relative;min-width:0;min-height:48px;padding:10px 2px;border-radius:12px;box-shadow:none;}
+.calendar-day.working{background:var(--surface);color:var(--ink);border-color:var(--line);}
+.calendar-day.weekend{background:var(--surface-3);color:var(--muted);}
+.calendar-day.holiday{background:var(--danger-soft);color:var(--danger);}
+.calendar-day[aria-pressed=true]{outline:2px solid var(--accent);outline-offset:1px;}
+.calendar-day.today span{font-weight:800;text-decoration:underline;text-underline-offset:4px;}
+.calendar-day i{position:absolute;bottom:0;left:50%;font-style:normal;font-size:12px;transform:translateX(-50%);}
+.calendar-legend{gap:12px;font-size:12px;margin:16px 0;color:var(--muted);}
+.calendar-legend .working::before,.calendar-legend .weekend::before,.calendar-legend .holiday::before{content:'';display:inline-block;width:10px;height:10px;margin-right:5px;border:1px solid var(--line);border-radius:3px;}
+.calendar-legend .working::before{background:var(--surface);}
+.calendar-legend .weekend::before{background:var(--surface-3);}
+.calendar-legend .holiday::before{background:var(--danger-soft);}
+.calendar-counts{gap:8px;}
+.calendar-selection{margin:16px 0;}
+@media(max-width:450px){.calendar-week,.calendar-grid{gap:4px;}button.calendar-day{min-height:40px;border-radius:8px;}}

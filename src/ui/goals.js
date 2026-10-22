@@ -3,7 +3,7 @@
 import { esc, card, table, num, cell, row, input, select, checkbox, addButton, delButton, button, pill, field } from './dom.js';
 import { uid } from './edit.js';
 import { goalBalanceAt, goalProgressAt, proposeRedistribution, forecastBeyondPlan, snapshotGoalCompletion } from '../engine/allocation.js';
-import { goalTotal, cycleDates } from '../engine/savings.js';
+import { goalTotal, cycleDates, normalizeGoalPriorities } from '../engine/savings.js';
 
 export const code = 'goals';
 export const title = () => 'Копилки';
@@ -15,8 +15,8 @@ const isTransfer = t => t.kind === 'transfer_in' || t.kind === 'transfer_out';
 export function moveGoal(ctx, id, dir) {
   const { store, state } = ctx;
   const goal = (state.savings?.goals ?? []).find(g => g.id === id);
-  if (!goal) return false;
-  const list = (state.savings?.goals ?? []).filter(g => g.kind_code === goal.kind_code)
+  if (!ctx.canEdit || !goal || goal.completed || goal.archived) return false;
+  const list = (state.savings?.goals ?? []).filter(g => g.kind_code === goal.kind_code && !g.completed && !g.archived)
     .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
   const i = list.findIndex(g => g.id === id);
   const j = dir === 'up' ? i - 1 : i + 1;
@@ -101,27 +101,24 @@ export function milestoneStatus(ctx, goal, m) {
   const i = list.findIndex(x => x.id === m.id);
   const done = (sim.milestoneDates[goal.id] ?? [])[i];
   if (done) {
-    /* Деньги закрытого этапа могли уже уйти по назначению — тогда честнее сказать
-       «накоплено и потрачено», иначе непонятно, почему в копилке пусто. */
-    const funded = (sim.milestoneFunded?.[goal.id] ?? [])[i];
-    const spent = funded != null && funded <= 0.0001 ? ' · потрачено' : '';
     if (goal.completed && goal.completion_snapshot) {
-      return { label: (done === 'pre' ? 'уже накоплено' : `накоплено ${fmt.date(done)}`) + spent,
-        cls: 'ok', done, spent: !!spent };
+      return { label: done === 'pre' ? 'уже накоплено' : `накоплено ${fmt.date(done)}`,
+        cls: 'ok', done };
     }
     const label = (done === 'pre' ? 'уже накоплено'
       : m.deadline ? (done <= m.deadline ? `в графике (к ${fmt.date(done)})` : `позже срока (к ${fmt.date(done)})`)
-      : `прогноз: к ${fmt.date(done)}`) + spent;
+      : `прогноз: к ${fmt.date(done)}`);
     const cls = (!m.deadline || done === 'pre' || done <= m.deadline) ? 'ok' : 'warn';
-    return { label, cls, done, spent: !!spent };
+    return { label, cls, done };
   }
   if (goal.completed) return { label: 'не накоплено до закрытия цели', cls: '', done: null };
   // внутри плана этап не закрывается — продлеваем текущий темп пополнения дальше
   const far = forecastBeyondPlan(sim, goal, i);
   if (far) {
+    const late = m.deadline && far.date > m.deadline;
     return {
-      label: m.deadline ? `позже срока (прогноз ${fmt.date(far.date)})` : `прогноз: к ${fmt.date(far.date)}`,
-      cls: m.deadline ? 'warn' : '',
+      label: m.deadline ? `${late ? 'позже срока' : 'в графике'} (прогноз ${fmt.date(far.date)})` : `прогноз: к ${fmt.date(far.date)}`,
+      cls: m.deadline ? (late ? 'warn' : 'ok') : '',
       done: far.date, beyondPlan: true,
     };
   }
@@ -129,6 +126,34 @@ export function milestoneStatus(ctx, goal, m) {
     label: m.deadline ? `не достигается к ${fmt.date(m.deadline)}` : 'пока не пополняется',
     cls: 'danger',
   };
+}
+
+/* В шапке — ближайшая будущая дата срока или прогноза, включая сегодня.
+   Предупреждение проверяет все этапы, даже когда их список свёрнут. */
+export function goalSummary(ctx, goal) {
+  const stages = ctx.sim.milestonesOf(goal).map(m => ({ m, status: milestoneStatus(ctx, goal, m) }));
+  const upcoming = stages.map(x => {
+    const dates = [x.m.deadline, x.status.done].filter(d => d && d !== 'pre' && d >= ctx.today);
+    return { ...x, date: dates.sort()[0] };
+  }).filter(x => x.date).sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    next: upcoming[0] ?? null,
+    late: !goal.completed && !goal.archived && stages.some(x => x.status.cls === 'warn'),
+  };
+}
+
+/* Архив хранит закрытые цели отдельно от основного списка. */
+export function goalList(ctx, goals, renderCard, kind) {
+  const visible = goals.filter(g => !g.archived);
+  const archived = goals.filter(g => g.archived);
+  const key = `goal-archive:${kind}`;
+  const open = ctx.ui.open.has(key);
+  return `${visible.map(renderCard).join('') || '<div class="card muted">Целей вне архива пока нет.</div>'}
+    <div class="row" style="margin-top:16px;">
+      <button class="ghost small" data-toggle="${key}" aria-expanded="${open}">${open ? 'Закрыть архив' : 'Архив'} (${archived.length})</button>
+    </div>
+    ${open ? `<section class="goal-archive" aria-label="Архив целей"><h3>Архив</h3>
+      ${archived.map(renderCard).join('') || '<div class="small-note">В архиве пока нет целей.</div>'}</section>` : ''}`;
 }
 
 /* Список строк по годам: прошедшее прячется под «посмотреть историю»,
@@ -195,12 +220,10 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
   const pct = total > 0 ? Math.max(0, Math.min(100, Math.round(progress / total * 100))) : 0;
   const balance = goalBalanceAt(sim, g, state.savings?.goal_transactions ?? [], ctx.today);
   const cycleCount = (state.savings?.goal_cycles ?? []).filter(c => c.goal_id === g.id).length;
-  /* Метка под шкалой: что с целью дальше. У цели без этапов это она сама,
-     у цели с этапами — ближайший незакрытый этап. */
-  const allMs = sim.milestonesOf(g);
-  const msDates = sim.milestoneDates[g.id] ?? [];
-  const nextMs = allMs.find((m, i) => msDates[i] !== 'pre') ?? allMs[allMs.length - 1] ?? null;
-  const mainStatus = nextMs ? milestoneStatus(ctx, g, nextMs) : null;
+  const summary = goalSummary(ctx, g);
+  const nextMs = summary.next?.m;
+  const mainStatus = summary.next?.status;
+  const hasPriority = showPriority && !g.completed && !g.archived;
 
   const msList = milestones.slice().sort((a, b) => ((a.deadline || '9999') < (b.deadline || '9999') ? -1 : 1));
   const msRow = m => {
@@ -208,10 +231,10 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
     const generated = m.source && m.source !== 'manual';
     const spent = (state.savings?.goal_transactions ?? []).some(t => t.milestone_id === m.id);
     return `<div class="ms-row">
-      ${input({ edit: 'savings|goal_milestones|title', key: { id: m.id }, value: m.title, placeholder: 'Этап', disabled: !canEdit })}
+      ${input({ edit: 'savings|goal_milestones|title', key: { id: m.id }, value: m.title, placeholder: 'Этап', disabled: !canEdit, cls: generated && m.user_edited ? 'own' : '' })}
       ${input({ edit: 'savings|goal_milestones|target', key: { id: m.id }, value: m.target, type: 'money',
-        placeholder: 'Сколько накопить', disabled: !canEdit, defaults: { user_edited: true } })}
-      ${input({ edit: 'savings|goal_milestones|deadline', key: { id: m.id }, value: m.deadline, type: 'date', disabled: !canEdit })}
+        placeholder: 'Сколько накопить', disabled: !canEdit, defaults: { user_edited: true }, cls: generated && m.user_edited ? 'own' : '' })}
+      ${input({ edit: 'savings|goal_milestones|deadline', key: { id: m.id }, value: m.deadline, type: 'date', disabled: !canEdit, cls: generated && m.user_edited ? 'own' : '' })}
       ${canEdit ? delButton({ domain: 'savings', table: 'goal_milestones', key: { id: m.id } }) : ''}
       <div class="ms-foot row wrap">
         ${pill(label, cls)}
@@ -228,30 +251,34 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
   };
 
   const txRow = t => {
+    const own = t.source && t.source !== 'manual' && t.user_edited ? 'own' : '';
     const other = t.counterparty_id ? goalsById.get(t.counterparty_id) : null;
     const kindCell = isTransfer(t)
       ? `<div style="padding-top:8px;">${pill(t.kind === 'transfer_out' ? `перевод в «${other?.title ?? '—'}»` : `перевод из «${other?.title ?? '—'}»`)}</div>`
       : select({ edit: 'savings|goal_transactions|kind', key: { id: t.id }, value: t.kind, disabled: !canEdit,
           options: [{ value: 'spend', label: 'трата' }, { value: 'deposit', label: 'пополнение' }] });
     return `<div class="item-row wd-row" style="grid-template-columns:1fr 1.4fr 1.2fr 1fr auto;align-items:end;">
-      ${field('Дата', input({ edit: 'savings|goal_transactions|date', key: { id: t.id }, value: t.date, type: 'date', disabled: !canEdit }))}
-      ${field('Название', input({ edit: 'savings|goal_transactions|title', key: { id: t.id }, value: t.title, disabled: !canEdit }))}
+      ${field('Дата', input({ edit: 'savings|goal_transactions|date', key: { id: t.id }, value: t.date, type: 'date', disabled: !canEdit, cls: own }))}
+      ${field('Название', input({ edit: 'savings|goal_transactions|title', key: { id: t.id }, value: t.title, disabled: !canEdit, cls: own }))}
       ${field('Операция', kindCell)}
-      ${field('Сумма', input({ edit: 'savings|goal_transactions|amount', key: { id: t.id }, value: t.amount, type: 'money', disabled: !canEdit }))}
+      ${field('Сумма', input({ edit: 'savings|goal_transactions|amount', key: { id: t.id }, value: t.amount, type: 'money', disabled: !canEdit, cls: own }))}
       ${canEdit ? delButton({ domain: 'savings', table: 'goal_transactions', key: { id: t.id },
         confirm: isTransfer(t) ? 'Удалить перевод? Он исчезнет в обеих целях.' : undefined }) : ''}
     </div>`;
   };
 
-  return `<div class="card goal-card">
+  return `<div class="card goal-card${summary.late ? ' goal-late' : ''}">
     <div class="goal-head row between wrap">
       <input class="goal-title" data-edit="savings|goals|title" data-key='{"id":"${esc(g.id)}"}'
         value="${esc(g.title)}" placeholder="Название"${canEdit ? '' : ' disabled'}>
       <div class="row wrap" style="gap:6px;align-items:center;">
         ${g.completed ? pill('закрыта', 'ok') : ''}
-        ${showPriority ? pill(`приоритет ${g.priority ?? '—'}`) : ''}
-        ${showPriority ? button({ action: 'goal-move', value: `${g.id}:up`, label: '↑', cls: 'ghost small', disabled: !canEdit, title: 'Выше в очереди' }) : ''}
-        ${showPriority ? button({ action: 'goal-move', value: `${g.id}:down`, label: '↓', cls: 'ghost small', disabled: !canEdit, title: 'Ниже в очереди' }) : ''}
+        ${g.archived ? pill('в архиве') : ''}
+        ${g.hidden_overview ? pill('скрыта с Обзора') : ''}
+        ${summary.late ? pill(milestones.length ? 'Есть этапы позже срока' : 'Позже срока', 'warn') : ''}
+        ${hasPriority ? pill(`приоритет ${g.priority ?? '—'}`) : ''}
+        ${hasPriority ? button({ action: 'goal-move', value: `${g.id}:up`, label: '↑', cls: 'ghost small', disabled: !canEdit, title: 'Выше в очереди' }) : ''}
+        ${hasPriority ? button({ action: 'goal-move', value: `${g.id}:down`, label: '↓', cls: 'ghost small', disabled: !canEdit, title: 'Ниже в очереди' }) : ''}
         ${canEdit && canDelete ? delButton({ domain: 'savings', table: 'goals', key: { id: g.id },
           confirm: `Удалить «${g.title}» вместе с этапами, движениями и ручными суммами?` }) : ''}
       </div>
@@ -260,7 +287,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
       <div class="row between wrap" style="gap:8px;">
         <span class="small-note" style="margin:0;">${esc(fmt.money(progress, g.currency_code))} / ${esc(fmt.money(total, g.currency_code))} (${pct}%) ·
           на счету сейчас (${esc(fmt.date(ctx.today))}): <b>${esc(fmt.money(balance, g.currency_code))}</b></span>
-        ${mainStatus ? pill(`${milestones.length ? esc(nextMs.title || 'этап') + ': ' : ''}${mainStatus.label}`, mainStatus.cls) : ''}
+        ${mainStatus ? pill(`${milestones.length ? (nextMs.title || 'этап') + ': ' : ''}${mainStatus.label}`, mainStatus.cls) : ''}
       </div>`
       : `<div class="small-note">на счету сейчас (${esc(fmt.date(ctx.today))}): <b>${esc(fmt.money(balance, g.currency_code))}</b>.
         Прогноза нет: не задана сумма цели и нет этапов.</div>`}
@@ -271,6 +298,9 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
         ${button({ action: 'goal-close', value: g.id, label: g.completed ? 'Вернуть в работу' : 'Закрыть цель',
           cls: g.completed ? 'ghost small' : 'small',
           title: g.completed ? 'Цель снова участвует в распределении' : 'Цель перестанет получать деньги: в будущих выплатах её не будет, в зафиксированных останется' })}
+        ${g.completed && ['bucket', 'reserve'].includes(g.kind_code) ? button({ action: 'goal-archive', value: g.id,
+          label: g.archived ? 'Вернуть из архива' : 'В архив', cls: 'ghost small' }) : ''}
+        ${g.hidden_overview ? button({ action: 'goal-show-overview', value: g.id, label: 'Показать на Обзоре', cls: 'ghost small' }) : ''}
         ${button({ action: 'transfer-open', value: g.id, label: 'Перевести в другую цель', cls: 'ghost small' })}
         ${button({ action: 'ledger-open', value: g.id, label: 'История баланса', cls: 'ghost small',
           title: 'Все движения по копилке: отчисления из выплат, траты и переводы' })}
@@ -310,19 +340,33 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
 export function render(ctx) {
   const { state, canEdit } = ctx;
   const goals = (state.savings?.goals ?? []).filter(g => g.kind_code === 'bucket')
-    .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+    .sort((a, b) => (a.priority ?? Infinity) - (b.priority ?? Infinity));
   return `
     <div class="row between wrap" style="gap:8px;">
       ${pill('Копилка — цель с оборотом: копим к сроку, тратим, копим снова')}
       ${canEdit ? addButton({ domain: 'savings', table: 'goals', cls: 'primary small', label: '+ копилка',
         row: { id: uid('goal'), title: 'Новая копилка', kind_code: 'bucket', currency_code: ctx.cfg.get('base_currency'),
-          priority: goals.length + 1, target_amount: 0, deadline: null, starting_balance: 0, pace_amount: 0, completed: false } }) : ''}
+          priority: goals.filter(g => !g.completed && !g.archived).length + 1, target_amount: 0, deadline: null, starting_balance: 0, pace_amount: 0, completed: false } }) : ''}
     </div>
-    ${goals.map(g => goalCard(ctx, g)).join('') || '<div class="card muted">Копилок пока нет.</div>'}`;
+    ${goalList(ctx, goals, g => goalCard(ctx, g), 'bucket')}`;
 }
 
 export function handle(ev, ctx) {
   const { store, ui } = ctx;
+
+  const archive = ev.target.closest('[data-goal-archive]');
+  const show = ev.target.closest('[data-goal-show-overview]');
+  if (archive || show) {
+    if (!ctx.canEdit) return false;
+    const goal = (ctx.state.savings?.goals ?? []).find(g => g.id === (archive?.dataset.goalArchive ?? show.dataset.goalShowOverview));
+    if (!goal || (archive && (!goal.completed || !['bucket', 'reserve'].includes(goal.kind_code)))) return false;
+    store.update('savings', d => {
+      const g = d.goals.find(x => x.id === goal.id);
+      if (archive) { g.archived = !g.archived; g.priority = null; }
+      else g.hidden_overview = false;
+    });
+    return true;
+  }
 
   // «История баланса» — отдельная вкладка с движениями по этой копилке
   const led = ev.target.closest('[data-ledger-open]');
@@ -365,6 +409,7 @@ export function handle(ev, ctx) {
   // закрытие цели: в будущих выплатах её больше нет, в зафиксированных остаётся
   const close = ev.target.closest('[data-goal-close]');
   if (close) {
+    if (!ctx.canEdit) return false;
     const id = close.dataset.goalClose;
     const goal = ctx.state.savings.goals.find(g => g.id === id);
     if (!goal) return false;
@@ -383,7 +428,14 @@ export function handle(ev, ctx) {
           else overrides.push({ period_id: r.period.id, goal_id: id, amount });
         }
       }
-      if (g) { g.completed = !g.completed; g.completion_snapshot = snapshot; }
+      if (g) {
+        g.completed = !g.completed;
+        g.completion_snapshot = snapshot;
+        g.priority = null;
+        if (!g.completed) g.archived = false;
+        const normalized = normalizeGoalPriorities(d.goals);
+        d.goals.forEach((goal, i) => { goal.priority = normalized[i].priority; });
+      }
     });
     return true;
   }

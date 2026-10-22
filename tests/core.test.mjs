@@ -231,6 +231,24 @@ test('store: правка без изменения данных запрос н
   assert.equal(client.calls.filter(c => c.name === 'state_save').length, 0);
 });
 
+test('store: архив, видимость и отсутствие приоритета сохраняются и загружаются с целью', async () => {
+  const client = fakeClient(makeState({ savings: { goals: [{ id: 'g', kind_code: 'bucket', completed: true, priority: 1 }] } }));
+  const timers = manualTimers();
+  const store = createStore({ client, ...timers });
+  await store.load();
+  store.update('savings', d => { Object.assign(d.goals[0], { archived: true, hidden_overview: true, priority: null }); });
+  await timers.tick();
+  const save = client.calls.find(c => c.name === 'state_save');
+  assert.equal(save.args.p_domain, 'savings');
+  assert.deepEqual(Object.keys(save.args.p_patch), ['goals']);
+  assert.equal(save.args.p_patch.goals[0].priority, null);
+  const anotherStore = createStore({ client });
+  await anotherStore.load();
+  assert.deepEqual(anotherStore.state.savings.goals[0], {
+    id: 'g', kind_code: 'bucket', completed: true, priority: null, archived: true, hidden_overview: true,
+  });
+});
+
 test('store: настройки — только изменённые ключи, null для сброса, название плана', async () => {
   const client = fakeClient(makeState());
   const timers = manualTimers();
