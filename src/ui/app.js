@@ -293,6 +293,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       if (!el) return;
       const draft = ui.draft[ui.tab] ?? (ui.draft[ui.tab] = {});
       draft[el.dataset.draft] = el.type === 'checkbox' ? el.checked : el.value;
+      if (el.hasAttribute('data-family-reveal')) render();
     });
 
     root.addEventListener('click', ev => {

@@ -5,7 +5,7 @@ import { uid } from './edit.js';
 import { freezePeriods } from '../engine/allocation.js';
 import { generateYear } from '../engine/income.js';
 import { monthlyAmountOn } from '../engine/expenses.js';
-import { familyContributionControl } from './family.js';
+import { familyContributionControl, familyRuleDescription } from './family.js';
 
 export const code = 'periods';
 export const title = () => 'Доходы';
@@ -48,8 +48,6 @@ function head(ctx, r) {
     r.income.sickPay > 0.5 ? pill(`больничный ${fmt.money(r.income.sickPay)}`) : '',
     r.income.extraIncome > 0.5 ? pill(`разовый доход ${fmt.money(r.income.extraIncome)}`) : '',
     debts > 0.5 ? pill(`долги ${fmt.money(debts)}`) : '',
-    r.familyContribution?.amount > 0 ? pill(`в семью ${fmt.money(r.familyContribution.amount)}`) : '',
-    r.familyContribution?.outstanding > 0 ? pill(`недобор в семью ${fmt.money(r.familyContribution.outstanding)}`, 'warn') : '',
     r.free < -0.5 ? pill('дефицит', 'danger') : (r.unallocated < -0.5 ? pill(`не хватает ${fmt.money(-r.unallocated)}`, 'warn') : ''),
     r.unallocated > 0.5 ? pill(`+${fmt.money(r.unallocated)} свободно`, 'ok') : '',
   ].filter(Boolean).join(' ');
@@ -72,6 +70,18 @@ function body(ctx, r) {
   const cats = state.expenses?.expense_categories ?? [];
   const goals = state.savings?.goals ?? [];
   const cards = state.debts?.credit_cards ?? [];
+  const member=state.family_private?.membership;
+  const familyConnected=state.family_source_connected||member?.active&&member.source_account_id===state.account.id;
+  const contribution=r.familyContribution;
+  const familyCard=familyConnected&&contribution?.member_id?card({
+    title:'Отчисления в семейный план',
+    note:`${contribution.posted?'Списано в дату выплаты':'Спишется в дату выплаты'} — ${esc(fmt.date(p.pay_date))}.`,
+    body:table({head:['Назначение',{title:'Сумма, ₽',cls:'num'},'По каким правилам'],rows:[`<tr><td>В семью</td>
+      <td class="num">${familyContributionControl(ctx,contribution)}</td><td>${esc(familyRuleDescription(ctx,contribution))}</td></tr>`]})
+      +(contribution.arrears_amount>0?`<div class="small-note">Погашение недобора прошлых месяцев: ${esc(fmt.money(contribution.arrears_amount))}.</div>`:'')
+      +(contribution.outstanding>0?`<div class="small-note">Обязательный недобор на дату выплаты: ${esc(fmt.money(contribution.outstanding))}. Он добирается из следующих выплат в пределах потолка.</div>`:'')
+      +(contribution.limit_exceeded>0?`<div class="small-note">Уточнённый месячный лимит превышен на ${esc(fmt.money(contribution.limit_exceeded))}. Проведённые суммы сохранены; новые взносы ограничены.</div>`:''),
+  }):'';
 
   const catRows = r.expenses.categories.filter(c => c.amount || c.planned).map(c => {
     const cat = cats.find(x => x.id === c.category_id);
@@ -198,16 +208,6 @@ function body(ctx, r) {
         when ? `, фактически получены ${esc(fmt.date(when))}` : ''}`;
     }).join('; ')}</div>` : ''}
     ${r.income.extraIncome ? `<div class="small-note">Разовый доход: ${esc(fmt.money(r.income.extraIncome))}</div>` : ''}
-    ${r.familyContribution?.member_id ? `<div class="info-box" style="margin-top:16px;">
-      В семейный план: <b>${esc(fmt.money(r.familyContribution.amount))}</b> · ${r.familyContribution.posted ? 'получено семьёй, сумма зафиксирована' : 'прогноз; будет проведён автоматически в дату выплаты'}.
-      <div class="row wrap" style="gap:8px;">${familyContributionControl(ctx,r.familyContribution,{readonlyValue:false})}</div>
-      ${r.familyContribution.arrears_amount > 0 ? `<div>Погашение недобора прошлых месяцев: ${esc(fmt.money(r.familyContribution.arrears_amount))}.</div>` : ''}
-      ${r.familyContribution.outstanding > 0 ? `<div>Обязательный недобор на дату выплаты: ${esc(fmt.money(r.familyContribution.outstanding))}.
-        ${state.family_private?.membership?.active && state.family_private.membership.id === r.familyContribution.member_id
-          ? 'Он добирается из следующих выплат в пределах потолка.' : 'Автоматический добор после выхода из семьи прекращён.'}</div>` : ''}
-      ${r.familyContribution.limit_exceeded > 0 ? `<div>Уточнённый месячный лимит превышен на ${esc(fmt.money(r.familyContribution.limit_exceeded))}. Проведённые суммы сохранены; новые взносы ограничены.</div>` : ''}
-    </div>` : ''}
-
     <div class="grid cols-2" style="margin-top:20px;">
       ${card({
         title: 'Расходы по категориям',
@@ -230,6 +230,7 @@ function body(ctx, r) {
       actions: canEdit && hasCardOverrides ? button({ action: 'reset-cards', value: p.id, label: 'Сбросить на авто-расчёт' }) : '',
       body: table({ head: ['Карта', { title: 'Долг до выплаты', cls: 'num' }, 'Погасить до', { title: 'В расчёте', cls: 'num' }], rows: cardRows }),
     })}</div>` : ''}
+    ${familyCard?`<div style="margin-top:20px;">${familyCard}</div>`:''}
     <div style="margin-top:20px;">${remainder}</div>
   </div>`;
 }

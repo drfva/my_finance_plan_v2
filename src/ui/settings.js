@@ -191,20 +191,18 @@ export function calendarCard(ctx) {
    Свой план и планы, куда вас добавили владельцы, приходят из базы вместе с ролью. */
 export function planSwitch(ctx) {
   const list = ctx.state.accounts ?? [];
-  if (list.length < 2) return '';
+  if (!list.length) return '';
   const current = ctx.state.account?.id;
-  return `<div class="info-box" style="margin-bottom:16px;">
-    <div class="row between wrap" style="gap:10px;">
+  return `<div class="info-box plan-switch" style="margin-top:16px;">
       <div>
         <b>Доступные планы</b>
         <div class="small-note" style="margin-top:2px;">Переключение перечитывает данные: несохранённое сначала уходит в базу.</div>
       </div>
-      <div class="row wrap" style="gap:8px;">
+      <div class="row wrap plan-choices" style="gap:8px;margin-top:10px;">
         ${list.map(a => (a.id === current
-          ? pill(`${a.title} · ${ROLE_TITLES[a.role] ?? a.role}`, 'ok')
-          : button({ action: 'open-plan', value: a.id, label: `${a.title} · ${ROLE_TITLES[a.role] ?? a.role}`, cls: 'small' }))).join('')}
+          ? `<span class="plan-choice current" aria-current="true">${esc(a.title)} · ${esc(ROLE_TITLES[a.role] ?? a.role)}</span>`
+          : button({ action: 'open-plan', value: a.id, label: `${a.title} · ${ROLE_TITLES[a.role] ?? a.role}`, cls: 'small plan-choice available' }))).join('')}
       </div>
-    </div>
   </div>`;
 }
 
@@ -319,12 +317,12 @@ export function render(ctx) {
 
   return `
     ${section({ key: 'set:plan', title: 'План', open: ctx.ui.open.has('set:plan'), body: `
-      ${planSwitch(ctx)}
       <div class="grid cols-2">
         ${field('Название плана', `<input data-account-title value="${esc(state.account.title)}"${canEdit ? '' : ' disabled'}>`,
           'Показывается в шапке приложения')}
         ${field('Ваша роль', `<div style="padding-top:8px;">${esc(ROLE_TITLES[state.account.role] ?? state.account.role)}</div>`)}
       </div>
+      ${planSwitch(ctx)}
       ${empty && canEdit ? `<div class="row wrap" style="gap:8px;margin-top:12px;">
         ${button({ action: 'sample', value: nextPlanYear(state, ctx.today), label: 'Заполнить пример плана', cls: 'primary small' })}
         <span class="small-note">График 20-го и 5-го, оклад, шкала НДФЛ, категории, копилка, подушка, праздники и кредитка — чтобы посмотреть, как всё считается.</span>
