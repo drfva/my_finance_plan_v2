@@ -8,7 +8,6 @@ import { generateYear } from '../engine/income.js';
 import { addMonths, dayOfWeek, daysInMonth, isValid, pad2 } from '../engine/dates.js';
 import { ROLE_TITLES } from './app.js';
 import { personalFamilyCard } from './family.js';
-import { applyTheme, readTheme } from '../core/theme.js';
 
 export const code = 'settings';
 export const title = () => 'Настройки';
@@ -208,15 +207,6 @@ export function planSwitch(ctx) {
 }
 
 /* Аккаунт: пароль, почта и вход по Face ID / Touch ID */
-export function appearanceCard(ctx) {
-  const theme=readTheme();
-  return section({key:'set:appearance',title:'Оформление',open:ctx.ui.open.has('set:appearance'),
-    body:field('Тема приложения',`<select data-theme-choice aria-label="Тема приложения">${[
-      ['system','Как в системе'],['light','Светлая'],['dark','Тёмная'],
-    ].map(([value,title])=>`<option value="${value}"${theme===value?' selected':''}>${title}</option>`).join('')}</select>`,
-      'Выбор сохраняется в этом браузере и действует во всех планах. В режиме «Как в системе» тема меняется вместе с настройкой устройства.')});
-}
-
 export function accountDeletionDialog(ctx) {
   const sec=ctx.security,d=sec?.state.deletion;
   if(!d)return '';
@@ -367,7 +357,6 @@ export function render(ctx) {
         <span class="small-note">График 20-го и 5-го, оклад, шкала НДФЛ, категории, копилка, подушка, праздники и кредитка — чтобы посмотреть, как всё считается.</span>
       </div>` : ''}` })}
 
-    ${appearanceCard(ctx)}
     ${section({ key: 'set:opts', title: 'Настройки плана', open: ctx.ui.open.has('set:opts'), body: settingsTable(ctx) })}
     ${personalFamilyCard(ctx)}
     ${stagesCard(ctx)}
@@ -572,7 +561,6 @@ export function attachSettings(root, store, getCtx) {
   root.addEventListener('change', ev => {
     const ctx = getCtx();
     const el = ev.target;
-    if (el.matches('[data-theme-choice]')) { applyTheme(el.value); return; }
     if (el.matches('[data-account-title]')) { store.setAccountTitle(el.value); return; }
     if (el.matches('[data-setting]')) {
       const key = el.dataset.setting;

@@ -15,6 +15,8 @@ import { tourNeeded, tourPanel, tourHandle } from './tour.js';
 import { lateYears } from './alerts.js';
 import { syncGenerated, normalizeGoalPriorities } from '../engine/savings.js';
 import { familyToday } from '../engine/family.js';
+import { applyTheme, nextTheme } from '../core/theme.js';
+import { themeButton, updateThemeButton } from './theme-switch.js';
 
 import * as dashboard from './dashboard.js';
 import * as periods from './periods.js';
@@ -188,6 +190,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
           <span class="savebadge" id="save-badge"></span>
           <span class="today-date">Сегодня <b>${esc(ctx.fmt.date(ctx.today, 'weekday'))}</b></span>
           <button class="ghost small" id="sign-out">Выйти</button>
+          ${themeButton()}
         </div>
       </div>
       <nav class="tabs">${tabsHtml(ctx, late)}</nav>
@@ -299,6 +302,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     });
 
     root.addEventListener('click', ev => {
+      const theme=ev.target.closest('[data-theme-cycle]');
+      if(theme){updateThemeButton(theme,applyTheme(nextTheme(theme.dataset.theme)));return;}
       const tab = ev.target.closest('[data-tab]');
       if (tab) { ui.tab = tab.dataset.tab; ui.open.clear(); render(); return; }
       const year = ev.target.closest('[data-year]');

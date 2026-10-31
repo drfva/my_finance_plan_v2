@@ -1,10 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyTheme, readTheme } from '../src/core/theme.js';
+import { applyTheme, readTheme, nextTheme, currentTheme } from '../src/core/theme.js';
 import { createSecurity } from '../src/core/security.js';
 import { accountDeletionDialog } from '../src/ui/settings.js';
 
 const preview=()=>({version:'v1',plans:[{id:'p',title:'Мой личный план',delete:true,blocked:false,recipients:[]}],family:{title:'Семья',last_member:true}});
+test('кнопка темы: светлая → тёмная → системная, выбор сохраняется и без доступного хранилища',()=>{
+  assert.equal(nextTheme('light'),'dark');assert.equal(nextTheme('dark'),'system');assert.equal(nextTheme('system'),'light');
+  const storage={setItem:()=>{throw new Error('blocked');}},root={setAttribute:()=>{},removeAttribute:()=>{}};
+  for(const mode of ['light','dark','system']){applyTheme(mode,{root,storage});assert.equal(currentTheme(),mode);}
+});
 function client(handler){
   const calls=[],signouts=[];
   return {calls,signouts,auth:{signOut:async args=>{signouts.push(args);return {};}},rpc:async(name,args)=>{
