@@ -7,7 +7,7 @@
 --------------------------------------------------------------------- */
 
 export function createSecurity(client, onChange = () => {}) {
-  const state = { user: null, passkeys: null, loading: false, msg: null };
+  const state = { user: null, passkeys: null, loading: false, msg: null, deletion: null, deleting: false };
 
   const say = (text, ok = false) => { state.msg = { text, ok }; onChange(); };
   const auth = () => client?.auth ?? null;
@@ -57,11 +57,65 @@ export function createSecurity(client, onChange = () => {}) {
     onChange();
   }
 
+  async function prepareDeletion() {
+    if(state.deleting)return;
+    state.deletion={loading:true,preview:null,error:null,confirmation:''};onChange();
+    try {
+      const r=await client.rpc('account_deletion_preview');
+      if(r.error)throw r.error;
+      if(!Array.isArray(r.data?.plans)||!r.data.version)throw new Error('Не удалось проверить условия удаления');
+      if(state.deletion)state.deletion={loading:false,preview:r.data,error:null,confirmation:''};
+    } catch(e) {
+      if(state.deletion)Object.assign(state.deletion,{loading:false,error:e.code==='PGRST202'
+        ?'Удаление аккаунта пока недоступно. Попробуйте позже.':e.message||'Не удалось проверить условия удаления'});
+    }
+    onChange();
+  }
+
   return {
     state,
     supported,
     load() { loadUser(); loadPasskeys(); },
     clearMessage() { state.msg = null; },
+    prepareDeletion,
+    closeDeletion() {if(!state.deleting){state.deletion=null;onChange();}},
+    async assignOwner(account,user) {
+      if(state.deleting||!state.deletion)return;
+      state.deleting=true;state.deletion.error=null;onChange();
+      try {
+        const r=await client.rpc('account_assign_owner',{p_account:account,p_user:user});
+        if(r.error)throw r.error;
+        state.deleting=false;await prepareDeletion();
+      }catch(e){state.deletion.error=e.message||'Не удалось назначить владельца';}
+      finally{state.deleting=false;onChange();}
+    },
+    async deleteAccount(confirmation) {
+      const deletion=state.deletion;
+      if(state.deleting||!deletion?.preview)return false;
+      if(String(confirmation).trim().toUpperCase()!=='УДАЛИТЬ') {
+        deletion.error='Для подтверждения введите УДАЛИТЬ';onChange();return false;
+      }
+      if(deletion.preview.plans.some(p=>p.blocked))return false;
+      state.deleting=true;deletion.error=null;onChange();
+      try {
+        const r=await client.rpc('delete_my_account',{p_confirmation:confirmation,p_version:deletion.preview.version});
+        if(r.error){
+          if(r.error.code==='PT409'){
+            state.deleting=false;await prepareDeletion();
+            if(state.deletion)state.deletion.error=r.error.message;
+            return false;
+          }
+          throw r.error;
+        }
+        if(!r.data?.deleted)throw new Error('Сервер не подтвердил удаление');
+        state.user=null;
+        try {globalThis.localStorage?.removeItem('fin-recovery');}catch{/* Закрытое хранилище. */}
+        // Запрашиваем локальный выход; следующая загрузка также проверяет Auth.
+        try {await client.auth.signOut({scope:'local'});}catch{/* Следующая загрузка проверит пользователя через Auth. */}
+        return true;
+      }catch(e){deletion.error=e.message||'Не удалось подтвердить результат удаления. Проверьте подключение';return false;}
+      finally{state.deleting=false;onChange();}
+    },
 
     async changePassword(p1, p2) {
       if ((p1 ?? '').length < 6) return say('Пароль должен быть не короче 6 символов.');

@@ -71,7 +71,12 @@ function passkeysSupported(client) {
 /* Есть сессия — сразу true. Нет — показывает форму и ждёт входа. */
 export async function ensureSignedIn(client) {
   const res = await client.auth.getSession();
-  if (res.data.session) { hideLogin(); return true; }
+  if (res.data.session) {
+    const verified=await client.auth.getUser();
+    if(verified.data?.user){hideLogin();return true;}
+    if(![401,403].includes(verified.error?.status)&&verified.error?.code!=='user_not_found')throw new Error('Не удалось проверить сессию. Проверьте подключение');
+    await client.auth.signOut({scope:'local'});
+  }
 
   showLogin();
   step('login');

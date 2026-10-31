@@ -8,6 +8,7 @@ import { generateYear } from '../engine/income.js';
 import { addMonths, dayOfWeek, daysInMonth, isValid, pad2 } from '../engine/dates.js';
 import { ROLE_TITLES } from './app.js';
 import { personalFamilyCard } from './family.js';
+import { applyTheme, readTheme } from '../core/theme.js';
 
 export const code = 'settings';
 export const title = () => 'Настройки';
@@ -207,6 +208,43 @@ export function planSwitch(ctx) {
 }
 
 /* Аккаунт: пароль, почта и вход по Face ID / Touch ID */
+export function appearanceCard(ctx) {
+  const theme=readTheme();
+  return section({key:'set:appearance',title:'Оформление',open:ctx.ui.open.has('set:appearance'),
+    body:field('Тема приложения',`<select data-theme-choice aria-label="Тема приложения">${[
+      ['system','Как в системе'],['light','Светлая'],['dark','Тёмная'],
+    ].map(([value,title])=>`<option value="${value}"${theme===value?' selected':''}>${title}</option>`).join('')}</select>`,
+      'Выбор сохраняется в этом браузере и действует во всех планах. В режиме «Как в системе» тема меняется вместе с настройкой устройства.')});
+}
+
+export function accountDeletionDialog(ctx) {
+  const sec=ctx.security,d=sec?.state.deletion;
+  if(!d)return '';
+  const preview=d.preview,blocked=preview?.plans.filter(p=>p.blocked)??[],removed=preview?.plans.filter(p=>p.delete)??[];
+  const busy=sec.state.deleting,canDelete=preview&&!blocked.length&&!d.loading&&!busy;
+  return `<div class="modal-back"><div class="modal card account-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-account-title">
+    <div class="card-title"><h2 id="delete-account-title">Удалить аккаунт</h2><button class="ghost small" data-account-delete-cancel aria-label="Отменить удаление"${busy?' disabled':''}>✕</button></div>
+    ${d.loading?'<p role="status">Проверяем ваши планы…</p>':preview?`
+      <p>Учётная запись и данные личных планов без других участников будут удалены без возможности восстановления.</p>
+      ${removed.length?`<p>Будут удалены планы:</p><ul>${removed.map(p=>`<li>${esc(p.title)}</li>`).join('')}</ul>`:'<p>Личных планов без других участников нет.</p>'}
+      <p>Общие планы останутся у остальных участников. Ваш доступ к ним прекратится. Семейные взносы и общая история сохранятся с обезличенным профилем.</p>
+      ${preview.family?`<p class="${preview.family.last_member?'danger-text':''}">${preview.family.last_member
+        ?`Вы последний участник семьи «${esc(preview.family.title)}»: семейный план тоже будет удалён.`
+        :`Вы выйдете из семьи «${esc(preview.family.title)}». Будущие взносы и добор недостачи прекратятся.`}</p>`:''}
+      ${blocked.length?`<div class="info-box"><b>Сначала назначьте другого владельца общих планов.</b>
+        ${blocked.map(p=>`<div style="margin-top:16px;"><b>${esc(p.title)}</b><div class="row wrap" style="gap:10px;margin-top:8px;">
+          <select data-deletion-owner="${esc(p.id)}" aria-label="Новый владелец ${esc(p.title)}"${busy?' disabled':''} style="max-width:320px;">
+            <option value="">Выберите участника</option>${p.recipients.map(m=>`<option value="${esc(m.id)}">${esc(m.email)}</option>`).join('')}</select>
+          ${button({action:'account-assign-owner',value:p.id,label:'Назначить владельцем',disabled:busy,cls:'small'})}</div></div>`).join('')}</div>`:
+        field('Для подтверждения введите УДАЛИТЬ',`<input data-account-delete-word aria-label="Подтверждение удаления аккаунта" autocomplete="off" spellcheck="false" value="${esc(d.confirmation)}"${busy?' disabled':''}>`)}
+    `:''}
+    ${d.error?`<p class="danger-text" role="alert">${esc(d.error)}</p>`:''}
+    <div class="row wrap" style="gap:10px;margin-top:22px;">
+      ${button({action:'account-delete-cancel',label:'Отмена',disabled:busy,cls:'small'})}
+      ${!blocked.length&&(canDelete||busy)?button({action:'account-delete-confirm',label:busy?'Удаляем…':'Удалить аккаунт навсегда',disabled:busy||String(d.confirmation).trim().toUpperCase()!=='УДАЛИТЬ',cls:'danger small'}):''}
+    </div></div></div>`;
+}
+
 export function securityCard(ctx) {
   const sec = ctx.security;
   const open = ctx.ui.open.has('set:security');
@@ -262,8 +300,9 @@ export function securityCard(ctx) {
       ${sec.supported() && sec.canAdd() ? `<div style="margin-top:10px;">${button({ action: 'passkey-add', label: '+ добавить Face ID / Touch ID' })}</div>` : ''}
 
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line);">
-        ${button({ action: 'sign-out-account', label: 'Выйти из аккаунта', cls: 'ghost small' })}</div>`,
-  });
+        ${button({ action: 'sign-out-account', label: 'Выйти из аккаунта', cls: 'ghost small' })}
+        ${button({action:'account-delete-open',label:'Удалить аккаунт',cls:'ghost small danger-text'})}</div>`,
+  })+accountDeletionDialog(ctx);
 }
 
 export function render(ctx) {
@@ -328,6 +367,7 @@ export function render(ctx) {
         <span class="small-note">График 20-го и 5-го, оклад, шкала НДФЛ, категории, копилка, подушка, праздники и кредитка — чтобы посмотреть, как всё считается.</span>
       </div>` : ''}` })}
 
+    ${appearanceCard(ctx)}
     ${section({ key: 'set:opts', title: 'Настройки плана', open: ctx.ui.open.has('set:opts'), body: settingsTable(ctx) })}
     ${personalFamilyCard(ctx)}
     ${stagesCard(ctx)}
@@ -417,6 +457,24 @@ export function handle(ev, ctx) {
   const sec = ctx.security;
   const val = name => document.querySelector(`[data-sec="${name}"]`)?.value ?? '';
   if (sec) {
+    if(ev.target.closest('[data-account-delete-open]')){sec.prepareDeletion();return false;}
+    if(ev.target.closest('[data-account-delete-cancel]')){sec.closeDeletion();return false;}
+    if(ev.target.closest('[data-account-delete-confirm]')){
+      (async()=>{
+        await store.flush();
+        if(store.hasPending())throw new Error('Сначала дождитесь сохранения изменений');
+        if(await sec.deleteAccount(sec.state.deletion?.confirmation??''))location.replace(location.origin+location.pathname);
+      })().catch(e=>{if(sec.state.deletion){sec.state.deletion.error=e.message;ctx.notice?.('danger',e.message);}});
+      return false;
+    }
+    const transfer=ev.target.closest('[data-account-assign-owner]');
+    if(transfer){
+      const account=transfer.dataset.accountAssignOwner;
+      const select=document.querySelector(`[data-deletion-owner="${account}"]`);
+      if(!select?.value)return false;
+      if(confirm(`Назначить ${select.selectedOptions[0].textContent} владельцем общего плана? Этот участник получит полный доступ к управлению планом.`))sec.assignOwner(account,select.value);
+      return false;
+    }
     if (ev.target.closest('[data-change-password]')) { sec.changePassword(val('pass1'), val('pass2')); return false; }
     if (ev.target.closest('[data-change-email]')) { sec.changeEmail(val('email').trim()); return false; }
     if (ev.target.closest('[data-passkey-add]')) { sec.addPasskey('Это устройство'); return false; }
@@ -494,9 +552,27 @@ export function handle(ev, ctx) {
 
 /* Настройки хранятся объектом «ключ → значение», поэтому у них свой обработчик, не data-edit */
 export function attachSettings(root, store, getCtx) {
+  root.addEventListener('input',ev=>{
+    if(!ev.target.matches('[data-account-delete-word]'))return;
+    const sec=getCtx().security,d=sec?.state.deletion;if(!d)return;
+    d.confirmation=ev.target.value;
+    const button=root.querySelector('[data-account-delete-confirm]');
+    if(button)button.disabled=sec.state.deleting||d.confirmation.trim().toUpperCase()!=='УДАЛИТЬ';
+  });
+  root.addEventListener('keydown',ev=>{
+    const modal=root.querySelector('.account-delete-dialog');if(!modal)return;
+    if(ev.key==='Escape'){getCtx().security?.closeDeletion();ev.preventDefault();return;}
+    if(ev.key!=='Tab')return;
+    const focusable=[...modal.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled)')];
+    const first=focusable[0],last=focusable.at(-1);
+    if(!first||!modal.contains(document.activeElement)){first?.focus();ev.preventDefault();}
+    else if(ev.shiftKey&&document.activeElement===first){last?.focus();ev.preventDefault();}
+    else if(!ev.shiftKey&&document.activeElement===last){first?.focus();ev.preventDefault();}
+  });
   root.addEventListener('change', ev => {
     const ctx = getCtx();
     const el = ev.target;
+    if (el.matches('[data-theme-choice]')) { applyTheme(el.value); return; }
     if (el.matches('[data-account-title]')) { store.setAccountTitle(el.value); return; }
     if (el.matches('[data-setting]')) {
       const key = el.dataset.setting;

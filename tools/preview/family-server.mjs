@@ -15,6 +15,7 @@ await db.exec('create role service_role nologin bypassrls');
 await db.exec(await fs.readFile(path.join(root,'tests/000_supabase_stub.sql'),'utf8'));
 for(const file of (await fs.readdir(path.join(root,'v2/sql'))).filter(f=>/^\d/.test(f)&&!f.startsWith('000')).sort())await db.exec(await fs.readFile(path.join(root,'v2/sql',file),'utf8'));
 await db.exec(await fs.readFile(path.join(root,'supabase/migrations/20261031172114_family_plan.sql'),'utf8'));
+await db.exec(await fs.readFile(path.join(root,'supabase/migrations/20261031204207_voluntary_account_deletion.sql'),'utf8'));
 const A='aaaaaaaa-0000-0000-0000-000000000001',B='bbbbbbbb-0000-0000-0000-000000000002',C='cccccccc-0000-0000-0000-000000000003';
 const users={a:{id:A,email:'anna@example.test'},b:{id:B,email:'sasha@example.test'},c:{id:C,email:'guest@example.test'}};
 await db.query('insert into auth.users(id,email) values($1,$2),($3,$4),($5,$6)',[A,users.a.email,B,users.b.email,C,users.c.email]);
@@ -61,7 +62,7 @@ await cmd(A,'expense',{category_id:'food',month:nextMonth,amount:50000});
 await cmd(A,'expense',{category_id:'home',month:nextMonth,amount:40000});
 const members=await rpc(null,'family_worker_members',{},'service_role');
 for(const memberId of members)await runFamilyMember({rpc:(name,args)=>rpc(null,name,args,'service_role'),memberId,post:true});
-const allowed=new Set(['bootstrap_user','state_get','state_save','family_command','family_get','family_history','log_client_event']);
+const allowed=new Set(['bootstrap_user','state_get','state_save','family_command','family_get','family_history','log_client_event','account_deletion_preview','account_assign_owner','delete_my_account']);
 const json=(res,data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));};
 const server=http.createServer(async(req,res)=>{
   const address=new URL(req.url,'http://localhost');

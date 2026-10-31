@@ -260,6 +260,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       body = `<div class="card"><h2>Не получилось показать вкладку</h2><p class="muted">${esc(e.message)}</p></div>`;
     }
     byId('root').innerHTML = shell(ctx, invitationCard(ctx) + body);
+    const deletion=byId('root').querySelector('.account-delete-dialog');
+    (deletion?.querySelector('[data-account-delete-word]')??deletion?.querySelector('select:not(:disabled)')??deletion?.querySelector('button:not(:disabled)'))?.focus({preventScroll:true});
     byId('sign-out').addEventListener('click', async () => { await store.flush(); onSignOut(); });
     const close = byId('notice-close');
     if (close) close.addEventListener('click', () => { ui.notice = null; render(); });

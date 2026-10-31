@@ -1,7 +1,7 @@
 import { esc, card, section, table, field, pill } from './dom.js';
 import { familyBudget, validateFamilyRule, familyToday } from '../engine/family.js';
 import { addMonths } from '../engine/dates.js';
-import { planSwitch, securityCard, handle as handleSettings } from './settings.js';
+import { planSwitch, appearanceCard, securityCard, handle as handleSettings } from './settings.js';
 import { uid } from './edit.js';
 
 export const FAMILY_TABS = ['dashboard','periods','categories','facts','settings','family-history'].map(code => ({
@@ -197,7 +197,7 @@ function settings(ctx) {
         ${m.is_self&&m.active?ownMember(ctx,m):memberTag(m)}<span class="small-note">${m.role==='owner'?'владелец':'участник'}</span>
         ${self?.role==='owner'&&m.active&&!m.is_self?action('remove','Исключить',m.id,'ghost small'):''}</div>`).join('')}</div>
       ${invitations}<p class="small-note">После ухода будущие взносы и добор недостачи прекращаются. Совершённые поступления и история сохраняются.</p>`})}
-    ${securityCard(ctx)}`;
+    ${appearanceCard(ctx)}${securityCard(ctx)}`;
 }
 
 function renderHistory(ctx) {

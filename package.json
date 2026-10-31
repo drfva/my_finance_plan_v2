@@ -7,6 +7,7 @@
     "test": "node --test tests/*.test.mjs",
     "build:sql": "node tools/build-install.mjs",
     "build:family-function": "node tools/build-family-function.mjs",
-    "test:family-db": "node --test tests/family.database.mjs"
+    "test:family-db": "node --test tests/family.database.mjs",
+    "test:account-db": "node --test tests/account.database.mjs"
   }
 }

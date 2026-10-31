@@ -12,6 +12,9 @@ import { createApp } from './ui/app.js';
 import { esc, byId } from './ui/dom.js';
 import { initLogger, log } from './core/logger.js';
 
+import { applyTheme, readTheme } from './core/theme.js';
+
+applyTheme(readTheme());
 const APP = window.APP_CONFIG || { env: 'prod', url: '', key: '' };
 
 /* passkeys (Face ID / Touch ID) — экспериментальный API Supabase, включается явно */
@@ -33,8 +36,10 @@ function showFatal(title, err) {
 }
 
 async function boot() {
-  await ensureSignedIn(client);
-  if (recoveryPending()) await askNewPassword(client);
+  try {
+    await ensureSignedIn(client);
+    if (recoveryPending()) await askNewPassword(client);
+  }catch(e){showFatal('Не удалось проверить вход',e);return;}
 
   const store = createStore({ client });
   try {

@@ -4,6 +4,22 @@ import fs from 'node:fs';
 import { createFamilyWorker, sendFamilyInvites } from '../src/core/family-worker.js';
 
 const member='aaaaaaaa-1111-1111-1111-111111111111',user='aaaaaaaa-0000-0000-0000-000000000001';
+test('CORS: завершающий слеш и полный путь сайта нормализуются, адрес берётся только из настроек',async()=>{
+  for(const settings of [
+    {FAMILY_APP_ORIGIN:'https://drfva.github.io/'},
+    {FAMILY_APP_ORIGIN:' https://drfva.github.io/my_finance_plan_v2/ '},
+    {FAMILY_APP_URL:'https://drfva.github.io/my_finance_plan_v2/'},
+    {FAMILY_APP_ORIGIN:'не URL',FAMILY_APP_URL:'https://drfva.github.io/my_finance_plan_v2/'},
+  ]){
+    const handler=createFamilyWorker({env:key=>settings[key],fetch:async()=>{throw new Error('Preflight не должен обращаться к данным');}});
+    const response=await handler(new Request('https://worker.test',{method:'OPTIONS',headers:{Origin:'https://foreign.example'}}));
+    assert.equal(response.status,200);
+    assert.equal(response.headers.get('Access-Control-Allow-Origin'),'https://drfva.github.io');
+    assert.match(response.headers.get('Access-Control-Allow-Headers'),/x-retry-count/);
+    assert.match(response.headers.get('Access-Control-Allow-Headers'),/traceparent/);
+  }
+});
+
 function server() {
   const state=JSON.parse(fs.readFileSync(new URL('../tools/preview/state.json',import.meta.url),'utf8'));
   state.income={periods:[{id:'p',year:2026,pay_date:'2026-11-01',window_start:'2026-11-01',window_end:'2026-11-15',calc_mode:'manual',income_net:100000,taxable:false}]};

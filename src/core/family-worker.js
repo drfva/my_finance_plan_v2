@@ -61,6 +61,17 @@ export async function sendFamilyInvites({ rpc, request, url, headers, appUrl, ac
 
 export function createFamilyWorker({ env, fetch: request = fetch, now = () => new Date() }) {
   const url = env('SUPABASE_URL'), service = env('SUPABASE_SERVICE_ROLE_KEY');
+  // CORS сравнивает origin без пути и завершающего '/'. В Secrets нередко
+  // вставляют полный адрес сайта; нормализуем его, не отражая чужой Origin.
+  let origin = 'null';
+  for (const value of [env('FAMILY_APP_ORIGIN'),env('FAMILY_APP_URL')]) {
+    if (!value) continue;
+    try {
+      const parsed = new URL(value.trim());
+      if (!['https:','http:'].includes(parsed.protocol)) continue;
+      origin = parsed.origin; break;
+    } catch { /* Пробуем полный адрес приложения, если origin не задан. */ }
+  }
   const headers = { apikey: service, Authorization: `Bearer ${service}`, 'Content-Type': 'application/json' };
   const rpc = async (name, args) => {
     const response = await request(`${url}/rest/v1/rpc/${name}`, { method: 'POST', headers, body: JSON.stringify(args) });
@@ -69,8 +80,8 @@ export function createFamilyWorker({ env, fetch: request = fetch, now = () => ne
     return value;
   };
   const reply = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': env('FAMILY_APP_ORIGIN') || 'null',
-    'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, x-retry-count, traceparent, tracestate, baggage',
     'Access-Control-Allow-Methods': 'POST, OPTIONS' } });
   return async req => {
     if (req.method === 'OPTIONS') return reply({});

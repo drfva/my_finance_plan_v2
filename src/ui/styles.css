@@ -52,6 +52,10 @@ button:active{transform:scale(.98);}
 button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);box-shadow:var(--shadow-accent);}
 button.primary:hover{opacity:.92;color:var(--on-accent);}
+button.danger{background:var(--danger);border-color:var(--danger);color:var(--bg);}
+button.danger:hover{opacity:.9;color:var(--bg);}
+button.danger:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;}
+.modal.account-delete-dialog{max-width:680px;}
 button.ghost{background:transparent;border-color:transparent;color:var(--muted);padding:6px 10px;box-shadow:none;}
 button.ghost:hover{color:var(--ink);background:var(--surface);}
 button.small{padding:7px 14px;font-size:13px;}
