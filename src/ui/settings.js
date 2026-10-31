@@ -7,6 +7,7 @@ import { payoutSchedule } from '../engine/calendar.js';
 import { generateYear } from '../engine/income.js';
 import { addMonths, dayOfWeek, daysInMonth, isValid, pad2 } from '../engine/dates.js';
 import { ROLE_TITLES } from './app.js';
+import { personalFamilyCard } from './family.js';
 
 export const code = 'settings';
 export const title = () => 'Настройки';
@@ -188,7 +189,7 @@ export function calendarCard(ctx) {
 
 /* Переключатель планов: показывается, когда доступов больше одного.
    Свой план и планы, куда вас добавили владельцы, приходят из базы вместе с ролью. */
-function planSwitch(ctx) {
+export function planSwitch(ctx) {
   const list = ctx.state.accounts ?? [];
   if (list.length < 2) return '';
   const current = ctx.state.account?.id;
@@ -208,7 +209,7 @@ function planSwitch(ctx) {
 }
 
 /* Аккаунт: пароль, почта и вход по Face ID / Touch ID */
-function securityCard(ctx) {
+export function securityCard(ctx) {
   const sec = ctx.security;
   const open = ctx.ui.open.has('set:security');
   if (!sec) {
@@ -330,6 +331,7 @@ export function render(ctx) {
       </div>` : ''}` })}
 
     ${section({ key: 'set:opts', title: 'Настройки плана', open: ctx.ui.open.has('set:opts'), body: settingsTable(ctx) })}
+    ${personalFamilyCard(ctx)}
     ${stagesCard(ctx)}
     ${yearsCard(ctx)}
 

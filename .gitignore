@@ -1,0 +1,3 @@
+# Серверный пакет собирается из тех же модулей, что использует браузер.
+supabase/functions/_shared/finance/
+supabase/.temp/

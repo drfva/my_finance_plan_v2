@@ -4,6 +4,9 @@
   "type": "module",
   "description": "Финансы v2. Сборка не нужна: GitHub Pages отдаёт файлы как есть. package.json нужен только для тестов.",
   "scripts": {
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "build:sql": "node tools/build-install.mjs",
+    "build:family-function": "node tools/build-family-function.mjs",
+    "test:family-db": "node --test tests/family.database.mjs"
   }
 }

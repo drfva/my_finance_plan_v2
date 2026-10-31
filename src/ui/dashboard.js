@@ -33,6 +33,7 @@ function expensesView(ctx, rows) {
 
   const installments = rows.reduce((s, r) => s + r.installmentsTotal, 0);
   const cards = rows.reduce((s, r) => s + sumOf(r.debtPayments), 0);
+  const family = rows.reduce((s, r) => s + (r.familyContribution?.amount ?? 0), 0);
   const catPlan = [...plan.values()].reduce((s, x) => s + x, 0);
   const catFact = [...fact.values()].reduce((s, x) => s + x, 0);
 
@@ -44,7 +45,7 @@ function expensesView(ctx, rows) {
   const goalsById = new Map((state.savings?.goals ?? []).map(g => [g.id, g]));
   const goalSpend = [...spends.values()].reduce((s, x) => s + x, 0);
 
-  const grand = catPlan + installments + cards + goalSpend;
+  const grand = catPlan + installments + cards + family + goalSpend;
   const share = v => (!grand ? '' : v / grand < 0.005 ? '< 1%' : fmt.percent(v / grand * 100, 0));
 
   const catRows = cats.slice().sort((a, b) => (plan.get(b.id) ?? 0) - (plan.get(a.id) ?? 0)).map(c => {
@@ -92,7 +93,7 @@ function expensesView(ctx, rows) {
   return card({
     title: `Расходы за ${year} год`,
     body: `<div class="info-box" style="margin-bottom:6px;">В плитке «Расходы за год» учтены категории, платежи по рассрочкам
-        и погашение кредиток — всё, что уходит из выплат. Траты из копилок показаны отдельно: это деньги,
+        и погашение кредиток${family ? ', взносы в семейный план' : ''} — всё, что уходит из выплат. Траты из копилок показаны отдельно: это деньги,
         отложенные в прошлых выплатах, поэтому в плитку они не входят.</div>
       ${catRows.length ? `<h3 style="margin:18px 0 6px;font-size:15px;">Категории</h3>
         <div class="small-note" style="margin-bottom:8px;">План — то, что заложено в выплаты этого года, вместе с ручными правками.
@@ -104,6 +105,7 @@ function expensesView(ctx, rows) {
             <td class="num"><b>${esc(fmt.money(catPlan))}</b></td><td class="num"><b>${esc(fmt.money(catFact))}</b></td>
             <td class="num">${catFact ? esc(fmt.money(catFact - catPlan, undefined, { sign: true })) : ''}</td></tr>` })}` : ''}
       ${section('Долги', '', 'Что', debtRows, installments + cards)}
+      ${family ? section('Семейный план', '', 'Что', [`<tr><td>Семейные взносы</td><td class="num">${esc(share(family))}</td><td class="num">${esc(fmt.money(family))}</td></tr>`], family) : ''}
       ${section('Траты из копилок', 'Деньги, которые вы взяли из целей: переводы между копилками здесь не считаются.',
         'Копилка', goalRows, goalSpend)}
       <div class="row between" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line);">
@@ -252,7 +254,7 @@ export function render(ctx) {
   const sum = fn => rows.reduce((s, r) => s + fn(r), 0);
   const incomeReport = buildIncomeReport({ state, income: ctx.income ?? sim.income, year });
   const income = incomeReport.totals.automatic.net + incomeReport.totals.oneOff.net;
-  const expenses = sum(r => r.categoriesTotal + r.installmentsTotal + sumOf(r.debtPayments));
+  const expenses = sum(r => r.categoriesTotal + r.installmentsTotal + sumOf(r.debtPayments) + (r.familyContribution?.amount ?? 0));
   const saved = sum(r => sumOf(r.allocations));
   const free = sum(r => Math.max(0, r.unallocated));
   const deficit = rows.filter(r => r.unallocated < -0.5).length;

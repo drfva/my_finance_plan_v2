@@ -5,6 +5,7 @@ import { uid } from './edit.js';
 import { freezePeriods } from '../engine/allocation.js';
 import { generateYear } from '../engine/income.js';
 import { monthlyAmountOn } from '../engine/expenses.js';
+import { familyContributionControl } from './family.js';
 
 export const code = 'periods';
 export const title = () => 'Доходы';
@@ -47,6 +48,8 @@ function head(ctx, r) {
     r.income.sickPay > 0.5 ? pill(`больничный ${fmt.money(r.income.sickPay)}`) : '',
     r.income.extraIncome > 0.5 ? pill(`разовый доход ${fmt.money(r.income.extraIncome)}`) : '',
     debts > 0.5 ? pill(`долги ${fmt.money(debts)}`) : '',
+    r.familyContribution?.amount > 0 ? pill(`в семью ${fmt.money(r.familyContribution.amount)}`) : '',
+    r.familyContribution?.outstanding > 0 ? pill(`недобор в семью ${fmt.money(r.familyContribution.outstanding)}`, 'warn') : '',
     r.free < -0.5 ? pill('дефицит', 'danger') : (r.unallocated < -0.5 ? pill(`не хватает ${fmt.money(-r.unallocated)}`, 'warn') : ''),
     r.unallocated > 0.5 ? pill(`+${fmt.money(r.unallocated)} свободно`, 'ok') : '',
   ].filter(Boolean).join(' ');
@@ -159,17 +162,17 @@ function body(ctx, r) {
 
   return `<div class="period-body">
     <div class="row wrap" style="gap:8px;margin-bottom:12px;">
-      ${canEdit ? (p.locked
+      ${canEdit && !r.familyContribution?.member_id ? (p.locked
         ? button({ action: 'unlock', value: p.id, label: '🔓 Разблокировать' })
         : button({ action: 'freeze', value: p.id, label: '🔒 Зафиксировать' })) : ''}
-      ${canEdit && p.calc_mode === 'manual' && !p.sick_leave_id ? delButton({ domain: 'income', table: 'periods', key: { id: p.id }, label: 'Удалить выплату', cls: 'ghost small', confirm: 'Удалить эту выплату вместе с её ручными суммами?' }) : ''}
+      ${canEdit && !r.familyContribution?.posted && p.calc_mode === 'manual' && !p.sick_leave_id ? delButton({ domain: 'income', table: 'periods', key: { id: p.id }, label: 'Удалить выплату', cls: 'ghost small', confirm: 'Удалить эту выплату вместе с её ручными суммами?' }) : ''}
 
     </div>
 
     <div class="grid cols-3">
-      ${field('Дата выплаты', input({ edit: 'income|periods|pay_date', key: { id: p.id }, value: p.pay_date, type: 'date', disabled: !canEdit || !!p.sick_leave_id }))}
+      ${field('Дата выплаты', input({ edit: 'income|periods|pay_date', key: { id: p.id }, value: p.pay_date, type: 'date', disabled: !canEdit || !!p.sick_leave_id || r.familyContribution?.posted }))}
       <div class="field"><label>Доход на руки</label>
-        ${input({ edit: 'income|periods|income_net', key: { id: p.id }, value: r.income.salary, type: 'money', disabled: !canEdit || !!p.sick_leave_id,
+        ${input({ edit: 'income|periods|income_net', key: { id: p.id }, value: r.income.salary, type: 'money', disabled: !canEdit || !!p.sick_leave_id || r.familyContribution?.posted,
           cls: p.sick_leave_id ? (r.income.sick?.manual ? 'own' : '') : p.income_manual || p.calc_mode === 'manual' ? 'own' : '' })}
         <div class="small-note">${f
           ? `${esc(fmt.money(f.net))} по формуле: ${f.workedDays} из ${f.windowDays} рабочих дней,
@@ -195,6 +198,15 @@ function body(ctx, r) {
         when ? `, фактически получены ${esc(fmt.date(when))}` : ''}`;
     }).join('; ')}</div>` : ''}
     ${r.income.extraIncome ? `<div class="small-note">Разовый доход: ${esc(fmt.money(r.income.extraIncome))}</div>` : ''}
+    ${r.familyContribution?.member_id ? `<div class="info-box" style="margin-top:16px;">
+      В семейный план: <b>${esc(fmt.money(r.familyContribution.amount))}</b> · ${r.familyContribution.posted ? 'получено семьёй, сумма зафиксирована' : 'прогноз; будет проведён автоматически в дату выплаты'}.
+      <div class="row wrap" style="gap:8px;">${familyContributionControl(ctx,r.familyContribution,{readonlyValue:false})}</div>
+      ${r.familyContribution.arrears_amount > 0 ? `<div>Погашение недобора прошлых месяцев: ${esc(fmt.money(r.familyContribution.arrears_amount))}.</div>` : ''}
+      ${r.familyContribution.outstanding > 0 ? `<div>Обязательный недобор на дату выплаты: ${esc(fmt.money(r.familyContribution.outstanding))}.
+        ${state.family_private?.membership?.active && state.family_private.membership.id === r.familyContribution.member_id
+          ? 'Он добирается из следующих выплат в пределах потолка.' : 'Автоматический добор после выхода из семьи прекращён.'}</div>` : ''}
+      ${r.familyContribution.limit_exceeded > 0 ? `<div>Уточнённый месячный лимит превышен на ${esc(fmt.money(r.familyContribution.limit_exceeded))}. Проведённые суммы сохранены; новые взносы ограничены.</div>` : ''}
+    </div>` : ''}
 
     <div class="grid cols-2" style="margin-top:20px;">
       ${card({
@@ -296,6 +308,7 @@ export function handle(ev, ctx) {
 
   const freeze = ev.target.closest('[data-freeze]');
   if (freeze) {
+    if (ctx.sim.byId.get(freeze.dataset.freeze)?.familyContribution?.member_id) throw new Error('Выплата с семейным взносом фиксируется автоматически при его проведении');
     const patch = freezePeriods(ctx.state, ctx.sim, [freeze.dataset.freeze], fmt.round);
     store.update('income', d => { d.periods = patch.periods; });
     store.update('savings', d => { d.savings_period_overrides = patch.savings_period_overrides; });
@@ -445,7 +458,9 @@ export function handle(ev, ctx) {
           taxable: draft.taxable === true || draft.taxable === 'true',
           ...(hasColumn(ctx, 'manual_kind') ? { manual_kind: draft.kind || null } : {}),
         } : {}),
-        locked: draft.pay_date < ctx.today,
+        locked: draft.pay_date < ctx.today && !(ctx.state.family_private?.membership?.active
+          && ctx.state.family_private.membership.source_account_id === ctx.state.account?.id
+          && ctx.state.family_private.rules?.some(r => r.effective_from <= draft.pay_date)),
       });
     });
     ui.draft.periods = defaultDraft(ctx);

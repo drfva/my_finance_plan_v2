@@ -408,6 +408,30 @@ button.income-info{display:inline-flex;align-items:center;justify-content:center
 .income-popover dl{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0;}
 .income-popover dt{color:var(--muted);}.income-popover dd{margin:0;text-align:right;}
 
+.family-month-nav{gap:12px;margin-bottom:18px;}
+.family-person{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;border-radius:999px;background:var(--family-bg);color:var(--family-ink);font-weight:650;}
+.family-person i{width:8px;height:8px;border-radius:50%;background:currentColor;flex-shrink:0;}
+.family-blue{--family-bg:#DEEAF7;--family-ink:#315F8D;}
+.family-pink{--family-bg:#F5E0EB;--family-ink:#8B456A;}
+.family-purple{--family-bg:#EAE2F6;--family-ink:#69508D;}
+.family-green{--family-bg:#E3F1E7;--family-ink:#2E6B45;}
+.family-orange{--family-bg:#F6E7D5;--family-ink:#8A572B;}
+.family-balance{font-size:28px;font-variant-numeric:tabular-nums;}
+.family-contribution-control{display:inline-flex;align-items:center;gap:6px;}
+.danger-text{color:var(--danger);}
+:root[data-theme="dark"] .family-blue{--family-bg:#182E46;--family-ink:#A9CDEE;}
+:root[data-theme="dark"] .family-pink{--family-bg:#382237;--family-ink:#E8B3CF;}
+:root[data-theme="dark"] .family-purple{--family-bg:#2B2342;--family-ink:#CDB9EC;}
+:root[data-theme="dark"] .family-green{--family-bg:#16301F;--family-ink:#8FD7A8;}
+:root[data-theme="dark"] .family-orange{--family-bg:#392A1C;--family-ink:#E9BE91;}
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .family-blue{--family-bg:#182E46;--family-ink:#A9CDEE;}
+  :root:not([data-theme="light"]) .family-pink{--family-bg:#382237;--family-ink:#E8B3CF;}
+  :root:not([data-theme="light"]) .family-purple{--family-bg:#2B2342;--family-ink:#CDB9EC;}
+  :root:not([data-theme="light"]) .family-green{--family-bg:#16301F;--family-ink:#8FD7A8;}
+  :root:not([data-theme="light"]) .family-orange{--family-bg:#392A1C;--family-ink:#E9BE91;}
+}
+
 .production-calendar{max-width:600px;margin:0 auto;}
 .calendar-nav{gap:12px;margin:12px 0 20px;}
 .calendar-nav h3{text-align:center;text-transform:capitalize;}

@@ -81,7 +81,12 @@ export function createConfig(state) {
      справочник позже), идёт со своим приоритетом по умолчанию и включён. */
   function stages() {
     const rules = new Map((state?.settings?.allocation_rules ?? []).map(r => [r.stage_code, r]));
-    return list('allocation_stages')
+    const family = state.family_private;
+    const hasFamily = Boolean(state.family_source_connected || family?.membership?.source_account_id === state.account?.id || family?.contributions?.length);
+    const stages = list('allocation_stages').filter(s => s.code !== 'family' || hasFamily);
+    if (hasFamily && !stages.some(s => s.code === 'family')) stages.push({ code: 'family', title: 'В семейный план',
+      description: 'Ваш взнос в общий семейный бюджет', default_priority: Math.max(0, ...stages.map(s => rules.get(s.code)?.priority ?? s.default_priority)) + 1 });
+    return stages
       .map(s => {
         const r = rules.get(s.code);
         return {

@@ -1,0 +1,3 @@
+[functions.family-worker]
+# Запрос пользователя проверяется через Auth; задача — отдельным секретом из Vault.
+verify_jwt = false

@@ -63,6 +63,12 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   const again = {};          // domain → за время сохранения появились новые правки
   const errors = {};         // domain → последняя ошибка сохранения
   const listeners = new Set();
+  const familyOperations = [];
+  let familyTail = Promise.resolve();
+  let familyRunning = false;
+  let familyNeedsRefresh = false;
+  let familyRefreshTimer = null;
+  let pendingForecast = null;
 
   function emit(type, payload = {}) {
     for (const fn of listeners) {
@@ -170,9 +176,9 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   /* ------------------------------------------------ статус */
 
   function status() {
-    if (DOMAINS.some(d => errors[d])) return 'error';
-    if (DOMAINS.some(d => inflight[d])) return 'saving';
-    if (DOMAINS.some(d => timers[d])) return 'pending';
+    if (DOMAINS.some(d => errors[d]) || familyOperations.some(o => o.error)) return 'error';
+    if (DOMAINS.some(d => inflight[d]) || familyRunning) return 'saving';
+    if (DOMAINS.some(d => timers[d]) || familyNeedsRefresh) return 'pending';
     return 'saved';
   }
 
@@ -277,6 +283,11 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
         markSent(domain, sent);
         if (data?.version != null) state.versions = { ...(state.versions ?? {}), [domain]: data.version };
         acceptServerTables(domain, sent, data?.tables);
+        const member = state.family_private?.membership;
+        if (domain !== 'facts' && state.account.can_edit && (state.family_source_connected || member?.active && member.source_account_id === state.account.id) && client.functions?.invoke) {
+          familyNeedsRefresh = true;
+          scheduleFamilyForecast();
+        }
         return;
       }
 
@@ -312,12 +323,19 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   }
 
   /* Отправить всё, что ждёт, и дождаться ответа (перед уходом со страницы, перед reload) */
-  async function flush() {
+  async function flushDomains() {
     await Promise.all(DOMAINS.map(d => (timers[d] || inflight[d] || errors[d]) ? save(d) : null));
   }
 
+  async function flush() {
+    await flushDomains();
+    if (familyNeedsRefresh && !DOMAINS.some(d => errors[d])) await refreshFamilyForecast();
+    await familyTail.catch(() => {});
+    for (const operation of [...familyOperations]) if (operation.error) await enqueueFamily(operation);
+  }
+
   function hasPending() {
-    return DOMAINS.some(d => timers[d] || inflight[d] || errors[d]);
+    return DOMAINS.some(d => timers[d] || inflight[d] || errors[d]) || familyOperations.length > 0 || familyNeedsRefresh;
   }
 
   /* ------------------------------------------------ изменения */
@@ -373,6 +391,111 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     return () => listeners.delete(fn);
   }
 
+  function enqueueFamily(operation) {
+    if (operation.queued) return operation.promise;
+    operation.queued = true;
+    const removeOperation = () => {
+      const index = familyOperations.indexOf(operation);
+      if (index >= 0) familyOperations.splice(index, 1);
+    };
+    const task = familyTail.catch(() => {}).then(async () => {
+      familyRunning = true;
+      operation.error = null;
+      emitStatus();
+      try {
+        await flushDomains();
+        if (DOMAINS.some(d => timers[d] || inflight[d] || errors[d])) throw new Error('Сначала сохраните изменения личного плана');
+        let result;
+        if (operation.forecast) {
+          familyNeedsRefresh = false;
+          if (familyRefreshTimer) { clearTimer(familyRefreshTimer); familyRefreshTimer = null; }
+          if (!client.functions?.invoke) throw new Error('Серверный расчёт семьи недоступен');
+          const { data, error } = await client.functions.invoke('family-worker', { body: {source_account_id:operation.sourceId} });
+          if (error || data?.errors?.length) throw toError(error, 'Не удалось обновить семейный прогноз');
+          result = data;
+        } else {
+          operation.version ??= state.family?.id === operation.familyId ? state.family.version : null;
+          const { data, error } = await client.rpc('family_command', { p_action: operation.action, p_family: operation.familyId,
+            p_payload: operation.payload, p_version: operation.version, p_request: operation.requestId });
+          if (error) throw toError(error, 'Не удалось сохранить семейный план');
+          result = data;
+          if (['rule','override','invite'].includes(operation.action) && client.functions?.invoke) {
+            try {
+              const refreshed = await client.functions.invoke('family-worker', { body:{source_account_id:operation.payload.source_account_id??null} });
+              if (refreshed.error || refreshed.data?.errors?.length) result.warning = 'Изменения сохранены. Не удалось обновить прогноз — повторите обновление позже.';
+            } catch { result.warning = 'Изменения сохранены. Прогноз пока не обновился.'; }
+          }
+        }
+        const targetAccount = result?.return_account_id ?? operation.accountId;
+        const { data, error } = await client.rpc('state_get', { p_account: targetAccount });
+        if (error) throw toError(error, 'Изменения отправлены, но не удалось перечитать план. Повторите сохранение');
+        if (state.account.id === operation.accountId) {
+          applyLoaded(data);
+          emit(targetAccount !== operation.accountId ? 'loaded' : 'change', { domain: null });
+        }
+        removeOperation();
+        return result;
+      } catch (e) {
+        if (operation.forecast || /^(PT4|PGRST|[0-9A-Z]{5}$)/.test(e.code ?? '')) {
+          removeOperation();
+          if (e.code === 'PT409') {
+            const { data, error } = await client.rpc('state_get', { p_account: operation.accountId });
+            if (!error && state.account.id === operation.accountId) { applyLoaded(data); emit('change', { domain: null }); }
+          }
+        } else operation.error = e;
+        throw e;
+      } finally {
+        familyRunning = false; operation.queued = false;
+        if (operation === pendingForecast) pendingForecast = null;
+        if (familyNeedsRefresh) scheduleFamilyForecast();
+        emitStatus();
+      }
+    });
+    familyTail = task;
+    operation.promise = task;
+    return task;
+  }
+
+  function familyCommand(action, payload = {}, { familyId = state?.family_connection?.id ?? state?.family?.id ?? null,
+    version, requestId = crypto.randomUUID() } = {}) {
+    requireState();
+    const operation = { action, payload: clone(payload), familyId, version, requestId, accountId: state.account.id };
+    familyOperations.push(operation);
+    return enqueueFamily(operation);
+  }
+
+  function refreshFamilyForecast() {
+    requireState();
+    if (pendingForecast) return pendingForecast.promise;
+    const operation = { forecast: true, accountId: state.account.id,
+      sourceId: state.account.plan_kind==='personal'&&state.family_source_connected?state.account.id:null };
+    pendingForecast = operation;
+    familyOperations.push(operation);
+    return enqueueFamily(operation);
+  }
+
+  function scheduleFamilyForecast() {
+    if (familyRefreshTimer || pendingForecast || DOMAINS.some(d => errors[d])) return;
+    familyRefreshTimer = setTimer(() => {
+      familyRefreshTimer = null;
+      refreshFamilyForecast().catch(error => emit('error', { domain:'family', error }));
+    },500);
+  }
+
+  async function familyHistory() {
+    const family = state.family;
+    if (!family) return;
+    const before = family.audit?.at(-1)?.id ?? null;
+    const { data, error } = await client.rpc('family_history', { p_family: family.id, p_before: before });
+    if (error) throw toError(error, 'Не удалось загрузить историю');
+    if (state.family?.id !== family.id) return;
+    const target = state.family;
+    const ids = new Set(target.audit.map(a => a.id));
+    target.audit.push(...data.filter(a => !ids.has(a.id)));
+    target.audit_has_more = data.length === 100;
+    emit('change', { domain: null });
+  }
+
   return {
     get state() { return state; },
     config() {
@@ -381,7 +504,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     },
     status,
     load, reload, switchAccount, update, setSetting, setAccountTitle,
-    save, flush, hasPending, subscribe,
+    save, flush, hasPending, subscribe, familyCommand, refreshFamilyForecast, familyHistory,
   };
 }
 

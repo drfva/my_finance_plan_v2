@@ -42,7 +42,12 @@ export function recoveryPending() {
 }
 
 function cleanAuthUrl() {
-  try { history.replaceState(null, '', appUrl()); } catch (e) { /* не критично */ }
+  try {
+    const target = new URL(appUrl(),location.href);
+    const current = new URLSearchParams(location.search);
+    for (const key of ['plan','family_invite']) if (current.has(key)) target.searchParams.set(key,current.get(key));
+    history.replaceState(null, '', target);
+  } catch (e) { /* не критично */ }
 }
 
 function message(text, ok) {

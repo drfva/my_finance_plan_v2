@@ -14,6 +14,7 @@ import { createSecurity } from '../core/security.js';
 import { tourNeeded, tourPanel, tourHandle } from './tour.js';
 import { lateYears } from './alerts.js';
 import { syncGenerated, normalizeGoalPriorities } from '../engine/savings.js';
+import { familyToday } from '../engine/family.js';
 
 import * as dashboard from './dashboard.js';
 import * as periods from './periods.js';
@@ -29,6 +30,7 @@ import * as sick from './sick.js';
 import * as settings from './settings.js';
 import * as ledger from './ledger.js';
 import { attachSettings } from './settings.js';
+import { FAMILY_TABS, invitationCard, handle as handleFamily, handleChange as familyChange } from './family.js';
 
 const TABS = [dashboard, periods, categories, facts, goals, gifts, reserves, credits, installments, vacations, sick, settings];
 /* Вкладки без кнопки в шапке: открываются из других разделов (кнопкой в карточке) */
@@ -69,7 +71,9 @@ export function yearWindow(list, current) {
 }
 
 export function createApp({ store, env = 'prod', client = null, onSignOut }) {
-  const ui = { tab: null, year: null, goal: null, open: new Set(), draft: {}, notice: null };
+  const ui = { tab: null, year: null, goal: null, open: new Set(), draft: {
+    familyInvite: new URLSearchParams(location.search).get('family_invite') || undefined,
+  }, notice: null };
   const security = client ? createSecurity(client, () => render()) : null;
   let lastSync = '';
   let syncingSick = false;
@@ -78,6 +82,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   const fmt = () => cfg().formatter();
 
   const years = () => planYears(store.state, fmt().todayISO());
+  const availableTabs = ctx => ctx.state.account?.plan_kind === 'family' ? FAMILY_TABS : ALL_TABS;
 
   function context() {
     const state = store.state;
@@ -87,7 +92,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     const sim = simulate(state, c, { income, round: f.round, today: f.todayISO() });
     const list = years();
     if (!list.includes(ui.year)) ui.year = list.includes(Number(f.todayISO().slice(0, 4))) ? Number(f.todayISO().slice(0, 4)) : list[0];
-    return { store, state, cfg: c, fmt: f, income, sim, ui, year: ui.year, years: list, today: f.todayISO(), canEdit: c.canEdit, security, onSignOut, notice };
+    return { store, state, cfg: c, fmt: f, income, sim, ui, year: ui.year, years: list,
+      today: state.account?.plan_kind === 'family' ? familyToday() : f.todayISO(), canEdit: c.canEdit, security, onSignOut, notice };
   }
 
   /* Циклы и праздники разворачиваются в этапы и траты при изменении данных */
@@ -130,7 +136,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   /* Прошедшие выплаты фиксируются: расчёт превращается в факт и больше не меняется */
   function freezePast(ctx) {
     if (!ctx.canEdit) return false;
-    const ids = ctx.sim.rows.filter(r => !r.period.locked && !r.income.sick?.pendingTax && !r.income.sickPendingTax && r.period.pay_date < ctx.today).map(r => r.period.id);
+    const ids = ctx.sim.rows.filter(r => !r.period.locked && !r.income.sick?.pendingTax && !r.income.sickPendingTax
+      && (!r.familyContribution?.member_id || r.familyContribution.posted) && r.period.pay_date < ctx.today).map(r => r.period.id);
     if (!ids.length) return false;
     const patch = freezePeriods(ctx.state, ctx.sim, ids, ctx.fmt.round);
     store.update('income', d => { d.periods = patch.periods; });
@@ -140,12 +147,13 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   }
 
   function tabsHtml(ctx, late) {
-    return TABS.map(t => `<button class="${t.code === ui.tab ? 'active' : ''}" data-tab="${t.code}">${esc(t.title(ctx))}${
+    const tabs = ctx.state.account?.plan_kind === 'family' ? FAMILY_TABS : TABS;
+    return tabs.map(t => `<button class="${t.code === ui.tab ? 'active' : ''}" data-tab="${t.code}">${esc(t.title(ctx))}${
       late[t.code]?.size ? '<i class="late-dot" title="Есть сроки, в которые план не укладывается"></i>' : ''}</button>`).join('');
   }
 
   function shell(ctx, body) {
-    const tab = ALL_TABS.find(t => t.code === ui.tab);
+    const tab = availableTabs(ctx).find(t => t.code === ui.tab);
     const late = lateYears(ctx);
     const lateHere = late[ui.tab] ?? new Set();
     const yearBtn = y => `<button class="${y === ctx.year ? 'active' : ''}" data-year="${y}">${y}${
@@ -171,6 +179,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     return `
       <div class="topbar"><div class="topbar-inner">
         <div class="brand"><h1 style="font-size:19px;">${esc(ctx.state.account?.title || 'Финансы')}</h1>
+          ${ctx.state.family_available ? `<span class="pill">${ctx.state.account?.plan_kind === 'family' ? 'семейный план' : 'личный план'}</span>` : ''}
           ${env === 'dev' ? '<span class="pill danger" style="font-size:11px;">ТЕСТ</span>' : ''}
           ${ctx.canEdit ? '' : '<span class="pill" style="font-size:11px;">только просмотр</span>'}
           ${ctx.years.length ? `<span class="pill" style="font-size:11px;">${esc(ROLE_TITLES[ctx.state.account?.role] ?? ctx.state.account?.role ?? '')}</span>` : ''}
@@ -189,12 +198,13 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         ${topRow}
         ${body}
       </main>
-      ${tourNeeded(ctx) ? tourPanel(ctx) : ''}`;
+      ${ctx.state.account?.plan_kind !== 'family' && !ui.draft.familyInvite && tourNeeded(ctx) ? tourPanel(ctx) : ''}`;
   }
 
   function render() {
     if (syncingSick) return;
     const ctx = context();
+    if (ctx.state.account?.plan_kind !== 'family') {
     if (ctx.canEdit && JSON.stringify(ctx.state.income?.periods ?? []) !== JSON.stringify(ctx.income.preparedPeriods)) {
       const next = ctx.income.preparedPeriods;
       const ids = new Set(next.map(p => p.id));
@@ -236,11 +246,12 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       });
       return;
     }
-    if (!ui.tab || !ALL_TABS.some(t => t.code === ui.tab)) {
-      const start = ctx.cfg.get('start_tab');
-      ui.tab = TABS.some(t => t.code === start) ? start : 'dashboard';
     }
-    const tab = ALL_TABS.find(t => t.code === ui.tab);
+    if (!ui.tab || !availableTabs(ctx).some(t => t.code === ui.tab)) {
+      const start = ctx.cfg.get('start_tab');
+      ui.tab = availableTabs(ctx).some(t => t.code === start) ? start : 'dashboard';
+    }
+    const tab = availableTabs(ctx).find(t => t.code === ui.tab);
     let body;
     try {
       body = tab.render(ctx);
@@ -248,7 +259,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       console.error(e);
       body = `<div class="card"><h2>Не получилось показать вкладку</h2><p class="muted">${esc(e.message)}</p></div>`;
     }
-    byId('root').innerHTML = shell(ctx, body);
+    byId('root').innerHTML = shell(ctx, invitationCard(ctx) + body);
     byId('sign-out').addEventListener('click', async () => { await store.flush(); onSignOut(); });
     const close = byId('notice-close');
     if (close) close.addEventListener('click', () => { ui.notice = null; render(); });
@@ -277,6 +288,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
 
     // черновики форм живут в памяти вкладки и не перерисовывают экран
     root.addEventListener('change', ev => {
+      if (familyChange(ev, context())) return;
       const el = ev.target.closest('[data-draft]');
       if (!el) return;
       const draft = ui.draft[ui.tab] ?? (ui.draft[ui.tab] = {});
@@ -302,8 +314,9 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         return;
       }
       if (tourHandle(ev, context())) { render(); return; }
+      if (ev.target.closest('[data-family-action]')) { handleFamily(ev,context()); render(); return; }
 
-      const active = ALL_TABS.find(t => t.code === ui.tab);
+      const active = availableTabs(context()).find(t => t.code === ui.tab);
       if (!active?.handle) return;
       try {
         if (active.handle(ev, context())) render();
@@ -315,7 +328,12 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
 
     store.subscribe(ev => {
       // открыли другой план: генератор должен пересобрать этапы заново
-      if (ev.type === 'loaded') { lastSync = ''; render(); return; }
+      if (ev.type === 'loaded') {
+        lastSync = ''; ui.tab = null; ui.year = null; ui.goal = null; ui.open.clear();
+        ui.draft = { familyInvite: ui.draft.familyInvite };
+        const address = new URL(location.href); address.searchParams.set('plan',store.state.account.id);
+        window.history.replaceState(null,'',address); render(); return;
+      }
       if (ev.type === 'change') render();
       else if (ev.type === 'status') renderStatus(ev.status);
       else if (ev.type === 'conflict') {

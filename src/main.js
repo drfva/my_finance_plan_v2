@@ -39,6 +39,8 @@ async function boot() {
   const store = createStore({ client });
   try {
     await store.load();
+    const selected = new URLSearchParams(location.search).get('plan');
+    if (selected && store.state.accounts?.some(a => a.id === selected)) await store.switchAccount(selected);
   } catch (e) {
     console.error(e);
     showFatal('Не удалось загрузить план', e);

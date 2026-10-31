@@ -44,6 +44,7 @@ import { planExpenses } from './expenses.js';
 import { installmentsByPeriod, newCardState, sortedCardOps, cardApplyOp, cardApplyPayment } from './debts.js';
 import { createTracker, milestonesOf, progressOf } from './savings.js';
 import { createFx } from './fx.js';
+import { createFamilyAllocator } from './family.js';
 
 const SAVINGS_STAGES = ['gifts', 'buckets', 'reserves'];
 
@@ -54,7 +55,8 @@ export function simulate(state, cfg, options = {}) {
   let result = simulatePlan(state, cfg, { ...options, income });
   for (let i = 0; i < 4; i++) {
     const next = simulatePlan(state, cfg, { ...options, income, reference: result });
-    const same = next.rows.every((r, n) => JSON.stringify(r.allocations) === JSON.stringify(result.rows[n].allocations));
+    const same = next.rows.every((r, n) => JSON.stringify(r.allocations) === JSON.stringify(result.rows[n].allocations)
+      && r.familyContribution?.amount === result.rows[n].familyContribution?.amount);
     result = next;
     if (same) break;
   }
@@ -72,7 +74,8 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   };
 
   const fx = createFx(state.settings?.fx_rates ?? [], cfg.get('base_currency'));
-  const stages = cfg.stages().filter(s => s.enabled);
+  const family = createFamilyAllocator({ state, income: inc, reference, round });
+  const stages = cfg.stages().filter(s => s.enabled || s.code === 'family' && family.posted.size);
   const stage = code => stages.find(s => s.code === code) ?? null;
 
   /* какой этап отвечает за цель: по справочнику типов целей */
@@ -399,11 +402,15 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
 
     let paceDone = false;
     const paceGiven = new Map();   // темп подушки, уже отложенный в этой выплате
+    let familyContribution = null;
     for (const s of stages) {
       const before = remaining;
       let paceSpent = 0;
 
-      if (s.code === 'categories') {
+      if (s.code === 'family') {
+        familyContribution = family.step(p, remaining, { enabled: s.enabled });
+        remaining -= familyContribution.amount;
+      } else if (s.code === 'categories') {
         remaining -= expRow.total;
       } else if (s.code === 'installments') {
         remaining -= instTotal;
@@ -431,7 +438,9 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
         }
         if (!manual && remaining > 0) {
           // темп подушки идёт раньше копилок: если он задан, его откладываем обязательно
-          if (paceFirst && !paceDone && s.code !== 'reserves') {
+          const familyBeforeReserve = stage('family') && stage('reserves')
+            && stages.indexOf(stage('family')) < stages.indexOf(stage('reserves'));
+          if (paceFirst && !paceDone && s.code !== 'reserves' && (!familyBeforeReserve || familyContribution)) {
             paceSpent = reservePaceStep(p, allocations, fixedGoals, remaining, depositBase, paceGiven);
             remaining -= paceSpent;
             paceDone = true;
@@ -507,6 +516,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       // остаток после расходов и рассрочек — то, что показывается в заголовке выплаты
       free: r.total - expRow.total - instTotal,
       debtPayments,
+      familyContribution,
       cardBefore,
       cardState: Object.fromEntries([...cardState].map(([k, v]) => [k, { ...v }])),
       allocations,
