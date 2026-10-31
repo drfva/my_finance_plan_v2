@@ -364,6 +364,20 @@ function plan({ periods = payouts([1, 2, 3, 4, 5, 6]), goals = [], milestones = 
 const run = st => simulate(st, createConfig(st));
 const goal = (id, extra = {}) => ({ id, title: id, kind_code: 'bucket', currency_code: 'RUB', priority: 1, target_amount: 0, deadline: null, starting_balance: 0, pace_amount: 0, completed: false, ...extra });
 
+test('разовая выплата: проценты от начисленного считаются от её суммы, независимо от оклада', () => {
+  const st = plan({
+    periods: [...payouts([3]), { id: 'side', year: 2027, slot_order: null, pay_date: '2027-03-18',
+      window_start: '2027-03-01', window_end: '2027-03-31', calc_mode: 'manual', income_net: 2000, taxable: false }],
+    rules: [{ stage_code: 'categories', priority: 1, enabled: true, params: { percent_base: 'gross' } }],
+    categories: [{ id: 'life', mode: 'percent_income', monthly_amount: 10000 }],
+  });
+  st.income.salary_rates = [{ id: 'r', effective_from: '2027-01-01', amount: 230000, is_gross: true }];
+  const row = run(st).byId.get('side');
+  assert.equal(row.totalIncome, 2000);
+  assert.equal(row.categoriesTotal, 2000);
+  assert.equal(row.unallocated, 0);
+});
+
 test('Подарки 63000 к 23.12 и Лазерка 12100 к 22.11 успевают без ручной правки; велосипед копится позже', () => {
   const dates = ['2026-11-05', '2026-11-20', '2026-12-04', '2026-12-18', '2027-05-20'];
   const periods = dates.map((date, i) => ({ id: `p${i}`, year: Number(date.slice(0, 4)), pay_date: date,

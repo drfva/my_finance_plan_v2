@@ -94,6 +94,30 @@ test('ручной доход закрепляется вместе с числ�
   assert.equal(ctx.income.byId.get('p').salary, ctx.income.byId.get('p').formula.net);
 });
 
+test('создание разовой выплаты: введённая сумма без формулы оклада и без отпускных', () => {
+  const ctx = goalContext([]);
+  Object.assign(ctx, { today: '2026-10-30', year: 2026 });
+  ctx.state.income.periods = [{ id: 'salary', year: 2026, slot_order: 2, calc_mode: 'auto', income_manual: false,
+    pay_date: '2026-11-05', window_start: '2026-10-16', window_end: '2026-10-31' }];
+  ctx.state.income.salary_rates = [{ id: 'rate', effective_from: '2026-01-01', amount: 230000, is_gross: true }];
+  ctx.state.income.vacations = [{ id: 'v', start_date: '2026-10-19', end_date: '2026-10-25', pay_manual: true, pay_amount: 47660 }];
+  ctx.ui.draft.periods = { pay_date: '2026-10-18', window: '2026-10', income_net: '2000', kind: 'side_job', taxable: false, note: 'ZELRUN' };
+  assert.equal(handlePeriods(click('add-manual', ''), ctx), true);
+  const p = ctx.state.income.periods.find(p => p.calc_mode === 'manual');
+  assert.equal(p.income_net, 2000);
+  assert.equal(p.locked, true);
+  ctx.sim = simulate(ctx.state, ctx.cfg, { today: ctx.today });
+  ctx.income = ctx.sim.income;
+  ctx.ui.open.add(`period:${p.id}`);
+  ctx.ui.open.add('past');
+  assert.equal(ctx.sim.byId.get(p.id).totalIncome, 2000);
+  assert.equal(ctx.sim.byId.get(p.id).income.vacationPay, 0);
+  const html = renderPeriods(ctx);
+  assert.doesNotMatch(html, new RegExp(`data-fill-income="${p.id}"`));
+  assert.doesNotMatch(html, /по формуле:/);
+  assert.match(html, /Разовая выплата: используется введённая сумма/);
+});
+
 test('расчётные поля: ручные отпускные, платежи рассрочки и суммы подарков отмечаются', () => {
   const ctx = goalContext([]);
   ctx.state.income.vacations = [{ id: 'v', pay_manual: false, pay_amount: 0 }];

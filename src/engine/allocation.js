@@ -82,7 +82,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   /* ---------------------------------------------------------- расходы и рассрочки */
   const exp = state.expenses ?? {};
   const percentBase = stage('categories')?.params?.percent_base === 'gross'
-    ? p => (inc.byId.get(p.id)?.formula?.gross ?? (p.sick_leave_id ? inc.byId.get(p.id)?.gross ?? 0 : 0)) + (inc.byId.get(p.id)?.sickGross ?? 0)
+    ? p => (inc.byId.get(p.id)?.formula?.gross ?? (p.calc_mode === 'manual' || p.sick_leave_id ? inc.byId.get(p.id)?.gross ?? 0 : 0)) + (inc.byId.get(p.id)?.sickGross ?? 0)
     : p => inc.byId.get(p.id)?.total ?? 0;
   const expenses = planExpenses({
     categories: exp.expense_categories ?? [],

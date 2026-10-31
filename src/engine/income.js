@@ -24,7 +24,7 @@
 --------------------------------------------------------------------- */
 
 import { createCalendar, payoutSchedule } from './calendar.js';
-import { rateOn, salaryForWindow, absenceRanges } from './salary.js';
+import { rateOn, salaryForWindow, absenceRanges, isSalaryPeriod } from './salary.js';
 import { scaleForYear, taxForPayment, taxParts, grossFromNet, estimateMonthlyNet } from './tax.js';
 import { vacationFormula, vacationPay, splitVacationPay } from './vacation.js';
 import { createFx } from './fx.js';
@@ -32,7 +32,7 @@ import { computeSickLeaves, sickPeriods, splitSickPay } from './sick.js';
 
 const byDate = (a, b) => (a.pay_date < b.pay_date ? -1 : a.pay_date > b.pay_date ? 1 : String(a.id).localeCompare(String(b.id)));
 
-export const automaticIncome = p => p.calc_mode !== 'manual' && !p.locked && p.income_manual === false;
+export const automaticIncome = p => isSalaryPeriod(p) && !p.locked && p.income_manual === false;
 
 /* У старых выплат происхождение суммы неизвестно. Отличающиеся значения
    сохраняем, совпавшие с формулой подключаем к автоматическому пересчёту. */
@@ -90,12 +90,12 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
       if (total - assigned > 0.01) warnings.push({ code: 'sick_outside_plan', sick_leave_id: f.leave.id, payer, unassigned: total - assigned });
     }
   }
-  const sickPartsFor = p => p.locked ? p.sick_snapshot ?? [] : sickByPeriod.get(p.id) ?? [];
+  const sickPartsFor = p => !isSalaryPeriod(p) ? [] : p.locked ? p.sick_snapshot ?? [] : sickByPeriod.get(p.id) ?? [];
 
   /* 1. Оклад по формуле для каждой выплаты */
   const formulaGross = new Map();
   for (const p of periods) {
-    formulaGross.set(p.id, p.sick_leave_id ? null : salaryForWindow({
+    formulaGross.set(p.id, !isSalaryPeriod(p) ? null : salaryForWindow({
       start: p.window_start, end: p.window_end, rates, calendar, absences, round,
     }));
   }
@@ -150,7 +150,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
     const list = periodsByMonth.get(key) ?? [];
     const need = slotsPerYear.get(y) ?? 0;
     const sum = list.filter(inAverage).reduce((s, p) => s + (grossOfPeriod.get(p.id)?.gross ?? 0), 0);
-    if (list.length && (need === 0 || list.length >= need)) return sum;
+    if (list.length && (need === 0 || list.filter(isSalaryPeriod).length >= need)) return sum;
     if (history.has(key)) return Number(history.get(key).amount) || 0;
     return sum;
   }
@@ -172,7 +172,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
       formula,
       pay,
       payDate: v.start_date ? calendar.workingDayBefore(v.start_date) : null,
-      split: splitVacationPay(v, pay, periods.filter(p => !p.sick_leave_id)),
+      split: splitVacationPay(v, pay, periods),
     };
   });
   const vacationByPeriod = new Map();

@@ -2,6 +2,7 @@
    Обычная болезнь, бытовая травма, уход; особые случаи — подтверждённые суммы.
    Параметры неизвестного года не наследуются молча от предыдущего. */
 import { eachDay, daysInMonth, daysInclusive, isValid } from './dates.js';
+import { isSalaryPeriod } from './salary.js';
 
 export const SICK_MROT = { 2025: 22440, 2026: 27093 };
 export const SICK_CAPS = { 2023: 1917000, 2024: 2225000, 2025: 2759000, 2026: 2979000 };
@@ -154,7 +155,7 @@ export function sickPeriods(inc) {
 export function splitSickPay(f, periods) {
   if (f.disabled || f.errors.length) return [];
   const s = f.leave;
-  const regular = periods.filter(p => !p.sick_leave_id && p.calc_mode !== 'manual')
+  const regular = periods.filter(isSalaryPeriod)
     .sort((a, b) => String(a.pay_date).localeCompare(String(b.pay_date)) || String(a.id).localeCompare(String(b.id)));
   const result = [];
   for (const payer of ['employer', 'sfr']) {

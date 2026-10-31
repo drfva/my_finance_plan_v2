@@ -308,6 +308,70 @@ test('доход: изменение отпуска, оклада и кален�
   assert.equal(withDay.monthIncome(2027, 8), withDay.periods.reduce((s, r) => s + r.salary, 0));
 });
 
+test('разовые выплаты: 2000 рублей не получают оклад, отпускные или больничный, включая старые закреплённые записи', () => {
+  for (const locked of [false, true]) {
+    const st = vacState({
+      salary_rates: [{ id: 'r', effective_from: '2026-01-01', amount: 230000, is_gross: true }],
+      periods: [
+        { id: 'salary1', year: 2026, pay_date: '2026-10-20', window_start: '2026-10-01', window_end: '2026-10-15', calc_mode: 'auto', income_manual: false },
+        { id: 'salary2', year: 2026, pay_date: '2026-11-05', window_start: '2026-10-16', window_end: '2026-10-31', calc_mode: 'auto', income_manual: false },
+      ],
+      vacations: [{ id: 'v', start_date: '2026-10-19', end_date: '2026-10-25', pay_manual: true, pay_amount: 47660 }],
+    });
+    const before = computeIncome(st, VAC_CFG);
+    st.income.periods.push({ id: 'side', year: 2026, pay_date: '2026-10-18', window_start: '2026-10-01', window_end: '2026-10-31',
+      calc_mode: 'manual', manual_kind: 'side_job', taxable: false, income_net: 2000, income_manual: true, locked,
+      sick_snapshot: [{ leave_id: 'stale', payer: 'employer', days: 3, gross: 10000, net: 8700 }],
+    });
+    const after = computeIncome(st, VAC_CFG, { fillIds: new Set(['side']) });
+    const side = after.byId.get('side');
+    assert.equal(side.formula, null);
+    assert.equal(side.salary, 2000);
+    assert.equal(side.gross, 2000);
+    assert.equal(side.tax, 0);
+    assert.equal(side.vacationPay, 0);
+    assert.equal(side.sickPay, 0);
+    assert.equal(side.total, 2000);
+    assert.deepEqual(after.vacations[0].split, before.vacations[0].split);
+    for (const id of ['salary1', 'salary2']) {
+      assert.equal(after.byId.get(id).salary, before.byId.get(id).salary);
+      assert.equal(after.byId.get(id).vacationGross, before.byId.get(id).vacationGross);
+      assert.equal(after.byId.get(id).vacationPay, before.byId.get(id).vacationPay);
+    }
+  }
+});
+
+test('разовая выплата не закрывает пробел в графике для истории отпускных; ручная сумма оклада остаётся окладом', () => {
+  const st = vacState({ vacations: [{ id: 'v', start_date: '2027-08-10', end_date: '2027-08-17', pay_manual: true, pay_amount: 80000 }],
+    income_history: [{ year: 2027, month: 8, amount: 250000 }],
+  });
+  st.income.periods = [st.income.periods[0]];
+  st.income.periods[0].income_net = 88888;
+  st.income.periods[0].income_manual = true;
+  const before = computeIncome(st, VAC_CFG);
+  st.income.periods.push({ id: 'gift', year: 2027, pay_date: '2027-08-18', window_start: '2027-08-01', window_end: '2027-08-31',
+    calc_mode: 'manual', manual_kind: 'gift', taxable: false, income_net: 2000, locked: false,
+  });
+  const inc = computeIncome(st, VAC_CFG);
+  assert.equal(inc.monthGross(2027, 8), before.monthGross(2027, 8));
+  assert.equal(inc.monthGross(2027, 8), 250000);
+  assert.equal(inc.byId.get('p1').salary, 88888);
+  assert.ok(inc.byId.get('p1').formula);
+  assert.equal(inc.byId.get('p1').vacationGross, before.byId.get('p1').vacationGross);
+  assert.equal(inc.byId.get('gift').vacationGross, 0);
+});
+
+test('отпускные: при наличии только разовых выплат не начисляются в них', () => {
+  const st = vacState({ periods: [{ id: 'bonus', year: 2027, pay_date: '2027-08-20', window_start: '2027-08-01', window_end: '2027-08-31',
+    calc_mode: 'manual', manual_kind: 'bonus', taxable: true, income_net: 50000, locked: false }],
+    vacations: [{ id: 'v', start_date: '2027-08-10', end_date: '2027-08-17', pay_manual: true, pay_amount: 80000 }],
+  });
+  const inc = computeIncome(st, VAC_CFG);
+  assert.deepEqual(inc.vacations[0].split, []);
+  assert.equal(inc.byId.get('bonus').total, 50000);
+  assert.ok(inc.warnings.some(w => w.code === 'vacation_outside_plan' && w.unassigned === 80000));
+});
+
 test('доход: старые отличающиеся суммы сохраняются; совпадающие с формулой включают авто', () => {
   const st = vacState({ vacations: [] });
   const inc = computeIncome(st, VAC_CFG);

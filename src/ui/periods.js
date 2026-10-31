@@ -176,7 +176,8 @@ function body(ctx, r) {
              начислено ${esc(fmt.money(f.gross))}, налог ${esc(fmt.money(f.tax))}
              ${canEdit && (p.income_manual || Math.abs(r.income.salary - f.net) > 0.5)
                ? button({ action: 'fill-income', value: p.id, label: 'подставить по формуле', cls: 'ghost small' }) : ''}`
-          : p.sick_leave_id ? 'Больничный по прежней схеме. Начислено ' + esc(fmt.money(r.income.gross)) + ', НДФЛ ' + esc(fmt.money(r.income.tax)) : 'оклада на этот период нет'}</div>
+          : p.sick_leave_id ? 'Больничный по прежней схеме. Начислено ' + esc(fmt.money(r.income.gross)) + ', НДФЛ ' + esc(fmt.money(r.income.tax))
+          : p.calc_mode === 'manual' ? 'Разовая выплата: используется введённая сумма, без расчёта по окладу, отпускных и больничного.' : 'оклада на этот период нет'}</div>
         ${r.income.vacationPay > 0.5 ? `<div class="small-note">+ отпускные ${esc(fmt.money(r.income.vacationPay))} на руки
           (начислено ${esc(fmt.money(r.income.vacationGross))}) за ${r.income.vacations.reduce((sum, x) => sum + x.days, 0)} дн.</div>` : ''}
         ${r.income.sickParts?.length ? `<div class="small-note">+ больничный <b>${esc(fmt.money(r.income.sickPay))}</b> на руки
@@ -257,7 +258,7 @@ export function render(ctx) {
         <div class="card-title"><h2>Новая выплата</h2>
           <button class="ghost small" data-close-add title="Закрыть">✕</button></div>
         <div class="small-note" style="margin-top:0;">Премия, подработка, выплата вне графика.
-          Расчётный период — месяц, к которому она относится.</div>
+          Месяц нужен для учёта дохода. Оклад, отпускные и больничный к разовой выплате не добавляются.</div>
         <div class="grid cols-2" style="margin-top:14px;">
           ${field('Дата выплаты', `<input type="date" data-draft="pay_date" value="${esc(draft.pay_date)}">`)}
           ${field('За месяц', `<input type="month" data-draft="window" value="${esc(draft.window)}">`)}

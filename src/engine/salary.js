@@ -12,6 +12,10 @@
 
 import { eachDay, parts, overlap, daysInclusive } from './dates.js';
 
+/* Ручная сумма оклада (income_manual) не меняет тип выплаты.
+   Разовая выплата (calc_mode = manual) не является периодом оклада. */
+export const isSalaryPeriod = p => p.calc_mode !== 'manual' && !p.sick_leave_id;
+
 /* Оклад на дату: последняя запись с effective_from не позже даты (по дате, а не по порядку в списке) */
 export function rateOn(rates, s) {
   let best = null;

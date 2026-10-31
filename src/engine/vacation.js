@@ -29,7 +29,7 @@
 --------------------------------------------------------------------- */
 
 import { parts, daysInMonth, monthsBefore, monthEnd, daysInclusive, overlap, eachDay } from './dates.js';
-import { rateOn, daysInWindow } from './salary.js';
+import { rateOn, daysInWindow, isSalaryPeriod } from './salary.js';
 
 /* Календарные дни месяца, попавшие в перечисленные периоды */
 function daysInMonthFrom(y, m, ranges) {
@@ -112,6 +112,7 @@ export function splitVacationPay(vacation, amount, periods) {
   const total = daysInclusive(vacation.start_date, vacation.end_date);
   if (!total || !amount) return [];
   const parts_ = periods
+    .filter(isSalaryPeriod)
     .map(p => ({ period_id: p.id, pay_date: p.pay_date,
       days: daysInWindow(vacation.start_date, vacation.end_date, p.window_start, p.window_end) }))
     .filter(x => x.days > 0)
