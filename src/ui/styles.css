@@ -1,14 +1,13 @@
-/* Оформление приложения. Перенесено из старой версии без изменений,
-   чтобы новая версия выглядела так же. */
+/* Общая палитра: «Ледяной синий» для светлой темы, ниже — тёмная тема. */
 :root{
-  --bg:#EFEADF; --surface:#FFFDF8; --surface-2:#F5F1E8; --surface-3:#ECE6D9; --ink:#0E1F3F; --muted:#5B6679;
-  --line:#E3DCCD; --accent:#1E4FA8; --accent-ink:#1A4290; --accent-soft:#DEE7F7; --on-accent:#FFFFFF; --on-accent-muted:#C9D8F5;
+  --bg:#F1F5FB; --surface:#FFFFFF; --surface-2:#E8EEF8; --surface-3:#E2EAF5; --ink:#172B4D; --muted:#556A86;
+  --line:#DCE4F0; --accent:#3566B0; --accent-ink:#28518F; --accent-soft:#DDE9FA; --on-accent:#FFFFFF; --on-accent-muted:#E4EDFB;
   --warn:#8A5210; --warn-soft:#F6E7CE; --danger:#A83434; --danger-soft:#F8E0DE;
   --good:#2E6B45; --good-soft:#E3F1E7;
-  --backdrop:rgba(14,31,63,.40);
-  --shadow-card:0 1px 2px rgba(14,31,63,.04), 0 10px 30px rgba(14,31,63,.07);
-  --shadow-pop:0 24px 60px rgba(14,31,63,.20);
-  --shadow-accent:0 8px 22px rgba(30,79,168,.28);
+  --backdrop:rgba(23,43,77,.40);
+  --shadow-card:0 1px 2px rgba(23,43,77,.04), 0 10px 30px rgba(23,43,77,.07);
+  --shadow-pop:0 24px 60px rgba(23,43,77,.20);
+  --shadow-accent:0 8px 22px rgba(53,102,176,.24);
   --r-lg:24px; --r-md:18px; --r-sm:12px;
   --font-display:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;
   --font-body:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;
