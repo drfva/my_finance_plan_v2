@@ -24,7 +24,8 @@ export const earningsHelp = () => `<details class="info-box" style="margin-botto
 export function renderSick(ctx) {
   const { state, income, fmt, canEdit, ui } = ctx;
   const leaves = [...(state.income?.sick_leaves ?? [])].sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)));
-  const content = leaves.map(s => {
+  const past = leaves.filter(s => s.end_date && s.end_date < ctx.today);
+  const content = leaves.filter(s => !past.includes(s) || ui.open.has('sick-past')).map(s => {
     const f = income.sickLeaves?.find(x => x.leave.id === s.id);
     const params = f?.params ?? sickParameters(s);
     const key = { id: s.id };
@@ -124,7 +125,8 @@ export function renderSick(ctx) {
     } }) : '',
     note: 'Оклад уменьшается за рабочие дни болезни, а больничный за попавшие в расчётный период календарные дни добавляется к той же выплате. Как отпускные, он распределяется по периодам оклада. База, ограничения и расчёт — в рублях. '
       + 'Автоматическая формула — для застрахованного работника по трудовому договору. Для ГПХ, ИП и самозанятости используйте подтверждённые суммы особого случая.',
-    body: earningsHelp() + (content || '<div class="muted">Больничных нет.</div>'),
+    body: earningsHelp() + (past.length ? `<button class="past-toggle" data-toggle="sick-past">${ui.open.has('sick-past') ? 'Скрыть прошедшие больничные' : `Показать прошедшие больничные (${past.length})`}</button>` : '')
+      + (content || '<div class="muted">Предстоящих больничных нет.</div>'),
   });
 }
 

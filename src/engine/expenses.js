@@ -36,6 +36,14 @@ export function inSeason(date, from, to) {
   return from <= to ? md >= from && md <= to : md >= from || md <= to;
 }
 
+/* Статья применяется в месяце, если сезон включает хотя бы один его день. */
+export function inSeasonMonth(month, from, to) {
+  if (!from || !to) return true;
+  const [year, m] = month.split('-').map(Number);
+  return Array.from({ length: daysInMonth(year, m) }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`)
+    .some(date => inSeason(date, from, to));
+}
+
 /* Сумма категории на месяц с учётом сезона на дату выплаты */
 export function monthlyAmountOn(category, items, date) {
   if (!inSeason(date, category.season_from, category.season_to)) return 0;

@@ -9,154 +9,15 @@ import { esc, card, table, pill } from './dom.js';
 import { goalBalanceAt, goalProgressAt, forecastBeyondPlan } from '../engine/allocation.js';
 import { goalTotal } from '../engine/savings.js';
 import { giftPlanTable } from './gifts.js';
+import { renderIncomeReport } from './income-report.js';
+import { buildIncomeReport } from '../engine/income-report.js';
 
 export const code = 'dashboard';
 export const title = () => 'Обзор';
 export const hasYears = true;
 
 const VIEWS = ['income', 'expenses', 'saved'];
-const monthOf = r => (r.period.window_start || r.period.pay_date).slice(0, 7);
 const sumOf = obj => Object.values(obj ?? {}).reduce((s, x) => s + x, 0);
-
-/* ------------------------------------------------------- доход по месяцам */
-
-function incomeView(ctx, rows) {
-  const { fmt, year } = ctx;
-  const slots = [...new Set(rows.filter(r => r.period.slot_order).map(r => r.period.slot_order))].sort((a, b) => a - b);
-  const slotTitle = o => rows.find(r => r.period.slot_order === o)?.period.title || `Выплата ${o}`;
-
-  const sum = (list, fn) => list.reduce((acc, r) => acc + (fn(r) || 0), 0);
-  const hasOneOff = rows.some(r => !r.period.slot_order);
-  const hasExtra = sum(rows, r => r.income.extraIncome) > 0.5;
-  const hasSick = sum(rows, r => r.income.sickPay) > 0.5;
-
-  const months = new Map();
-  for (const r of rows) {
-    const m = monthOf(r);
-    if (!months.has(m)) months.set(m, []);
-    months.get(m).push(r);
-  }
-
-  /* Отпускные показываем в месяце, когда их фактически выплатят (за три дня до
-     отпуска), а не в расчётных периодах, между которыми они делятся в плане.
-     Своей строки для такого месяца не заводим: если месяца выплаты в таблице нет
-     (отпуск на стыке лет или вне плана), сумма остаётся в месяцах тех выплат,
-     между которыми она поделена, — иначе в таблице появлялись пустые месяцы. */
-  const vacationByMonth = new Map();   // месяц → { net, gross, tax }
-  const add = (key, v) => {
-    const cur = vacationByMonth.get(key) ?? { net: 0, gross: 0, tax: 0 };
-    vacationByMonth.set(key, { net: cur.net + v.net, gross: cur.gross + v.gross, tax: cur.tax + v.tax });
-  };
-  for (const vi of ctx.income.vacations ?? []) {
-    const parts = (vi.split ?? []).map(sp => {
-      const row = ctx.income.byId.get(sp.period_id);
-      const own = (row?.vacations ?? []).find(x => x.vacation_id === vi.vacation.id);
-      if (!row || !own) return null;
-      const share = row.vacationGross > 0 ? own.gross / row.vacationGross : 0;
-      return { row, net: own.net ?? 0, gross: own.gross ?? 0, tax: (row.vacationTax ?? 0) * share };
-    }).filter(x => x && x.gross > 0.5);
-    if (!parts.length) continue;
-    const payMonth = vi.payDate ? vi.payDate.slice(0, 7) : null;
-    const whole = parts.reduce((acc, x) => ({ net: acc.net + x.net, gross: acc.gross + x.gross, tax: acc.tax + x.tax }),
-      { net: 0, gross: 0, tax: 0 });
-    if (payMonth && months.has(payMonth)) add(payMonth, whole);
-    else for (const x of parts) add(monthOf(x.row), x);
-  }
-  const vacOf = m => vacationByMonth.get(m) ?? { net: 0, gross: 0, tax: 0 };
-  const hasVacation = [...vacationByMonth.values()].some(v => v.net > 0.5);
-
-  const rateCell = parts => {
-    if (!parts.length) return '<td class="num muted">—</td>';
-    if (parts.length === 1) return `<td class="num">${esc(fmt.percent(parts[0].rate, 0))}</td>`;
-    return `<td class="num">${esc(parts.map(p => fmt.percent(p.rate, 0)).join(' + '))}
-      <div class="small-note">${parts.map(p => `${esc(fmt.percent(p.rate, 0))} — ${esc(fmt.money(p.amount))}`).join(' · ')}</div></td>`;
-  };
-
-  const mergeParts = list => {
-    const by = new Map();
-    for (const p of list) by.set(p.rate, (by.get(p.rate) ?? 0) + p.amount);
-    return [...by].sort((a, b) => a[0] - b[0]).map(([rate, amount]) => ({ rate, amount }));
-  };
-
-  const money = v => `<td class="num">${v > 0.5 ? esc(fmt.money(v)) : ''}</td>`;
-  const totals = { gross: 0, tax: 0, net: 0, salary: 0, vacation: 0, sick: 0, extra: 0, oneOff: 0 };
-  const bySlot = new Map();
-
-  /* Отпускные вынесены в месяц выплаты, поэтому из выплат берём только зарплатную
-     часть: иначе одна и та же сумма считалась бы дважды — и в месяце выплаты,
-     и в расчётном периоде, куда она делится. */
-  const salaryNet = r => r.salary;
-  const salaryGross = r => (r.income?.gross ?? r.gross) - (r.income?.vacationGross ?? r.vacationGross ?? 0);
-  const salaryTax = r => (r.income?.tax ?? r.tax) - (r.income?.vacationTax ?? r.vacationTax ?? 0);
-
-  const body = [...months.entries()].sort().map(([m, list]) => {
-    const vac = vacOf(m);
-    const gross = sum(list, r => salaryGross(r.income)) + vac.gross;
-    const tax = sum(list, r => salaryTax(r.income)) + vac.tax;
-    const extra = sum(list, r => r.income.extraIncome);
-    const oneOff = sum(list.filter(r => !r.period.slot_order), r => salaryNet(r.income));
-    const salary = sum(list, r => salaryNet(r.income));
-    const vacation = vac.net;
-    const sick = sum(list, r => r.income.sickPay);
-    const net = salary + vacation + sick + extra;
-    totals.gross += gross; totals.tax += tax; totals.net += net;
-    totals.salary += salary; totals.vacation += vacation; totals.extra += extra; totals.oneOff += oneOff;
-    totals.sick += sick;
-
-    const note = list.map(r => `${esc((r.period.title || 'разовая').toLowerCase())} ${esc(fmt.date(r.period.pay_date, 'dayMonth'))} · ${esc(fmt.money(r.totalIncome))}`).join('; ');
-    const slotCells = slots.map(o => {
-      const own = sum(list.filter(r => r.period.slot_order === o), r => salaryNet(r.income));
-      bySlot.set(o, (bySlot.get(o) ?? 0) + own);
-      return money(own);
-    }).join('');
-
-    return `<tr>
-      <td><b>${esc(fmt.month(m, { withYear: false }))}</b><div class="small-note">${note}</div></td>
-      ${slotCells}
-      ${hasOneOff ? money(oneOff) : ''}
-      ${hasVacation ? money(vacation) : ''}
-      ${hasSick ? money(sick) : ''}
-      ${hasExtra ? money(extra) : ''}
-      <td class="num">${esc(fmt.money(gross))}</td>
-      ${rateCell(mergeParts(list.flatMap(r => r.income.taxParts ?? [])))}
-      <td class="num">${esc(fmt.money(tax))}</td>
-      <td class="num"><b>${esc(fmt.money(net))}</b></td>
-    </tr>`;
-  });
-
-  const foot = `<tr>
-    <td><b>Итого за год</b></td>
-    ${slots.map(o => `<td class="num">${esc(fmt.money(bySlot.get(o) ?? 0))}</td>`).join('')}
-    ${hasOneOff ? `<td class="num">${esc(fmt.money(totals.oneOff))}</td>` : ''}
-    ${hasVacation ? `<td class="num">${esc(fmt.money(totals.vacation))}</td>` : ''}
-    ${hasSick ? `<td class="num">${esc(fmt.money(totals.sick))}</td>` : ''}
-    ${hasExtra ? `<td class="num">${esc(fmt.money(totals.extra))}</td>` : ''}
-    <td class="num">${esc(fmt.money(totals.gross))}</td>
-    ${rateCell(mergeParts(rows.flatMap(r => r.income.taxParts ?? [])))}
-    <td class="num">${esc(fmt.money(totals.tax))}</td>
-    <td class="num"><b>${esc(fmt.money(totals.net))}</b></td>
-  </tr>`;
-
-  const head = ['Месяц',
-    ...slots.map(o => ({ title: slotTitle(o), cls: 'num' })),
-    ...(hasOneOff ? [{ title: 'Разовые', cls: 'num' }] : []),
-    ...(hasVacation ? [{ title: 'Отпускные', cls: 'num' }] : []),
-    ...(hasSick ? [{ title: 'Больничный', cls: 'num' }] : []),
-    ...(hasExtra ? [{ title: 'Доп. выплаты', cls: 'num' }] : []),
-    { title: 'Начислено', cls: 'num' }, { title: 'Ставка', cls: 'num' },
-    { title: 'Налог', cls: 'num' }, { title: 'На руки', cls: 'num' }];
-
-  return card({
-    title: `Доход по месяцам ${year}`,
-    note: hasVacation
-      ? 'Отпускные показаны целиком в месяце, когда их выплачивают — за три дня до отпуска, — и в колонках слева их нет: '
-        + 'там только зарплатная часть выплат. Под названием месяца — суммы выплат целиком, с отпускными.'
-      : '',
-    body: body.length
-      ? table({ head, rows: body, foot })
-      : '<div class="muted">Выплат в этом году нет.</div>',
-  });
-}
 
 /* ------------------------------------------------------ расходы за год */
 
@@ -319,11 +180,7 @@ function yearGoalCard(ctx, g, allocated, { withStages, extra = '' }) {
 
   return `<div class="card goal-card">
     <div class="row between" style="gap:10px;"><h3>${esc(g.title)}</h3>
-      <div class="row" style="gap:8px;">${head}${ctx.canEdit ? `<button class="ghost small goal-eye" data-goal-hide-overview="${esc(g.id)}"
-        title="Скрыть с Обзора" aria-label="Скрыть цель «${esc(g.title)}» с Обзора">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
-          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>
-        </svg></button>` : ''}</div></div>
+      <div class="row" style="gap:8px;">${head}</div></div>
     ${total > 0
       ? `<div class="progress${end > total + 0.5 ? ' over' : ''}">
            <i class="year-start" style="width:${pct(base)}%"></i><i style="width:${pct(end)}%"></i></div>
@@ -393,7 +250,8 @@ export function render(ctx) {
   const { sim, fmt, year, state, ui } = ctx;
   const rows = sim.rows.filter(r => Number(r.period.year) === year);
   const sum = fn => rows.reduce((s, r) => s + fn(r), 0);
-  const income = sum(r => r.totalIncome);
+  const incomeReport = buildIncomeReport({ state, income: ctx.income ?? sim.income, year });
+  const income = incomeReport.totals.automatic.net + incomeReport.totals.oneOff.net;
   const expenses = sum(r => r.categoriesTotal + r.installmentsTotal + sumOf(r.debtPayments));
   const saved = sum(r => sumOf(r.allocations));
   const free = sum(r => Math.max(0, r.unallocated));
@@ -413,7 +271,7 @@ export function render(ctx) {
     <td class="num">${esc(fmt.money(c.plan))}</td>
     <td class="num">${esc(fmt.percent(c.missingPercent, 1))}</td></tr>`);
 
-  const body = view === 'income' ? incomeView(ctx, rows)
+  const body = view === 'income' ? renderIncomeReport(ctx, incomeReport)
     : view === 'expenses' ? expensesView(ctx, rows)
     : savedView(ctx);
 
@@ -438,14 +296,6 @@ export function render(ctx) {
 }
 
 export function handle(ev, ctx) {
-  const hide = ev.target.closest('[data-goal-hide-overview]');
-  if (hide) {
-    if (!ctx.canEdit) return false;
-    const goal = (ctx.state.savings?.goals ?? []).find(g => g.id === hide.dataset.goalHideOverview);
-    if (!goal || !['bucket', 'reserve'].includes(goal.kind_code)) return false;
-    ctx.store.update('savings', d => { d.goals.find(g => g.id === goal.id).hidden_overview = true; });
-    return true;
-  }
   const btn = ev.target.closest('[data-ov]');
   if (!btn) return false;
   (ctx.ui.draft.dashboard ?? (ctx.ui.draft.dashboard = {})).view = btn.dataset.ov;

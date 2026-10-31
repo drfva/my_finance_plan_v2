@@ -401,6 +401,12 @@ nav.tabs button.active .late-dot,.month-tabs button.active .late-dot{background:
 .goal-card.goal-late{border:1px solid var(--warn);}
 .goal-archive{margin-top:16px;}
 .goal-eye{display:inline-flex;align-items:center;justify-content:center;}
+.period-card[data-past-anchor]{scroll-margin-top:150px;}
+.income-value{display:inline-flex;align-items:center;gap:6px;}
+button.income-info{display:inline-flex;align-items:center;justify-content:center;min-height:24px;width:24px;padding:0;border-radius:50%;font-size:17px;}
+.income-popover{box-sizing:border-box;max-width:420px;width:calc(100vw - 32px);max-height:80vh;overflow:auto;padding:22px;border:1px solid var(--line);border-radius:18px;background:var(--surface);color:var(--ink);box-shadow:0 16px 60px #0005;text-align:left;}
+.income-popover dl{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0;}
+.income-popover dt{color:var(--muted);}.income-popover dd{margin:0;text-align:right;}
 
 .production-calendar{max-width:600px;margin:0 auto;}
 .calendar-nav{gap:12px;margin:12px 0 20px;}

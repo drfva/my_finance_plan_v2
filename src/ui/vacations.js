@@ -9,8 +9,10 @@ export const title = () => 'Отпуска';
 export function render(ctx) {
   const { state, fmt, canEdit, income, ui } = ctx;
   const vacations = (state.income?.vacations ?? []).slice().sort((a, b) => ((a.start_date || '') < (b.start_date || '') ? -1 : 1));
+  const past = vacations.filter(v => v.end_date && v.end_date < ctx.today);
+  const visible = vacations.filter(v => !past.includes(v) || ui.open.has('vacations-past'));
 
-  const rows = vacations.map(v => {
+  const rows = visible.map(v => {
     const info = income.vacations.find(x => x.vacation.id === v.id);
     const f = info?.formula;
     const periodsById = new Map((state.income?.periods ?? []).map(p => [p.id, p]));
@@ -54,10 +56,10 @@ export function render(ctx) {
       note: 'Средний дневной заработок считаем из начисленных сумм за 12 месяцев, потом НДФЛ — и получается «на руки». '
         + 'Своя сумма вписывается тоже начисленной. Деньги делятся между выплатами по дням отпуска в их расчётных периодах, '
         + 'а фактически приходят одной суммой в дату из колонки «Выплатят».',
-      body: table({ head: ['Название', 'С', 'По',
+      body: `${past.length ? `<button class="past-toggle" data-toggle="vacations-past">${ui.open.has('vacations-past') ? 'Скрыть прошедшие отпуска' : `Показать прошедшие отпуска (${past.length})`}</button>` : ''}` + table({ head: ['Название', 'С', 'По',
           { title: 'Начислено по формуле', cls: 'num' }, { title: 'Начислено в плане', cls: 'num' }, { title: 'На руки', cls: 'num' },
           'Откуда', 'Выплатят', '', ''],
-        rows: rows.length ? rows : ['<tr><td colspan="10" class="muted">Отпусков нет</td></tr>'] }),
+        rows: rows.length ? rows : ['<tr><td colspan="10" class="muted">Предстоящих отпусков нет</td></tr>'] }),
     })}
     `;
 }

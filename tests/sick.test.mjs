@@ -307,7 +307,7 @@ test('меню и Доходы: отдельные Отпуска/Больнич
   assert.equal(sickTitle(), 'Больничные');
   assert.doesNotMatch(renderVacations(ctx), /income\|sick_leaves/);
   assert.match(renderSick(ctx), /Больничный по выплатам оклада/);
-  assert.match(renderDashboard(ctx), /<th class="num">Больничный<\/th>/);
+  assert.match(renderDashboard(ctx), /<dt>Больничный на руки<\/dt>/);
   const html = renderPeriods(ctx);
   assert.match(html, /больничный/);
   assert.doesNotMatch(html, /пособие по больничному|Отпуска и больничные/);

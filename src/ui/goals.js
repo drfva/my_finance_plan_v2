@@ -279,6 +279,11 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
         ${hasPriority ? pill(`приоритет ${g.priority ?? '—'}`) : ''}
         ${hasPriority ? button({ action: 'goal-move', value: `${g.id}:up`, label: '↑', cls: 'ghost small', disabled: !canEdit, title: 'Выше в очереди' }) : ''}
         ${hasPriority ? button({ action: 'goal-move', value: `${g.id}:down`, label: '↓', cls: 'ghost small', disabled: !canEdit, title: 'Ниже в очереди' }) : ''}
+        ${canEdit && ['bucket', 'reserve'].includes(g.kind_code) ? `<button class="ghost small goal-eye" data-goal-toggle-overview="${esc(g.id)}"
+          title="${g.hidden_overview ? 'Вернуть в Обзор' : 'Скрыть с Обзора'}" aria-label="${g.hidden_overview ? 'Вернуть в Обзор' : 'Скрыть с Обзора'}" aria-pressed="${Boolean(g.hidden_overview)}">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>
+            ${g.hidden_overview ? '<path d="m3 3 18 18"/>' : ''}</svg></button>` : ''}
         ${canEdit && canDelete ? delButton({ domain: 'savings', table: 'goals', key: { id: g.id },
           confirm: `Удалить «${g.title}» вместе с этапами, движениями и ручными суммами?` }) : ''}
       </div>
@@ -300,7 +305,6 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
           title: g.completed ? 'Цель снова участвует в распределении' : 'Цель перестанет получать деньги: в будущих выплатах её не будет, в зафиксированных останется' })}
         ${g.completed && ['bucket', 'reserve'].includes(g.kind_code) ? button({ action: 'goal-archive', value: g.id,
           label: g.archived ? 'Вернуть из архива' : 'В архив', cls: 'ghost small' }) : ''}
-        ${g.hidden_overview ? button({ action: 'goal-show-overview', value: g.id, label: 'Показать на Обзоре', cls: 'ghost small' }) : ''}
         ${button({ action: 'transfer-open', value: g.id, label: 'Перевести в другую цель', cls: 'ghost small' })}
         ${button({ action: 'ledger-open', value: g.id, label: 'История баланса', cls: 'ghost small',
           title: 'Все движения по копилке: отчисления из выплат, траты и переводы' })}
@@ -356,13 +360,16 @@ export function handle(ev, ctx) {
 
   const archive = ev.target.closest('[data-goal-archive]');
   const show = ev.target.closest('[data-goal-show-overview]');
-  if (archive || show) {
+  const eye = ev.target.closest('[data-goal-toggle-overview]');
+  if (archive || show || eye) {
     if (!ctx.canEdit) return false;
-    const goal = (ctx.state.savings?.goals ?? []).find(g => g.id === (archive?.dataset.goalArchive ?? show.dataset.goalShowOverview));
+    const goal = (ctx.state.savings?.goals ?? []).find(g => g.id === (archive?.dataset.goalArchive ?? show?.dataset.goalShowOverview ?? eye.dataset.goalToggleOverview));
     if (!goal || (archive && (!goal.completed || !['bucket', 'reserve'].includes(goal.kind_code)))) return false;
+    if (eye && !['bucket', 'reserve'].includes(goal.kind_code)) return false;
     store.update('savings', d => {
       const g = d.goals.find(x => x.id === goal.id);
       if (archive) { g.archived = !g.archived; g.priority = null; }
+      else if (eye) g.hidden_overview = !g.hidden_overview;
       else g.hidden_overview = false;
     });
     return true;

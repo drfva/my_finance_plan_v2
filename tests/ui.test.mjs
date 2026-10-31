@@ -11,6 +11,10 @@ import { render as renderPeriods, handle as handlePeriods } from '../src/ui/peri
 import { calendarCard, handle as handleSettings } from '../src/ui/settings.js';
 import { render as renderInstallments } from '../src/ui/installments.js';
 import { render as renderGifts } from '../src/ui/gifts.js';
+import { render as renderVacations } from '../src/ui/vacations.js';
+import { renderSick } from '../src/ui/sick.js';
+import { render as renderFacts } from '../src/ui/facts.js';
+import { inSeasonMonth } from '../src/engine/expenses.js';
 import { simulate, goalProgressAt, goalBalanceAt } from '../src/engine/allocation.js';
 import { createConfig } from '../src/core/config.js';
 import fs from 'node:fs';
@@ -40,6 +44,109 @@ function goalContext(goals, milestones = []) {
   return { state, cfg, store: fakeStore(state), fmt, canEdit: true, today: '2027-03-01', year: 2027,
     ui: { open: new Set(), draft: { dashboard: { view: 'saved' } } }, sim: simulate(state, cfg, { today: '2027-03-01' }) };
 }
+
+test('свёрнутая выплата: долги включают кредитки и рассрочки, в том числе без кредиток', () => {
+  const ctx = goalContext([]);
+  ctx.state.income.periods = [{ id: 'p', year: 2027, pay_date: '2027-04-05', calc_mode: 'manual', income_net: 1000 }];
+  ctx.sim = simulate(ctx.state, ctx.cfg, { today: ctx.today });
+  const row = ctx.sim.byId.get('p');
+  row.debtPayments = { card: 200 };
+  row.installmentsTotal = 300;
+  assert.ok(renderPeriods(ctx).includes(`долги ${fmt.money(500)}`));
+  row.debtPayments = {};
+  assert.ok(renderPeriods(ctx).includes(`долги ${fmt.money(300)}`));
+});
+
+test('прошлые выплаты: якорь на ближайшей скрытой выплате, история остаётся по возрастанию дат', () => {
+  const ctx = goalContext([]);
+  ctx.today = '2027-03-21';
+  ctx.state.income.periods = ['01-05', '02-05', '03-05', '03-20', '04-05'].map((date, i) => ({
+    id: `p${i}`, year: 2027, pay_date: `2027-${date}`, calc_mode: 'manual', income_net: 1000,
+  }));
+  ctx.sim = simulate(ctx.state, ctx.cfg, { today: ctx.today });
+  assert.doesNotMatch(renderPeriods(ctx), /data-past-anchor/);
+  ctx.ui.open.add('past');
+  const html = renderPeriods(ctx);
+  assert.equal((html.match(/data-past-anchor/g) ?? []).length, 1);
+  assert.match(html, /data-past-anchor tabindex="-1">\s*<div class="period-head" data-toggle="period:p2"/);
+  assert.ok(html.indexOf('period:p0') < html.indexOf('period:p2'));
+  assert.ok(html.indexOf('period:p2') < html.indexOf('period:p3'));
+});
+
+test('отпуска и больничные: прошедшие скрыты, текущие и будущие видны, раскрытие сохраняет записи', () => {
+  const ctx = goalContext([]);
+  const dates = [
+    { id: 'old', start_date: '2027-02-01', end_date: '2027-02-07' },
+    { id: 'current', start_date: '2027-02-28', end_date: ctx.today },
+    { id: 'future', start_date: '2027-04-01', end_date: '2027-04-07' },
+  ];
+  ctx.state.income.vacations = dates.map(d => ({ ...d, title: `Отпуск ${d.id}`, pay_manual: true, pay_amount: 1000 }));
+  ctx.state.income.sick_leaves = dates.map(d => ({ ...d, note: `Больничный ${d.id}`, benefit_enabled: false }));
+  ctx.sim = simulate(ctx.state, ctx.cfg, { today: ctx.today });
+  ctx.income = ctx.sim.income;
+  const before = JSON.stringify(ctx.state);
+  for (const [render, toggle, prefix] of [[renderVacations, 'vacations-past', 'Отпуск'], [renderSick, 'sick-past', 'Больничный']]) {
+    let html = render(ctx);
+    assert.doesNotMatch(html, new RegExp(`${prefix} old`));
+    assert.match(html, new RegExp(`${prefix} current`));
+    assert.match(html, new RegExp(`${prefix} future`));
+    assert.match(html, new RegExp(`data-toggle="${toggle}"`));
+    ctx.ui.open.add(toggle);
+    html = render(ctx);
+    assert.match(html, new RegExp(`${prefix} old`));
+  }
+  assert.equal(JSON.stringify(ctx.state), before);
+});
+
+test('подушка: глазик переключает видимость с перечёркиванием, читателю недоступен', () => {
+  const goal = { id: 'r', title: 'Резерв', kind_code: 'reserve', currency_code: 'RUB', target_amount: 1000, priority: 1 };
+  const ctx = goalContext([goal]);
+  assert.match(renderReserves(ctx), /title="Скрыть с Обзора"/);
+  handleGoals(click('goal-toggle-overview', 'r'), ctx);
+  const html = renderReserves(ctx);
+  assert.match(html, /title="Вернуть в Обзор"/);
+  assert.match(html, /<path d="m3 3 18 18"\/>/);
+  assert.doesNotMatch(renderDashboard(ctx), /<h3>Резерв<\/h3>/);
+  const viewer = { ...ctx, canEdit: false };
+  assert.doesNotMatch(renderReserves(viewer), /data-goal-toggle-overview/);
+  assert.equal(handleGoals(click('goal-toggle-overview', 'r'), viewer), false);
+  assert.equal(goal.hidden_overview, true);
+  handleGoals(click('goal-toggle-overview', 'r'), ctx);
+  assert.match(renderDashboard(ctx), /<h3>Резерв<\/h3>/);
+});
+
+test('Расходы: сезонные категории и статьи видны только в подходящем месяце; факт сохраняется', () => {
+  assert.equal(inSeasonMonth('2027-01', '12-20', '02-05'), true);
+  assert.equal(inSeasonMonth('2027-03', '12-20', '02-05'), false);
+  assert.equal(inSeasonMonth('2028-02', '02-29', '02-29'), true);
+  assert.equal(inSeasonMonth('2027-02', '02-29', '02-29'), false);
+  const ctx = goalContext([]);
+  ctx.ui.draft.facts = { month: '2027-03' };
+  ctx.state.expenses = {
+    expense_categories: [
+      { id: 'winter', title: 'Зимний расход', season_from: '12-01', season_to: '02-28' },
+      { id: 'items', title: 'Смешанный расход' },
+      { id: 'summer', title: 'Летний расход' },
+    ],
+    expense_items: [
+      { id: 'ski', category_id: 'items', title: 'Лыжи', season_from: '12-01', season_to: '02-28' },
+      { id: 'partial', category_id: 'items', title: 'Конец марта', season_from: '03-31', season_to: '04-02' },
+      { id: 'boat', category_id: 'summer', title: 'Лодка', season_from: '06-01', season_to: '08-31' },
+    ],
+  };
+  ctx.state.facts = { expense_facts: [{ ym: '2027-03', category_id: 'winter', item_key: '', amount: 99 }] };
+  const before = JSON.stringify(ctx.state.facts);
+  let html = renderFacts(ctx);
+  assert.doesNotMatch(html, /Зимний расход|Летний расход|Лыжи|Лодка/);
+  assert.match(html, /Смешанный расход|Конец марта/);
+  assert.ok(html.includes(`${fmt.money(99)}</b>`), 'сумма факта не исчезает из итогов');
+  assert.equal(JSON.stringify(ctx.state.facts), before);
+  ctx.ui.draft.facts.month = '2027-01';
+  html = renderFacts(ctx);
+  assert.match(html, /Зимний расход/);
+  assert.match(html, /Лыжи/);
+  assert.doesNotMatch(html, /Конец марта|Лодка/);
+});
 
 test('производственный календарь: месяцы, високосный февраль, свои дни и счётчик рабочих дней', () => {
   const ctx = goalContext([]);
@@ -171,16 +278,18 @@ test('Обзор: глазик скрывает только выбранную 
   const goals = ['a', 'b'].map(id => ({ id, title: `Цель ${id}`, kind_code: 'bucket', currency_code: 'RUB',
     priority: null, completed: true, archived: true, target_amount: 100, starting_balance: 0 }));
   const ctx = goalContext(goals);
-  assert.match(renderDashboard(ctx), /data-goal-hide-overview="a"/);
-  assert.equal(handleDashboard(click('goal-hide-overview', 'a'), ctx), true);
+  assert.doesNotMatch(renderDashboard(ctx), /data-goal-hide-overview/);
+  ctx.ui.open.add('goal-archive:bucket');
+  assert.match(renderGoals(ctx), /data-goal-toggle-overview="a"/);
+  assert.equal(handleGoals(click('goal-toggle-overview', 'a'), ctx), true);
   const html = renderDashboard(ctx);
   assert.doesNotMatch(html, /Цель a/);
   assert.match(html, /Цель b/);
   const restored = JSON.parse(JSON.stringify(ctx.state));
   assert.equal(restored.savings.goals[0].hidden_overview, true, 'видимость хранится вместе с целью');
   ctx.ui.open.add('goal-archive:bucket');
-  assert.match(renderGoals(ctx), /Показать на Обзоре/);
-  assert.equal(handleGoals(click('goal-show-overview', 'a'), ctx), true);
+  assert.match(renderGoals(ctx), /Вернуть в Обзор/);
+  assert.equal(handleGoals(click('goal-toggle-overview', 'a'), ctx), true);
   assert.match(renderDashboard(ctx), /Цель a/);
   assert.equal(goals[0].archived, true);
   assert.equal(goals[0].completed, true);
@@ -203,7 +312,7 @@ test('Обзор: цель видна в годы накопления и зак
     { period_id: 'p2027', goal_id: goal.id, amount: 60 },
   ];
   const refresh = () => { ctx.sim = simulate(ctx.state, ctx.cfg, { today: ctx.today }); };
-  const shown = year => { ctx.year = year; return /data-goal-hide-overview="phone"/.test(renderDashboard(ctx)); };
+  const shown = year => { ctx.year = year; return /<h3>Айфон<\/h3>/.test(renderDashboard(ctx)); };
   refresh();
   assert.equal(shown(2026), true);
   assert.equal(shown(2027), true);
@@ -235,9 +344,9 @@ test('Обзор: опаздывающая и незавершённая цел�
   ctx.sim.milestoneDates.late = ['2028-02-01'];
   ctx.year = 2028;
   const html = renderDashboard(ctx);
-  assert.match(html, /data-goal-hide-overview="late"/);
-  assert.match(html, /data-goal-hide-overview="open"/);
-  assert.match(html, /data-goal-hide-overview="reserve"/);
+  assert.match(html, /<h3>Поздний прогноз<\/h3>/);
+  assert.match(html, /<h3>Без прогноза<\/h3>/);
+  assert.match(html, /<h3>Подушка<\/h3>/);
 });
 
 test('переключатель годов: до трёх соседних кнопок, края окна и остальные годы', async () => {

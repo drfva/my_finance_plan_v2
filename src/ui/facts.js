@@ -1,6 +1,7 @@
 /* Расходы: факт по месяцам против плана */
 
 import { esc, card, table, input, pill } from './dom.js';
+import { inSeasonMonth } from '../engine/expenses.js';
 
 export const code = 'facts';
 export const title = () => 'Расходы';
@@ -48,14 +49,15 @@ export function render(ctx) {
   const factOf = (categoryId, itemKey = '') => facts.find(f => f.ym === month && f.category_id === categoryId && (f.item_key ?? '') === itemKey);
 
   const rows = [];
-  let planTotal = 0;
-  let factTotal = 0;
+  const planTotal = [...plan.values()].reduce((s, n) => s + n, 0);
+  const factTotal = facts.filter(f => f.ym === month).reduce((s, f) => s + (Number(f.amount) || 0), 0);
   for (const c of cats) {
-    const own = items.filter(i => i.category_id === c.id);
+    if (!inSeasonMonth(month, c.season_from, c.season_to)) continue;
+    const allItems = items.filter(i => i.category_id === c.id);
+    const own = allItems.filter(i => inSeasonMonth(month, i.season_from, i.season_to));
+    if (allItems.length && !own.length) continue;
     const catPlan = plan.get(c.id) ?? 0;
     const catFact = facts.filter(f => f.ym === month && f.category_id === c.id).reduce((s, f) => s + (Number(f.amount) || 0), 0);
-    planTotal += catPlan;
-    factTotal += catFact;
     const diff = catFact - catPlan;
     const cls = catPlan > 0 && Math.abs(diff) > catPlan * tolerance / 100 ? (diff > 0 ? 'fact-over' : 'fact-under') : 'fact-even';
     rows.push(`<tr class="${cls}">
@@ -83,7 +85,6 @@ export function render(ctx) {
   // факт по категориям, которых в плане уже нет — историю не теряем
   const extra = facts.filter(f => f.ym === month && !cats.some(c => c.id === f.category_id));
   for (const f of extra) {
-    factTotal += Number(f.amount) || 0;
     rows.push(`<tr><td>${esc(f.category_title || f.category_id)} <span class="small-note">нет в плане</span></td>
       <td class="num muted"></td><td class="num">${esc(fmt.money(f.amount))}</td><td></td></tr>`);
   }

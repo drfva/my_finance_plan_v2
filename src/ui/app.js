@@ -291,8 +291,14 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       const toggle = ev.target.closest('[data-toggle]');
       if (toggle) {
         const key = toggle.dataset.toggle;
+        const revealPast = key === 'past' && !ui.open.has(key);
         if (ui.open.has(key)) ui.open.delete(key); else ui.open.add(key);
         render();
+        if (revealPast) {
+          const anchor = root.querySelector('[data-past-anchor]');
+          anchor?.focus({ preventScroll: true });
+          anchor?.scrollIntoView({ block: 'start', behavior: 'instant' });
+        }
         return;
       }
       if (tourHandle(ev, context())) { render(); return; }

@@ -38,7 +38,7 @@ function yearsWithSchedule(ctx) {
 function head(ctx, r) {
   const { fmt } = ctx;
   const p = r.period;
-  const debts = Object.values(r.debtPayments).reduce((s, x) => s + x, 0);
+  const debts = Object.values(r.debtPayments).reduce((s, x) => s + x, 0) + r.installmentsTotal;
   const pills = [
     p.sick_leave_id ? pill('больничный') : p.calc_mode === 'manual'
       ? pill(`${KIND_TITLES[p.manual_kind] ?? 'разовая'}${p.taxable === false ? ', без налога' : ''}`) : '',
@@ -246,7 +246,7 @@ export function render(ctx) {
         ? 'Скрыть прошедшие выплаты' : `Показать прошедшие выплаты (${hidden})`}</button>` : '';
   const pastHtml = ui.open.has('past') ? past.slice(0, -1).map(r => {
     const open = ui.open.has(`period:${r.period.id}`);
-    return `<div class="period-card past${open ? ' open' : ''}">${head(ctx, r)}${open ? body(ctx, r) : ''}</div>`;
+    return `<div class="period-card past${open ? ' open' : ''}"${r === past.at(-2) ? ' data-past-anchor tabindex="-1"' : ''}>${head(ctx, r)}${open ? body(ctx, r) : ''}</div>`;
   }).join('') : '';
 
   const draft = { ...defaultDraft(ctx), ...(ui.draft.periods ?? {}) };
