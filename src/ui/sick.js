@@ -2,9 +2,12 @@
 import { esc, card, section, input, select, checkbox, field, pill, button, delButton, addButton, table } from './dom.js';
 import { uid } from './edit.js';
 import { sickParameters, sickPeriodId } from '../engine/sick.js';
+import { leaveYears, inLeaveYear } from './leave-years.js';
 
 export const code = 'sick';
 export const title = () => 'Больничные';
+export const hasYears = true;
+export const yearOptions = ctx => leaveYears(ctx.state.income?.sick_leaves ?? [], ctx.years);
 export const render = ctx => renderSick(ctx);
 export const handle = (ev, ctx) => handleSick(ev, ctx);
 
@@ -23,7 +26,7 @@ export const earningsHelp = () => `<details class="info-box" style="margin-botto
 
 export function renderSick(ctx) {
   const { state, income, fmt, canEdit, ui } = ctx;
-  const leaves = [...(state.income?.sick_leaves ?? [])].sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)));
+  const leaves = (state.income?.sick_leaves ?? []).filter(s => inLeaveYear(s, ctx.year)).sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)));
   const past = leaves.filter(s => s.end_date && s.end_date < ctx.today);
   const content = leaves.filter(s => !past.includes(s) || ui.open.has('sick-past')).map(s => {
     const f = income.sickLeaves?.find(x => x.leave.id === s.id);
@@ -120,7 +123,8 @@ export function renderSick(ctx) {
   }).join('');
   return card({ title: 'Больничные',
     actions: canEdit ? addButton({ domain: 'income', table: 'sick_leaves', label: '+ больничный', row: {
-      id: uid('sick'), start_date: ctx.today, end_date: ctx.today, note: '', benefit_enabled: true, reason: 'illness',
+      id: uid('sick'), start_date: Number(ctx.today.slice(0, 4)) === ctx.year ? ctx.today : `${ctx.year}-01-01`,
+      end_date: Number(ctx.today.slice(0, 4)) === ctx.year ? ctx.today : `${ctx.year}-01-01`, note: '', benefit_enabled: true, reason: 'illness',
       insurance_months: 0, district_coefficient: 1, employment_fraction: 1, treatment: 'outpatient',
     } }) : '',
     note: 'Оклад уменьшается за рабочие дни болезни, а больничный за попавшие в расчётный период календарные дни добавляется к той же выплате. Как отпускные, он распределяется по периодам оклада. База, ограничения и расчёт — в рублях. '

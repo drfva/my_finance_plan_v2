@@ -8,8 +8,8 @@
      3. ежегодные праздники календаря (rule = 'fixed', день и месяц);
      4. обычная неделя: суббота и воскресенье — выходные.
 
-   Число рабочих дней в месяце можно исправить вручную (working_day_overrides):
-   тогда оно используется как знаменатель в расчёте оклада.
+   Знаменатель в расчёте оклада — число рабочих дней по этому же календарю.
+   Старые working_day_overrides сохранены в данных, но в расчёте не участвуют.
 
    График выплат строится из слотов (payout_slots): за каждый месяц года — по
    одной выплате на слот. Расчётный период — дни window_from_day…window_to_day
@@ -23,7 +23,6 @@ export function createCalendar({
   refDays = [],
   calendarCode = 'ru',
   accountDays = [],
-  workingDayOverrides = [],
 } = {}) {
   const fixed = new Map();      // 'ММ-ДД' → { kind, title }
   const exact = new Map();      // 'ГГГГ-ММ-ДД' → { kind, title }
@@ -33,11 +32,6 @@ export function createCalendar({
     else if (r.rule === 'date' && r.exact_date) exact.set(r.exact_date, r);
   }
   const own = new Map(accountDays.map(r => [r.date, r]));
-  const overrides = new Map(
-    workingDayOverrides
-      .filter(r => r.working_days !== null && r.working_days !== undefined && r.working_days !== '')
-      .map(r => [r.ym, Number(r.working_days)]),
-  );
   const monthCache = new Map();
 
   /* Что за день: { working, holiday, title, source } */
@@ -67,11 +61,7 @@ export function createCalendar({
     return monthCache.get(key);
   }
 
-  /* Рабочих дней в месяце: ручная правка важнее календаря */
-  function workingDaysInMonth(y, m) {
-    const key = `${y}-${pad2(m)}`;
-    return overrides.has(key) ? overrides.get(key) : calendarWorkingDaysInMonth(y, m);
-  }
+  const workingDaysInMonth = calendarWorkingDaysInMonth;
 
   /* Сдвиг даты на рабочий день: back — на ближайший раньше, forward — позже, none — как есть */
   function shift(s, rule = 'back') {
@@ -94,7 +84,6 @@ export function createCalendar({
     calendarCode,
     day, isWorkingDay, workingDaysBetween,
     workingDaysInMonth, calendarWorkingDaysInMonth,
-    hasOverride: (y, m) => overrides.has(`${y}-${pad2(m)}`),
     shift, workingDayBefore,
   };
 }

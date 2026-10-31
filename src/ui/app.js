@@ -17,6 +17,7 @@ import { syncGenerated, normalizeGoalPriorities } from '../engine/savings.js';
 import { familyToday } from '../engine/family.js';
 import { applyTheme, nextTheme } from '../core/theme.js';
 import { themeButton, updateThemeButton } from './theme-switch.js';
+import { scrollToPending } from './navigation.js';
 
 import * as dashboard from './dashboard.js';
 import * as periods from './periods.js';
@@ -93,8 +94,10 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     const income = computeIncome(state, c, { round: f.round });
     const sim = simulate(state, c, { income, round: f.round, today: f.todayISO() });
     const list = years();
-    if (!list.includes(ui.year)) ui.year = list.includes(Number(f.todayISO().slice(0, 4))) ? Number(f.todayISO().slice(0, 4)) : list[0];
-    return { store, state, cfg: c, fmt: f, income, sim, ui, year: ui.year, years: list,
+    const currentTab = availableTabs({ state }).find(t => t.code === (ui.tab ?? c.get('start_tab')));
+    const yearOptions = currentTab?.yearOptions?.({ state, years: list }) ?? list;
+    if (!yearOptions.includes(ui.year)) ui.year = yearOptions.includes(Number(f.todayISO().slice(0, 4))) ? Number(f.todayISO().slice(0, 4)) : yearOptions[0];
+    return { store, state, cfg: c, fmt: f, income, sim, ui, year: ui.year, years: list, yearOptions,
       today: state.account?.plan_kind === 'family' ? familyToday() : f.todayISO(), canEdit: c.canEdit, security, onSignOut, notice };
   }
 
@@ -161,8 +164,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     const yearBtn = y => `<button class="${y === ctx.year ? 'active' : ''}" data-year="${y}">${y}${
       lateHere.has(y) ? '<i class="late-dot"></i>' : ''}</button>`;
     let yearBtns = '';
-    if (ctx.years.length > 1 && tab?.hasYears) {
-      const win = yearWindow(ctx.years, ctx.year);
+    if (ctx.yearOptions.length > 1 && tab?.hasYears) {
+      const win = yearWindow(ctx.yearOptions, ctx.year);
       const more = (key, list, label) => (list.length ? `
         <button class="${ui.open.has(key) ? 'active' : ''}" data-toggle="${key}">${label} (${list.length})${
           list.some(y => lateHere.has(y)) ? '<i class="late-dot"></i>' : ''}</button>
@@ -181,7 +184,6 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     return `
       <div class="topbar"><div class="topbar-inner">
         <div class="brand"><h1 style="font-size:19px;">${esc(ctx.state.account?.title || 'Финансы')}</h1>
-          ${ctx.state.family_available ? `<span class="pill">${ctx.state.account?.plan_kind === 'family' ? 'семейный план' : 'личный план'}</span>` : ''}
           ${env === 'dev' ? '<span class="pill danger" style="font-size:11px;">ТЕСТ</span>' : ''}
           ${ctx.canEdit ? '' : '<span class="pill" style="font-size:11px;">только просмотр</span>'}
           ${ctx.years.length ? `<span class="pill" style="font-size:11px;">${esc(ROLE_TITLES[ctx.state.account?.role] ?? ctx.state.account?.role ?? '')}</span>` : ''}
@@ -271,6 +273,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     renderStatus(store.status());
     // активная вкладка всегда видна: список вкладок прокручивается по горизонтали
     document.querySelector('nav.tabs button.active')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+    scrollToPending(byId('root'), ui);
 
   }
 
@@ -289,7 +292,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   function start() {
     const root = byId('root');
     attachEditing(root, store, context, e => notice('danger', e.message));
-    attachSettings(root, store, context);
+    attachSettings(root, store, context, render);
 
     // черновики форм живут в памяти вкладки и не перерисовывают экран
     root.addEventListener('change', ev => {
@@ -311,9 +314,12 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       const toggle = ev.target.closest('[data-toggle]');
       if (toggle) {
         const key = toggle.dataset.toggle;
+        const keepCategoryFocus = toggle.classList.contains('category-head') && document.activeElement === toggle;
         const revealPast = key === 'past' && !ui.open.has(key);
         if (ui.open.has(key)) ui.open.delete(key); else ui.open.add(key);
         render();
+        if (keepCategoryFocus) [...root.querySelectorAll('.category-head')]
+          .find(el => el.dataset.toggle === key)?.focus({ preventScroll: true });
         if (revealPast) {
           const anchor = root.querySelector('[data-past-anchor]');
           anchor?.focus({ preventScroll: true });
@@ -338,6 +344,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       // открыли другой план: генератор должен пересобрать этапы заново
       if (ev.type === 'loaded') {
         lastSync = ''; ui.tab = null; ui.year = null; ui.goal = null; ui.open.clear();
+        ui.scrollTarget = null;
         ui.draft = { familyInvite: ui.draft.familyInvite };
         const address = new URL(location.href); address.searchParams.set('plan',store.state.account.id);
         window.history.replaceState(null,'',address); render(); return;

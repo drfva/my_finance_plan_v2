@@ -2,13 +2,16 @@
 
 import { esc, card, table, input, checkbox, addButton, delButton, button, pill } from './dom.js';
 import { uid } from './edit.js';
+import { leaveYears, inLeaveYear } from './leave-years.js';
 
 export const code = 'vacations';
 export const title = () => 'Отпуска';
+export const hasYears = true;
+export const yearOptions = ctx => leaveYears(ctx.state.income?.vacations ?? [], ctx.years);
 
 export function render(ctx) {
   const { state, fmt, canEdit, income, ui } = ctx;
-  const vacations = (state.income?.vacations ?? []).slice().sort((a, b) => ((a.start_date || '') < (b.start_date || '') ? -1 : 1));
+  const vacations = (state.income?.vacations ?? []).filter(v => inLeaveYear(v, ctx.year)).sort((a, b) => ((a.start_date || '') < (b.start_date || '') ? -1 : 1));
   const past = vacations.filter(v => v.end_date && v.end_date < ctx.today);
   const visible = vacations.filter(v => !past.includes(v) || ui.open.has('vacations-past'));
 
@@ -46,9 +49,6 @@ export function render(ctx) {
   });
 
   return `
-    <div class="row wrap" style="gap:8px;">
-      ${pill('Дни отпуска и больничного окладом не оплачиваются: за отпуск идут отпускные')}
-    </div>
     ${card({
       title: 'Отпуска',
       actions: canEdit ? addButton({ domain: 'income', table: 'vacations', label: '+ отпуск',

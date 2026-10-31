@@ -65,7 +65,7 @@ function stagesCard(ctx) {
   const stages = cfg.stages();
   const rows = stages.map((s, i) => `<tr>
     <td class="num">${i + 1}</td>
-    <td><b>${esc(s.title)}</b><div class="small-note">${esc(s.description)}</div></td>
+    <td><b>${esc(s.title)}</b><div class="small-note">${esc({ gifts: 'Суммы к датам праздников', buckets: 'Цели с оборотом, этапами, периодичностью' }[s.code] ?? s.description)}</div></td>
     <td>${canEdit ? `<div class="priority-controls row" style="gap:4px;">
       ${button({ action: 'stage-move', value: `${s.code}:up`, label: '↑', cls: 'ghost small', disabled: i === 0 })}
       ${button({ action: 'stage-move', value: `${s.code}:down`, label: '↓', cls: 'ghost small', disabled: i === stages.length - 1 })}
@@ -76,8 +76,21 @@ function stagesCard(ctx) {
     title: 'Порядок распределения выплаты',
     note: 'Деньги выплаты расходятся по этапам сверху вниз, что осталось — свободный остаток. '
       + 'Порядок меняется стрелками: расчёт будущих выплат обновится сразу, зафиксированные прошедшие останутся как есть.',
-    body: table({ head: [{ title: '№', cls: 'num' }, 'Этап', 'Порядок'], rows }),
+    body: table({ head: [{ title: '№', cls: 'num' }, 'Этап', 'Порядок'], rows }) + creditRepayment(ctx),
   });
+}
+
+function creditRepayment(ctx) {
+  const credits = ctx.cfg.stages().find(s => s.code === 'credits');
+  return `<div class="credit-repayment"><h3>Как гасим кредитки</h3>
+    <div class="small-note">Обязательная часть закрывает долг до конца льготного периода.</div>
+    ${field('Остаток выплаты после копилок', select({ edit: 'settings|allocation_rules|params', key: { stage_code: 'credits' }, type: 'json',
+      value: JSON.stringify(credits?.params?.early_repayment === false ? { early_repayment: false } : { early_repayment: true }),
+      options: [
+        { value: '{"early_repayment":true}', label: 'гасить карты досрочно' },
+        { value: '{"early_repayment":false}', label: 'оставлять свободным' },
+      ], disabled: !ctx.canEdit, defaults: { priority: credits?.priority ?? 4, enabled: true } }))}
+  </div>`;
 }
 
 function yearsCard(ctx) {
@@ -100,9 +113,12 @@ function yearsCard(ctx) {
     </div>`).join('');
     const preview = slots.length ? payoutSchedule(year, slots, ctx.sim.income.calendar).slice(0, 2)
       .map(p => `${fmt.date(p.pay_date)} за ${fmt.date(p.window_start, 'dayMonth')}–${fmt.date(p.window_end, 'dayMonth')}`).join(', ') : '';
-    return `<div style="margin-bottom:22px;">
+    const open = ctx.ui.open.has(`set:year:${year}`);
+    return `<div class="plan-year" data-section="set:year:${year}">
       <div class="row between wrap" style="gap:8px;">
-        <b style="font-size:16px;">${esc(year)}</b> ${pill(`${count} выплат в плане`)}
+        <button class="section-head" data-toggle="set:year:${year}" aria-expanded="${open}">
+          <span class="chev${open ? ' open' : ''}">▸</span><h3>${esc(year)}</h3></button>
+        <span class="small-note">${slots.length} ${fmt.plural(slots.length, { one: 'выплата', few: 'выплаты', many: 'выплат' })} в месяц · ${count} в плане</span>
         <div class="row wrap" style="gap:8px;">
           ${canEdit ? addButton({ domain: 'income', table: 'payout_slots', label: '+ выплата в графике', row: nextSlot(year, slots) }) : ''}
           ${canEdit && slots.length && !count ? button({ action: 'generate-year', value: year, label: `Создать выплаты ${year} года`, cls: 'primary small' }) : ''}
@@ -110,8 +126,8 @@ function yearsCard(ctx) {
             confirm: `Удалить ${year} год? Вместе с ним удалятся его график и ${count} выплат со всеми ручными суммами.` }) : ''}
         </div>
       </div>
-      ${slotRows || '<div class="small-note">Выплат в графике нет.</div>'}
-      ${preview ? `<div class="small-note">Например: ${esc(preview)}</div>` : ''}
+      ${open ? `<div style="margin-top:16px;">${slotRows || '<div class="small-note">Выплат в графике нет.</div>'}
+        ${preview ? `<div class="small-note">Например: ${esc(preview)}</div>` : ''}</div>` : ''}
     </div>`;
   }).join('');
 
@@ -141,7 +157,6 @@ export function calendarCard(ctx) {
   const selected = draft.calendarDay?.startsWith(ym) && isValid(draft.calendarDay) ? draft.calendarDay : `${ym}-01`;
   const selectedInfo = cal.day(selected);
   const own = (inc.account_calendar_days ?? []).find(d => d.date === selected);
-  const override = (inc.working_day_overrides ?? []).find(o => o.ym === ym);
   const working = cal.calendarWorkingDaysInMonth(year, month);
   const holidays = Array.from({ length: count }, (_, i) => cal.day(`${ym}-${pad2(i + 1)}`)).filter(d => d.holiday).length;
   const cells = Array.from({ length: (dayOfWeek(`${ym}-01`) + 6) % 7 }, () => '<span aria-hidden="true"></span>');
@@ -156,7 +171,12 @@ export function calendarCard(ctx) {
   const blocks = `<div class="production-calendar">
     <div class="row between calendar-nav">
       ${button({ action: 'calendar-month', value: `${ym}:-1`, label: '‹', title: 'Предыдущий месяц', cls: 'ghost' })}
-      <h3 aria-live="polite">${esc(fmt.monthName(month))} ${year}</h3>
+      <div class="calendar-pickers">
+        <label>Месяц<select data-calendar-picker="month">${Array.from({ length: 12 }, (_, i) =>
+          `<option value="${i + 1}"${month === i + 1 ? ' selected' : ''}>${esc(fmt.monthName(i + 1))}</option>`).join('')}</select></label>
+        <label>Год<select data-calendar-picker="year">${[...new Set([...(ctx.years ?? []), ...Array.from({ length: 11 }, (_, i) => year + i - 5)])]
+          .filter(y => y > 0 && y <= 9999).sort((a,b) => a-b).map(y => `<option value="${y}"${year === y ? ' selected' : ''}>${y}</option>`).join('')}</select></label>
+      </div>
       ${button({ action: 'calendar-month', value: `${ym}:1`, label: '›', title: 'Следующий месяц', cls: 'ghost' })}
     </div>
     <div class="calendar-week">${['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => `<span>${d}</span>`).join('')}</div>
@@ -167,14 +187,11 @@ export function calendarCard(ctx) {
       <b>${esc(fmt.date(selected))} — ${selectedInfo.working ? 'рабочий день' : selectedInfo.holiday ? 'праздник / нерабочий день' : 'выходной'}</b>
       ${selectedInfo.title ? `<div>${esc(selectedInfo.title)}</div>` : ''}
       ${canEdit ? `<div class="row wrap" style="gap:8px;margin-top:10px;">
-        ${button({ action: 'calendar-set', value: `${selected}:workday`, label: 'Сделать рабочим', cls: 'ghost small' })}
-        ${button({ action: 'calendar-set', value: `${selected}:holiday`, label: 'Сделать нерабочим', cls: 'ghost small' })}
+        ${button({ action: 'calendar-set', value: `${selected}:${selectedInfo.working ? 'holiday' : 'workday'}`,
+          label: selectedInfo.working ? 'Сделать нерабочим' : 'Сделать рабочим', cls: 'ghost small' })}
         ${own ? button({ action: 'calendar-set', value: `${selected}:default`, label: 'По календарю', cls: 'ghost small' }) : ''}
       </div>` : ''}
     </div>
-    ${field('Рабочих дней для расчёта оклада', input({ edit: 'income|working_day_overrides|working_days', key: { ym },
-      value: override?.working_days ?? '', placeholder: String(working), type: 'int', empty: 'null', disabled: !canEdit,
-      style: 'max-width:120px;' }), `По календарю: ${working}. Пустое поле — считать по дням календаря. В расчёте: ${cal.workingDaysInMonth(year, month)}.`)}
   </div>`;
 
   return section({
@@ -196,7 +213,6 @@ export function planSwitch(ctx) {
   return `<div class="info-box plan-switch" style="margin-top:16px;">
       <div>
         <b>Доступные планы</b>
-        <div class="small-note" style="margin-top:2px;">Переключение перечитывает данные: несохранённое сначала уходит в базу.</div>
       </div>
       <div class="row wrap plan-choices" style="gap:8px;margin-top:10px;">
         ${list.map(a => (a.id === current
@@ -278,10 +294,10 @@ export function securityCard(ctx) {
       <div style="margin-top:10px;">${button({ action: 'change-password', label: 'Сохранить пароль', cls: 'primary small' })}</div>
 
       <h3 style="font-size:15px;margin:18px 0 8px;">Почта</h3>
-      <div class="row wrap" style="gap:12px;align-items:start;">
-        <div style="flex:1;min-width:200px;">${field('Новый адрес', `<input type="email" data-sec="email" placeholder="${esc(email)}">`)}</div>
-        <div>${field(' ', button({ action: 'change-email', label: 'Сменить почту' }))}</div>
-      </div>
+      <div class="field"><label>Новый адрес</label><div class="security-email">
+        <input type="email" data-sec="email" placeholder="${esc(email)}">
+        ${button({ action: 'change-email', label: 'Сменить почту' })}
+      </div></div>
       <div class="small-note">На новый адрес придёт письмо для подтверждения — пока не перейдёте по ссылке, вход остаётся по старому.</div>
 
       <h3 style="font-size:15px;margin:18px 0 8px;">Вход по Face ID / Touch ID</h3>
@@ -291,7 +307,7 @@ export function securityCard(ctx) {
 
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line);">
         ${button({ action: 'sign-out-account', label: 'Выйти из аккаунта', cls: 'ghost small' })}
-        ${button({action:'account-delete-open',label:'Удалить аккаунт',cls:'ghost small danger-text'})}</div>`,
+        ${button({action:'account-delete-open',label:'Удалить аккаунт',cls:'danger small'})}</div>`,
   })+accountDeletionDialog(ctx);
 }
 
@@ -347,8 +363,7 @@ export function render(ctx) {
   return `
     ${section({ key: 'set:plan', title: 'План', open: ctx.ui.open.has('set:plan'), body: `
       <div class="grid cols-2">
-        ${field('Название плана', `<input data-account-title value="${esc(state.account.title)}"${canEdit ? '' : ' disabled'}>`,
-          'Показывается в шапке приложения')}
+        ${field('Название плана', `<input data-account-title value="${esc(state.account.title)}"${canEdit ? '' : ' disabled'}>`)}
         ${field('Ваша роль', `<div style="padding-top:8px;">${esc(ROLE_TITLES[state.account.role] ?? state.account.role)}</div>`)}
       </div>
       ${planSwitch(ctx)}
@@ -383,7 +398,7 @@ export function render(ctx) {
 
     ${section({
       key: 'set:history', open: ctx.ui.open.has('set:history'),
-      title: 'История доходов, начислено',
+      title: 'История доходов',
       note: 'Начисленный доход по месяцам — оклад и премии до налога. Из него считается средний заработок для отпускных. '
         + 'Пустое поле — месяц берётся из выплат плана (они пересчитываются в начисленные по шкале налога).',
       body: table({ head: ['Год', ...Array.from({ length: 12 }, (_, i) => ({ title: fmt.monthName(i + 1).slice(0, 3), cls: 'num' }))], rows: histRows }),
@@ -540,7 +555,7 @@ export function handle(ev, ctx) {
 }
 
 /* Настройки хранятся объектом «ключ → значение», поэтому у них свой обработчик, не data-edit */
-export function attachSettings(root, store, getCtx) {
+export function attachSettings(root, store, getCtx, render = () => {}) {
   root.addEventListener('input',ev=>{
     if(!ev.target.matches('[data-account-delete-word]'))return;
     const sec=getCtx().security,d=sec?.state.deletion;if(!d)return;
@@ -561,6 +576,17 @@ export function attachSettings(root, store, getCtx) {
   root.addEventListener('change', ev => {
     const ctx = getCtx();
     const el = ev.target;
+    if (el.matches('[data-calendar-picker]')) {
+      const date = root.querySelector('[data-calendar-day]')?.dataset.calendarDay;
+      if (!isValid(date)) return;
+      const [year, month] = date.split('-').map(Number);
+      const value = Number(el.value);
+      const next = el.dataset.calendarPicker === 'year' ? `${String(value).padStart(4, '0')}-${pad2(month)}` : `${String(year).padStart(4, '0')}-${pad2(value)}`;
+      if (!isValid(`${next}-01`)) return;
+      (ctx.ui.draft.settings ??= {}).calendarMonth = next;
+      render();
+      return;
+    }
     if (el.matches('[data-account-title]')) { store.setAccountTitle(el.value); return; }
     if (el.matches('[data-setting]')) {
       const key = el.dataset.setting;

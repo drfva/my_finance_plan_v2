@@ -67,6 +67,8 @@ function body(ctx, r) {
   const { fmt, state, canEdit } = ctx;
   const p = r.period;
   const f = r.income.formula;
+  const vacationDates = [...new Set((r.income.vacations ?? []).map(v => ctx.income.vacations
+    .find(x => x.vacation.id === v.vacation_id)?.payDate).filter(Boolean))].sort();
   const cats = state.expenses?.expense_categories ?? [];
   const goals = state.savings?.goals ?? [];
   const cards = state.debts?.credit_cards ?? [];
@@ -155,7 +157,7 @@ function body(ctx, r) {
         : button({ action: 'clear-savings', value: `${p.id}:${kind}`, label: 'Очистить поля' }),
       note: p.locked ? 'Выплата зафиксирована: идут только эти суммы.'
         : own ? 'Свои суммы закреплены, остальное план пересчитал под них.'
-        : 'В поле — сумма, которую посчитал план. Впишите свою: она закрепится, остальные пересчитаются.',
+        : '',
       body: table({ head: ['Цель', { title: 'Авто-расчёт', cls: 'num' }, { title: 'В расчёте', cls: 'num' }, { title: 'В копилке', cls: 'num' }],
         rows: list.map(goalRow) }),
     });
@@ -192,7 +194,8 @@ function body(ctx, r) {
           : p.sick_leave_id ? 'Больничный по прежней схеме. Начислено ' + esc(fmt.money(r.income.gross)) + ', НДФЛ ' + esc(fmt.money(r.income.tax))
           : p.calc_mode === 'manual' ? 'Разовая выплата: используется введённая сумма, без расчёта по окладу, отпускных и больничного.' : 'оклада на этот период нет'}</div>
         ${r.income.vacationPay > 0.5 ? `<div class="small-note">+ отпускные ${esc(fmt.money(r.income.vacationPay))} на руки
-          (начислено ${esc(fmt.money(r.income.vacationGross))}) за ${r.income.vacations.reduce((sum, x) => sum + x.days, 0)} дн.</div>` : ''}
+          (начислено ${esc(fmt.money(r.income.vacationGross))}) за ${r.income.vacations.reduce((sum, x) => sum + x.days, 0)} дн.${
+            vacationDates.length ? ` · фактическая выплата ${vacationDates.map(d => esc(fmt.date(d))).join(', ')}` : ''}</div>` : ''}
         ${r.income.sickParts?.length ? `<div class="small-note">+ больничный <b>${esc(fmt.money(r.income.sickPay))}</b> на руки
           (начислено ${esc(fmt.money(r.income.sickGross))}, НДФЛ ${esc(fmt.money(r.income.sickTax))}).
           За дни болезни в этом расчётном периоде; настройка — в разделе «Больничные».</div>` : ''}
@@ -201,12 +204,6 @@ function body(ctx, r) {
       ${field('Комментарий', input({ edit: 'income|periods|note', key: { id: p.id }, value: p.note, disabled: !canEdit }))}
     </div>
 
-    ${r.income.vacationPay ? `<div class="small-note">Отпускные в этой выплате: ${r.income.vacations.map(v => {
-      const own = (state.income?.vacations ?? []).find(x => x.id === v.vacation_id);
-      const when = ctx.income.vacations.find(x => x.vacation.id === v.vacation_id)?.payDate;
-      return `${esc(own?.title || 'отпуск')} — ${esc(fmt.money(v.net))} на руки (${v.days} дн.)${
-        when ? `, фактически получены ${esc(fmt.date(when))}` : ''}`;
-    }).join('; ')}</div>` : ''}
     ${r.income.extraIncome ? `<div class="small-note">Разовый доход: ${esc(fmt.money(r.income.extraIncome))}</div>` : ''}
     <div class="grid cols-2" style="margin-top:20px;">
       ${card({
@@ -217,7 +214,6 @@ function body(ctx, r) {
           ${hasCatOverrides
             ? button({ action: 'reset-categories', value: p.id, label: 'Подставить по шаблону' })
             : button({ action: 'clear-categories', value: p.id, label: 'Очистить поля' })}`,
-        note: 'В поле — сумма, которая идёт в расчёт. Впишите свою, чтобы поменять её только в этой выплате.',
         body: table({ head: ['Категория', { title: 'По шаблону', cls: 'num' }, { title: 'В расчёте', cls: 'num' }],
           rows: catRows.length ? catRows : ['<tr><td colspan="3" class="muted">Категорий нет</td></tr>'] }),
       })}

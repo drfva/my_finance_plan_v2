@@ -142,7 +142,10 @@ export function tourHandle(ev, ctx) {
     const step = list[Number(idx)];
     draft.step = Number(idx);
     ctx.ui.tab = step.go.tab;
-    if (step.go.open) ctx.ui.open.add(step.go.open);
+    if (step.go.open) {
+      ctx.ui.open.add(step.go.open);
+      ctx.ui.scrollTarget = { section: step.go.open };
+    }
     return true;
   }
   return false;

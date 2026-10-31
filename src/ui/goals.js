@@ -4,6 +4,7 @@ import { esc, card, table, num, cell, row, input, select, checkbox, addButton, d
 import { uid } from './edit.js';
 import { goalBalanceAt, goalProgressAt, proposeRedistribution, forecastBeyondPlan, snapshotGoalCompletion } from '../engine/allocation.js';
 import { goalTotal, cycleDates, normalizeGoalPriorities } from '../engine/savings.js';
+import { revealAddedRow } from './navigation.js';
 
 export const code = 'goals';
 export const title = () => 'Копилки';
@@ -230,7 +231,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
     const { label, cls } = milestoneStatus(ctx, g, m);
     const generated = m.source && m.source !== 'manual';
     const spent = (state.savings?.goal_transactions ?? []).some(t => t.milestone_id === m.id);
-    return `<div class="ms-row">
+    return `<div class="ms-row" data-scroll-row="${esc(m.id)}">
       ${input({ edit: 'savings|goal_milestones|title', key: { id: m.id }, value: m.title, placeholder: 'Этап', disabled: !canEdit, cls: generated && m.user_edited ? 'own' : '' })}
       ${input({ edit: 'savings|goal_milestones|target', key: { id: m.id }, value: m.target, type: 'money',
         placeholder: 'Сколько накопить', disabled: !canEdit, defaults: { user_edited: true }, cls: generated && m.user_edited ? 'own' : '' })}
@@ -257,7 +258,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
       ? `<div style="padding-top:8px;">${pill(t.kind === 'transfer_out' ? `перевод в «${other?.title ?? '—'}»` : `перевод из «${other?.title ?? '—'}»`)}</div>`
       : select({ edit: 'savings|goal_transactions|kind', key: { id: t.id }, value: t.kind, disabled: !canEdit,
           options: [{ value: 'spend', label: 'трата' }, { value: 'deposit', label: 'пополнение' }] });
-    return `<div class="item-row wd-row" style="grid-template-columns:1fr 1.4fr 1.2fr 1fr auto;align-items:end;">
+    return `<div class="item-row wd-row" data-scroll-row="${esc(t.id)}" style="grid-template-columns:1fr 1.4fr 1.2fr 1fr auto;align-items:end;">
       ${field('Дата', input({ edit: 'savings|goal_transactions|date', key: { id: t.id }, value: t.date, type: 'date', disabled: !canEdit, cls: own }))}
       ${field('Название', input({ edit: 'savings|goal_transactions|title', key: { id: t.id }, value: t.title, disabled: !canEdit, cls: own }))}
       ${field('Операция', kindCell)}
@@ -301,7 +302,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
       <div style="width:160px;">${field('Начальный остаток', input({ edit: 'savings|goals|starting_balance', key: { id: g.id }, value: g.starting_balance, type: 'money', disabled: !canEdit }))}</div>
       ${canEdit ? (`<div class="row wrap goal-actions" style="gap:8px;">
         ${button({ action: 'goal-close', value: g.id, label: g.completed ? 'Вернуть в работу' : 'Закрыть цель',
-          cls: g.completed ? 'ghost small' : 'small',
+          cls: 'ghost small',
           title: g.completed ? 'Цель снова участвует в распределении' : 'Цель перестанет получать деньги: в будущих выплатах её не будет, в зафиксированных останется' })}
         ${g.completed && ['bucket', 'reserve'].includes(g.kind_code) ? button({ action: 'goal-archive', value: g.id,
           label: g.archived ? 'Вернуть из архива' : 'В архив', cls: 'ghost small' }) : ''}
@@ -453,14 +454,15 @@ export function handle(ev, ctx) {
     const id = spend.dataset.msSpend;
     const m = (ctx.state.savings?.goal_milestones ?? []).find(x => x.id === id);
     if (!m) return false;
+    const tx = {
+      id: uid('tx'), goal_id: m.goal_id, date: m.deadline || ctx.today, amount: Number(m.target) || 0,
+      kind: 'spend', title: m.title || 'Трата', counterparty_id: null, milestone_id: m.id,
+      source: 'manual', user_edited: true,
+    };
+    revealAddedRow(ctx, 'savings', 'goal_transactions', tx);
     store.update('savings', d => {
-      (d.goal_transactions ?? (d.goal_transactions = [])).push({
-        id: uid('tx'), goal_id: m.goal_id, date: m.deadline || ctx.today, amount: Number(m.target) || 0,
-        kind: 'spend', title: m.title || 'Трата', counterparty_id: null, milestone_id: m.id,
-        source: 'manual', user_edited: true,
-      });
+      (d.goal_transactions ?? (d.goal_transactions = [])).push(tx);
     });
-    ui.open.add(`goal-tx:${m.goal_id}`);
     return true;
   }
 

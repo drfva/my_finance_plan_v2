@@ -75,7 +75,7 @@ export function card({ title, body, actions = '', note = '', id }) {
 /* Сворачивающийся раздел: заголовок кликается, быстрые кнопки видны всегда.
    Ключ open хранится в ui.open — переключение делает общий обработчик приложения. */
 export function section({ key, title, actions = '', note = '', body, open, level = 'h2' }) {
-  return `<div class="card">
+  return `<div class="card" data-section="${esc(key)}">
     <div class="card-title" style="margin-bottom:${open ? '18px' : '0'};">
       <button class="section-head" data-toggle="${esc(key)}" aria-expanded="${open ? 'true' : 'false'}">
         <span class="chev${open ? ' open' : ''}">▸</span><${level}>${esc(title)}</${level}></button>

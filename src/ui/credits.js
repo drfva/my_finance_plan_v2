@@ -1,6 +1,6 @@
 /* Кредиты: карты, операции и погашение по плану */
 
-import { esc, card, table, input, select, addButton, delButton, pill, field } from './dom.js';
+import { esc, card, table, input, select, addButton, delButton, pill } from './dom.js';
 import { uid } from './edit.js';
 import { cardForecast } from '../engine/allocation.js';
 import { cycleStatus } from '../engine/debts.js';
@@ -21,7 +21,7 @@ function repayment(card_, ops, fcState, today) {
 }
 
 export function render(ctx) {
-  const { state, fmt, canEdit, sim, ui, cfg } = ctx;
+  const { state, fmt, canEdit, sim, ui } = ctx;
   const cards = (state.debts?.credit_cards ?? []).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   const ops = state.debts?.credit_card_ops ?? [];
   const currencies = [ctx.cfg.get('base_currency'), ...(ctx.cfg.get('extra_currencies') ?? [])].map(c => ({ value: c, label: c }));
@@ -87,22 +87,7 @@ export function render(ctx) {
     });
   }).join('');
 
-  const credits = cfg.stages().find(s => s.code === 'credits');
-  const settingsCard = card({
-    title: 'Как гасим',
-    note: 'Обязательная часть считается так, чтобы закрыть долг до конца льготного периода. Что делать с остатком выплаты — решаете здесь.',
-    body: field('Остаток выплаты после копилок',
-      select({ edit: 'settings|allocation_rules|params', key: { stage_code: 'credits' }, type: 'json',
-        value: JSON.stringify(credits?.params?.early_repayment === false ? { early_repayment: false } : { early_repayment: true }),
-        options: [
-          { value: '{"early_repayment":true}', label: 'гасить карты досрочно' },
-          { value: '{"early_repayment":false}', label: 'оставлять свободным' },
-        ],
-        disabled: !canEdit, defaults: { priority: credits?.priority ?? 4, enabled: true } })),
-  });
-
   return `
-    ${settingsCard}
     <div class="row between wrap" style="gap:8px;">
       ${pill('Гасим так, чтобы уложиться в льготный период')}
       ${canEdit ? addButton({ domain: 'debts', table: 'credit_cards', cls: 'primary small', label: '+ карта',

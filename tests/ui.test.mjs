@@ -2,13 +2,20 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyEdit, deleteRow, addRow, findRow } from '../src/ui/edit.js';
+import { applyEdit, deleteRow, addRow, findRow, attachEditing } from '../src/ui/edit.js';
 import { createFormat } from '../src/core/format.js';
 import { handle as handleGoals, milestoneStatus, goalSummary, goalCard, render as renderGoals, moveGoal } from '../src/ui/goals.js';
 import { render as renderReserves } from '../src/ui/reserves.js';
 import { render as renderDashboard, handle as handleDashboard } from '../src/ui/dashboard.js';
 import { render as renderPeriods, handle as handlePeriods } from '../src/ui/periods.js';
-import { calendarCard, handle as handleSettings } from '../src/ui/settings.js';
+import { calendarCard, handle as handleSettings, render as renderSettings, attachSettings } from '../src/ui/settings.js';
+import { render as renderCredits } from '../src/ui/credits.js';
+import { render as renderCategories, handle as handleCategories } from '../src/ui/categories.js';
+import { yearOptions as vacationYears } from '../src/ui/vacations.js';
+import { yearOptions as sickYears } from '../src/ui/sick.js';
+import { fatalPage } from '../src/ui/fatal.js';
+import { scrollToPending } from '../src/ui/navigation.js';
+import { tourHandle } from '../src/ui/tour.js';
 import { render as renderInstallments } from '../src/ui/installments.js';
 import { render as renderGifts } from '../src/ui/gifts.js';
 import { render as renderVacations } from '../src/ui/vacations.js';
@@ -156,6 +163,9 @@ test('производственный календарь: месяцы, вис�
   assert.equal((html.match(/data-calendar-day=/g) ?? []).length, 29);
   assert.match(html, /2028-02-29/);
   assert.match(html, /Рабочих: 20/);
+  assert.doesNotMatch(html, /working_day_overrides/);
+  assert.match(html, /data-calendar-picker="month"/);
+  assert.match(html, /data-calendar-picker="year"/);
   assert.doesNotMatch(html, /<table|class="own/);
   assert.equal(handleSettings(click('calendar-month', '2028-12:1'), ctx), true);
   assert.equal(ctx.ui.draft.settings.calendarMonth, '2029-01');
@@ -168,11 +178,15 @@ test('производственный календарь: месяцы, вис�
   refresh();
   html = calendarCard(ctx);
   assert.match(html, /Рабочих: 19/);
+  assert.match(html, /Сделать рабочим/);
+  assert.doesNotMatch(html, /Сделать нерабочим/);
   assert.match(html, /По календарю/);
   assert.equal(ctx.sim.income.calendar.day('2028-02-07').working, false);
   handleSettings(click('calendar-set', '2028-02-07:workday'), ctx);
   refresh();
   assert.equal(ctx.sim.income.calendar.day('2028-02-07').working, true);
+  assert.match(calendarCard(ctx), /Сделать нерабочим/);
+  assert.doesNotMatch(calendarCard(ctx), /Сделать рабочим/);
   handleSettings(click('calendar-set', '2028-02-07:default'), ctx);
   assert.deepEqual(ctx.state.income.account_calendar_days, []);
   const viewer = { ...ctx, canEdit: false };
@@ -617,4 +631,213 @@ test('подсказки первого входа: показываются п�
 
   // читателю чужого плана подсказки про настройку не показываем
   assert.equal(tourNeeded({ ...empty, canEdit: false }), false);
+});
+
+test('ошибка запуска не раскрывает ответы сервера, адрес базы, SQL и разметку ошибки', () => {
+  for (const stage of ['auth', 'load', '<img src=x onerror=alert(1)> SQL secret-token https://db.example']) {
+    const html = fatalPage(stage);
+    assert.match(html, /role="alert"/);
+    assert.match(html, /id="retry"/);
+    assert.doesNotMatch(html, /SQL|Supabase|config\.js|https:|secret|onerror|<img/);
+  }
+});
+
+test('отпуска и больничные: фильтр по году начала, переходящие даты не дублируются', () => {
+  const ctx = goalContext([]);
+  ctx.years = [2027];
+  ctx.today = '2028-02-01';
+  ctx.state.income.vacations = [
+    { id: 'cross', title: 'Переходящий отпуск', start_date: '2027-12-30', end_date: '2028-01-05' },
+    { id: 'next', title: 'Отпуск нового года', start_date: '2028-03-01', end_date: '2028-03-10' },
+  ];
+  ctx.state.income.sick_leaves = [
+    { id: 'scross', note: 'Переходящий лист', start_date: '2027-12-30', end_date: '2028-01-05', benefit_enabled: false },
+    { id: 'snext', note: 'Лист нового года', start_date: '2028-03-01', end_date: '2028-03-10', benefit_enabled: false },
+  ];
+  ctx.sim = simulate(ctx.state, ctx.cfg); ctx.income = ctx.sim.income;
+  assert.deepEqual(vacationYears(ctx), [2027, 2028]);
+  assert.deepEqual(sickYears(ctx), [2027, 2028]);
+  ctx.ui.open.add('vacations-past'); ctx.ui.open.add('sick-past');
+  for (const [year, present, absent] of [[2027, 'Переходящий', 'нового года'], [2028, 'нового года', 'Переходящий']]) {
+    ctx.year = year;
+    for (const render of [renderVacations, renderSick]) {
+      assert.ok(render(ctx).includes(present));
+      assert.ok(!render(ctx).includes(absent));
+    }
+  }
+  ctx.year = 2027; ctx.ui.open.clear();
+  assert.doesNotMatch(renderVacations(ctx), /value="Переходящий отпуск"/);
+  assert.doesNotMatch(renderSick(ctx), /Переходящий лист/);
+});
+
+test('годы графика независимы: в свёрнутом виде счётчик и действия, раскрытие только своего года', () => {
+  const ctx = goalContext([]); ctx.years = [2027, 2028]; ctx.income = ctx.sim.income;
+  ctx.ui.open.add('set:years');
+  ctx.state.income.plan_years = [{ year: 2027 }, { year: 2028 }];
+  ctx.state.income.payout_slots = [2027, 2028].map(year => ({ year, sort_order: 1, title: `Выплата-${year}`, pay_day: 20 }));
+  let html = renderSettings(ctx);
+  assert.match(html, /1 выплата в месяц · 0 в плане/);
+  assert.match(html, /data-add="income\|payout_slots"/);
+  assert.match(html, /data-del="income\|plan_years"/);
+  assert.doesNotMatch(html, /data-edit="income\|payout_slots/);
+  ctx.ui.open.add('set:year:2028'); html = renderSettings(ctx);
+  assert.match(html, /value="Выплата-2028"/);
+  assert.doesNotMatch(html, /value="Выплата-2027"/);
+  assert.doesNotMatch(renderCredits(ctx), /early_repayment|Как гасим/);
+  ctx.ui.open.add('set:stages');
+  assert.match(renderSettings(ctx), /early_repayment/);
+});
+
+test('быстрый выбор месяца и года календаря работает через общий обработчик настроек', () => {
+  const ctx = goalContext([]); ctx.ui.draft.settings = { calendarMonth: '2028-02' };
+  const listeners = {}; let renders = 0;
+  const root = { addEventListener(type, fn) { listeners[type] = fn; }, querySelector: () => ({ dataset: { calendarDay: `${ctx.ui.draft.settings.calendarMonth}-01` } }) };
+  attachSettings(root, ctx.store, () => ctx, () => renders++);
+  const change = (part, value) => listeners.change({ target: { matches: s => s === '[data-calendar-picker]', dataset: { calendarPicker: part }, value } });
+  change('month', '12'); assert.equal(ctx.ui.draft.settings.calendarMonth, '2028-12');
+  change('year', '2031'); assert.equal(ctx.ui.draft.settings.calendarMonth, '2031-12');
+  change('month', '13'); assert.equal(ctx.ui.draft.settings.calendarMonth, '2031-12');
+  assert.equal(renders, 2);
+});
+
+test('мастер первого входа просит прокрутку к открытому блоку; запрос исполняется один раз', () => {
+  const ctx = goalContext([]);
+  for (const [index, section] of [[1, 'set:salary'], [2, 'set:tax']]) {
+    assert.equal(tourHandle(click('tour', `go:${index}`), ctx), true);
+    assert.equal(ctx.ui.tab, 'settings'); assert.ok(ctx.ui.open.has(section));
+    assert.deepEqual(ctx.ui.scrollTarget, { section });
+    let scrolled = 0, focused = 0;
+    const element = { getAttribute: () => section, querySelector: () => ({ focus: () => focused++ }), scrollIntoView: options => { assert.equal(options.block, 'start'); scrolled++; } };
+    const root = { querySelectorAll: () => [element], querySelector: () => ({ getBoundingClientRect: () => ({ height: 180 }) }), style: { setProperty() {} } };
+    scrollToPending(root, ctx.ui); scrollToPending(root, ctx.ui);
+    assert.equal(scrolled, 1); assert.equal(focused, 1); assert.equal(ctx.ui.scrollTarget, null);
+  }
+});
+
+test('новый этап и трата раскрываются до синхронной перерисовки и получают якорь в списке', () => {
+  const goal = { id: 'g', title: 'Цель', kind_code: 'bucket', target_amount: 0, currency_code: 'RUB' };
+  const ctx = goalContext([goal]); const listeners = {};
+  const container = { addEventListener(type, fn) { listeners[type] = fn; } };
+  attachEditing(container, ctx.store, () => ctx, e => { throw e; });
+  for (const [table, section, date] of [['goal_milestones', 'goal:g', null], ['goal_transactions', 'goal-tx:g', '2027-02-01']]) {
+    const row = { id: table, goal_id: 'g', title: 'Новая запись', target: 0, deadline: null, date, kind: 'spend', amount: 0 };
+    const original = ctx.store.update;
+    ctx.store.update = (domain, fn) => {
+      assert.ok(ctx.ui.open.has(section)); assert.deepEqual(ctx.ui.scrollTarget, { row: table });
+      original.call(ctx.store, domain, fn);
+    };
+    listeners.click({ target: { closest: s => s === '[data-add]' ? { dataset: { add: `savings|${table}`, row: JSON.stringify(row) } } : null } });
+    ctx.store.update = original;
+    if (date) assert.ok(ctx.ui.open.has('tx-hist:g'));
+    ctx.sim = simulate(ctx.state, ctx.cfg);
+    assert.ok(goalCard(ctx, goal).includes(`data-scroll-row="${table}"`));
+  }
+});
+
+test('дата отпускных находится рядом с суммой в поле дохода, дублирующей строки нет', () => {
+  const ctx = goalContext([]);
+  ctx.state.income.periods = [{ id: 'p', year: 2027, pay_date: '2027-03-20', calc_mode: 'auto', income_net: 0,
+    window_start: '2027-03-01', window_end: '2027-03-15' }];
+  ctx.state.income.salary_rates = [{ id: 'r', effective_from: '2027-01-01', amount: 100000, is_gross: true }];
+  ctx.state.income.vacations = [{ id: 'v', title: 'Отпуск', start_date: '2027-03-01', end_date: '2027-03-07', pay_manual: true, pay_amount: 10000 }];
+  ctx.sim = simulate(ctx.state, ctx.cfg); ctx.income = ctx.sim.income; ctx.ui.open.add('period:p');
+  const html = renderPeriods(ctx);
+  const date = ctx.income.vacations[0].payDate;
+  assert.ok(html.includes(`фактическая выплата ${fmt.date(date)}`));
+  assert.doesNotMatch(html, /Отпускные в этой выплате|В поле — сумма/);
+});
+
+function categoryContext() {
+  const ctx = goalContext([]);
+  ctx.state.expenses = {
+    expense_categories: [
+      { id: 'life', title: 'Жизнь', mode: 'fixed_month', monthly_amount: 999, split_mode: 'by_days', sort_order: 1 },
+      { id: 'joy', title: 'Радости', mode: 'percent_income', monthly_amount: 2000, split_mode: 'even', sort_order: 5 },
+      { id: 'winter', title: 'Зимний спорт', mode: 'fixed_month', monthly_amount: 3000, season_from: '12-01', season_to: '02-28', sort_order: 6 },
+    ],
+    expense_items: [
+      { id: 'food', category_id: 'life', title: 'Продукты', amount: 4000, sort_order: 1 },
+      { id: 'taxi', category_id: 'life', title: 'Транспорт', amount: 2000, sort_order: 7 },
+      { id: 'skis', category_id: 'life', title: 'Лыжи', amount: 1000, season_from: '12-01', season_to: '02-28', sort_order: 8 },
+    ],
+  };
+  ctx.ui.tab = 'categories';
+  return ctx;
+}
+
+test('категории списком: сводка видна без полей, процент и суммы учитывают статьи и сезон', () => {
+  const ctx = categoryContext();
+  const html = renderCategories(ctx);
+  assert.match(html, /data-toggle="cat:life" aria-expanded="false"/);
+  assert.match(html, /id="category-body-life" hidden/);
+  assert.match(html, /3 статьи · по дням периода/);
+  assert.ok(html.includes(fmt.money(6000)));
+  assert.ok(html.includes(fmt.percent(25, 1)));
+  assert.match(html, /сейчас вне сезона/);
+  assert.doesNotMatch(html, /data-edit=/);
+  ctx.state.expenses.expense_categories[0].title = '<img src=x onerror=alert(1)>';
+  const escaped = renderCategories(ctx);
+  assert.doesNotMatch(escaped, /<img/);
+  assert.match(escaped, /&lt;img/);
+});
+
+test('раскрытие категории независимо; правка статьи и сезона сразу меняет сводку и долю', () => {
+  const ctx = categoryContext(); ctx.ui.open.add('cat:life');
+  let html = renderCategories(ctx);
+  assert.match(html, /data-toggle="cat:life" aria-expanded="true"/);
+  assert.match(html, /data-toggle="cat:joy" aria-expanded="false"/);
+  assert.match(html, /data-edit="expenses\|expense_categories\|monthly_amount"[^>]*value="6000"[^>]* disabled/);
+  assert.match(html, /data-scroll-row="skis"/);
+  assert.match(html, /data-edit="expenses\|expense_items\|season_from"/);
+  applyEdit(ctx.store, el({ edit: 'expenses|expense_items|amount', key: '{"id":"food"}', type: 'money' }, '6000'), ctx.fmt);
+  html = renderCategories(ctx);
+  assert.ok(html.includes(fmt.money(8000)));
+  assert.ok(html.includes(fmt.percent(20, 1)));
+  handleCategories(click('drop-season', 'expenses|expense_items|skis'), ctx);
+  html = renderCategories(ctx);
+  assert.ok(html.includes(fmt.money(9000)), 'бывшая сезонная статья включилась в сумму');
+  assert.ok(html.includes(fmt.percent(2000 / 11000 * 100, 1)), 'доля другой категории пересчиталась');
+  assert.match(html, /data-del="expenses\|expense_categories"/);
+  assert.ok(ctx.ui.open.has('cat:life'), 'правка не сворачивает категорию');
+  assert.ok(!ctx.ui.open.has('cat:joy'));
+});
+
+test('категории читателя: можно раскрывать, поля недоступны, действий редактирования нет', () => {
+  const ctx = categoryContext(); ctx.canEdit = false;
+  ctx.ui.open.add('cat:life'); ctx.ui.open.add('cat:joy');
+  const html = renderCategories(ctx);
+  assert.match(html, /data-toggle="cat:life"/);
+  for (const [, tag] of html.matchAll(/(<(?:input|select)\b[^>]*>)/g)) assert.match(tag, / disabled/);
+  assert.doesNotMatch(html, /data-add=|data-del=|data-add-season=|data-drop-season=/);
+  assert.equal(handleCategories(click('drop-season', 'expenses|expense_items|skis'), ctx), false);
+  assert.equal(ctx.state.expenses.expense_items[2].season_from, '12-01');
+});
+
+test('добавленная категория и статья открыты до перерисовки, фокус получает поле ввода', () => {
+  const ctx = categoryContext(), listeners = {};
+  attachEditing({ addEventListener(type, fn) { listeners[type] = fn; } }, ctx.store, () => ctx, e => { throw e; });
+  for (const [table, row, target] of [
+    ['expense_categories', { id: 'new', title: 'Новая категория', mode: 'fixed_month', monthly_amount: 0 }, { section: 'cat:new' }],
+    ['expense_items', { id: 'new-item', category_id: 'new', title: 'Новая статья', amount: 0 }, { row: 'new-item' }],
+  ]) {
+    const original = ctx.store.update;
+    ctx.store.update = (domain, fn) => {
+      assert.ok(ctx.ui.open.has('cat:new'));
+      assert.deepEqual(ctx.ui.scrollTarget, target);
+      original.call(ctx.store, domain, fn);
+    };
+    listeners.click({ target: { closest: s => s === '[data-add]' ? { dataset: { add: `expenses|${table}`, row: JSON.stringify(row) } } : null } });
+    ctx.store.update = original;
+    assert.match(renderCategories(ctx), /data-toggle="cat:new" aria-expanded="true"/);
+    if (table === 'expense_items') assert.match(renderCategories(ctx), /data-scroll-row="new-item"/);
+    let inputFocused = false, headerFocused = false;
+    const targetNode = {
+      getAttribute: () => target.section ?? target.row,
+      querySelector: selector => selector.startsWith('input') ? { focus: () => { inputFocused = true; } } : { focus: () => { headerFocused = true; } },
+      scrollIntoView() {},
+    };
+    scrollToPending({ querySelectorAll: () => [targetNode], querySelector: () => null, style: { setProperty() {} } }, ctx.ui);
+    assert.equal(inputFocused, true); assert.equal(headerFocused, false);
+    assert.equal(ctx.ui.scrollTarget, null);
+  }
 });

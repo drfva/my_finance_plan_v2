@@ -67,7 +67,7 @@ test('календарь: праздники, выходные, переносы
   assert.equal(createCalendar({ refDays: RU, calendarCode: 'kz' }).isWorkingDay('2027-01-05'), true);
 });
 
-test('календарь: рабочие дни в месяцах 2027 года и ручная правка', () => {
+test('календарь: рабочие дни считаются по датам, старые месячные правки не влияют', () => {
   const c = cal();
   assert.equal(c.workingDaysInMonth(2027, 1), 15);
   assert.equal(c.workingDaysInMonth(2027, 3), 22);
@@ -75,9 +75,10 @@ test('календарь: рабочие дни в месяцах 2027 года 
   assert.equal(c.workingDaysBetween('2027-03-01', '2027-03-15'), 10);
 
   const o = cal({ workingDayOverrides: [{ ym: '2027-03', working_days: 20 }, { ym: '2027-04', working_days: null }] });
-  assert.equal(o.workingDaysInMonth(2027, 3), 20);
+  assert.equal(o.workingDaysInMonth(2027, 3), 22);
   assert.equal(o.calendarWorkingDaysInMonth(2027, 3), 22);
-  assert.equal(o.hasOverride(2027, 4), false);
+  const personal = cal({ accountDays: [{ date: '2027-03-01', kind: 'holiday' }], workingDayOverrides: [{ ym: '2027-03', working_days: 20 }] });
+  assert.equal(personal.workingDaysInMonth(2027, 3), 21);
 });
 
 test('календарь: сдвиг даты выплаты с выходного', () => {

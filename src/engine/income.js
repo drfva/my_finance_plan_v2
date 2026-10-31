@@ -50,7 +50,6 @@ export function calendarFor(state, cfg) {
     refDays: cfg.list('calendar_days'),
     calendarCode: cfg.get('calendar_code'),
     accountDays: inc.account_calendar_days ?? [],
-    workingDayOverrides: inc.working_day_overrides ?? [],
   });
 }
 

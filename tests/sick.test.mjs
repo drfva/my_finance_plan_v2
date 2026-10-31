@@ -204,7 +204,7 @@ test('больничные и отпуска: пересекающиеся пе�
 test('интерфейс: памятка, причины, деление по выплатам, ручная рамка и сброс; читатель не редактирует', () => {
   const state = plan(); state.income.sick_leaves[0].sfr_net = 10000;
   const fmt = createFormat({ locale: 'ru-RU', currency: 'RUB' });
-  const ctx = { state, income: computeIncome(state, createConfig(state)), fmt, canEdit: true, today: '2026-10-22',
+  const ctx = { state, income: computeIncome(state, createConfig(state)), fmt, canEdit: true, today: '2026-10-22', year: 2026,
     ui: { open: new Set(['sick:s']) }, store: { update(domain, fn) { fn(state[domain]); } } };
   const html = renderSick(ctx);
   assert.match(earningsHelp(), /отпускные/);

@@ -9,7 +9,8 @@
 import { createStore } from './core/store.js';
 import { ensureSignedIn, askNewPassword, recoveryPending, signOut } from './core/auth.js';
 import { createApp } from './ui/app.js';
-import { esc, byId } from './ui/dom.js';
+import { byId } from './ui/dom.js';
+import { fatalPage } from './ui/fatal.js';
 import { initLogger, log } from './core/logger.js';
 
 import { applyTheme, readTheme } from './core/theme.js';
@@ -23,15 +24,11 @@ const client = window.supabase.createClient(APP.url, APP.key, {
 });
 initLogger(client);
 
-function showFatal(title, err) {
-  byId('root').innerHTML = `
-    <main><div class="card">
-      <h2>${esc(title)}</h2>
-      <p class="muted">${esc(err?.message ?? err)}</p>
-      <div class="small-note">Проверьте, что в проекте Supabase выполнены 001_schema.sql и 002_api.sql,
-        и что config.js указывает на нужную базу (${esc(APP.url)}).</div>
-      <button class="small" id="retry" style="margin-top:12px;">Обновить</button>
-    </div></main>`;
+function showFatal(stage) {
+  byId('login-screen').style.display = 'none';
+  byId('root').style.display = '';
+  byId('root').innerHTML = fatalPage(stage);
+  log.error('boot_failed', { stage });
   byId('retry').addEventListener('click', () => location.reload());
 }
 
@@ -39,7 +36,7 @@ async function boot() {
   try {
     await ensureSignedIn(client);
     if (recoveryPending()) await askNewPassword(client);
-  }catch(e){showFatal('Не удалось проверить вход',e);return;}
+  }catch(e){showFatal('auth');return;}
 
   const store = createStore({ client });
   try {
@@ -47,8 +44,7 @@ async function boot() {
     const selected = new URLSearchParams(location.search).get('plan');
     if (selected && store.state.accounts?.some(a => a.id === selected)) await store.switchAccount(selected);
   } catch (e) {
-    console.error(e);
-    showFatal('Не удалось загрузить план', e);
+    showFatal('load');
     return;
   }
 

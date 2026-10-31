@@ -44,9 +44,9 @@ export function personalFamilyCard(ctx) {
   const fixed=['per_payment','monthly'].includes(form.mode);
   return panel({
     note:'Правило применяется к будущим незафиксированным выплатам. Проведённые взносы сохраняются. Позиция семейного этапа меняется в порядке распределения.',
-    body:`<div class="row between wrap" style="gap:12px;margin-bottom:18px;"><b>${esc(connection.title)}</b>${action('open','Открыть семейный план',connection.id,'ghost small')}</div>
+    body:`<div style="margin-bottom:18px;"><b>${esc(connection.title)}</b></div>
     <div class="grid cols-3">
-      ${field('Личный источник',selectField('source_account_id',form.source_account_id,sources))}
+      ${field('Источник взносов',selectField('source_account_id',form.source_account_id,sources))}
       ${field('Способ отчислений',selectField('mode',form.mode,[['per_payment','Сумма с выплаты'],['monthly','Сумма за месяц'],['percent','Процент от дохода'],['remainder','Свободный остаток']],'data-family-reveal'))}
       ${field('Действует с',textField('effective_from',form.effective_from,`type="date" min="${today}"`))}
       ${fixed?field('Сумма, ₽',textField('amount',form.amount,'inputmode="decimal"'),form.mode==='monthly'?'Общий обязательный взнос за календарный месяц.':'Обязательный взнос с каждой выплаты.'):''}

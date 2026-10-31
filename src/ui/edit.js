@@ -29,6 +29,7 @@
 --------------------------------------------------------------------- */
 
 import { rebuildFuture } from '../engine/debts.js';
+import { revealAddedRow } from './navigation.js';
 
 const DEPENDENTS = {
   'expenses|expense_categories': [
@@ -265,7 +266,10 @@ export function attachEditing(container, store, getCtx, onError) {
     if (add) {
       const [domain, table] = add.dataset.add.split('|');
       const row = JSON.parse(add.dataset.row || '{}');
-      run(() => addRow(store, domain, table, row));
+      run(() => {
+        revealAddedRow(getCtx(), domain, table, row);
+        addRow(store, domain, table, row);
+      });
       return;
     }
     const del = ev.target.closest('[data-del]');
