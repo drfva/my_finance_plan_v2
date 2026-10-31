@@ -9,8 +9,11 @@ export function renderIncomeReport(ctx, report = buildIncomeReport({ state: ctx.
     const id = `income-info-${year}-${m.month}-${kind}`;
     const rates = [...b.rates].filter(([, amount]) => amount > 0).sort(([a], [b]) => a - b);
     const rateText = rates.length ? rates.map(([rate, amount]) => `${fmt.percent(rate, 2)} — ${fmt.money(amount)}`).join('; ') : b.tax > 0 ? 'по подтверждённой сумме' : 'не удерживается';
-    return `<button class="income-info" popovertarget="${id}" title="Расшифровка дохода"
-      aria-label="${esc(`Расшифровка: ${kind === 'automatic' ? 'автоматические выплаты' : 'разовые выплаты'}, ${label}`)}">ⓘ</button>
+    return `<button class="ghost small income-info" popovertarget="${id}" title="Расшифровка дохода"
+      aria-label="${esc(`Расшифровка: ${kind === 'automatic' ? 'автоматические выплаты' : 'разовые выплаты'}, ${label}`)}">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>
+        </svg></button>
       <div class="income-popover" id="${id}" popover>
         <b>${esc(label)} · ${kind === 'automatic' ? 'Автоматические выплаты' : 'Разовые выплаты'}</b>
         <dl><dt>Начислено до НДФЛ</dt><dd>${esc(fmt.money(b.gross))}</dd>
@@ -31,7 +34,7 @@ export function renderIncomeReport(ctx, report = buildIncomeReport({ state: ctx.
     <td class="num"><b>${money(m.automatic.net + m.oneOff.net)}</b></td>`;
   return card({ title: `Доход по месяцам ${year}`,
     note: 'Автоматические выплаты показаны по расчётным месяцам, на руки, с распределёнными отпускными и больничным. '
-      + 'Разовые — по дате поступления. Названия выплат — из графика выбранного года. Значок ⓘ раскрывает начисления, налог и справку по фактическим датам.',
+      + 'Разовые — по дате поступления. Названия выплат — из графика выбранного года. Кнопка информации раскрывает начисления, налог и справку по фактическим датам.',
     body: report.months.length ? table({
       head: ['Месяц', ...report.slots.map(s => ({ title: s.title, cls: 'num' })),
         { title: 'Всего', cls: 'num' }, { title: 'Разовые выплаты', cls: 'num' }, { title: 'Общий доход', cls: 'num' }],
