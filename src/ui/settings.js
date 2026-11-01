@@ -177,7 +177,7 @@ export function calendarCard(ctx) {
     <div class="row between calendar-nav">
       ${button({ action: 'calendar-month', value: `${ym}:-1`, label: '‹', title: 'Предыдущий месяц', cls: 'ghost' })}
       <button class="ghost calendar-month-title" data-toggle="calendar-picker" aria-expanded="${pickerOpen}" aria-controls="calendar-month-picker"
-        title="Выбрать месяц и год">${esc(fmt.monthName(month))} ${year} <span aria-hidden="true">⌄</span></button>
+        title="Выбрать месяц и год">${esc(fmt.monthName(month))} ${year}</button>
       ${pickerOpen ? `<div class="calendar-month-picker" id="calendar-month-picker" role="group" aria-label="Выбор месяца и года">
         <div class="row between">
           ${button({ action: 'calendar-picker-year', value: `${pickerYear}:-1`, label: '‹', title: 'Предыдущий год', cls: 'ghost small', disabled: pickerYear <= 1 })}
