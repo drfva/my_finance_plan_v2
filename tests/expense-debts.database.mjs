@@ -15,7 +15,7 @@ const migration=fs.readFileSync(new URL('../supabase/migrations/'+migrationName,
 await db.exec('create role service_role nologin bypassrls');
 await db.exec(fs.readFileSync(new URL('000_supabase_stub.sql',import.meta.url),'utf8'));
 for(const file of fs.readdirSync(new URL('../v2/sql/',import.meta.url)).filter(f=>/^\d/.test(f)&&!f.startsWith('000')).sort())await db.exec(fs.readFileSync(new URL('../v2/sql/'+file,import.meta.url),'utf8'));
-for(const file of fs.readdirSync(new URL('../supabase/migrations/',import.meta.url)).filter(f=>f.endsWith('.sql')&&f!==migrationName).sort())await db.exec(fs.readFileSync(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'));
+for(const file of fs.readdirSync(new URL('../supabase/migrations/',import.meta.url)).filter(f=>f.endsWith('.sql')&&f<migrationName).sort())await db.exec(fs.readFileSync(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'));
 const A='aaaaaaaa-0000-0000-0000-000000000001',B='bbbbbbbb-0000-0000-0000-000000000002';
 await db.query('insert into auth.users(id,email) values($1,$2),($3,$4)',[A,'a@example.test',B,'b@example.test']);
 async function rpc(actor,name,args={},role='authenticated') {
@@ -40,6 +40,7 @@ await rpc(A,'state_save',{p_account:a,p_domain:'debts',p_version:old.versions.de
 
 test('новая миграция: старые зафиксированные платежи сохраняются, повторный запуск безопасен',async()=>{
   await db.exec(migration);
+  for(const file of fs.readdirSync(new URL('../supabase/migrations/',import.meta.url)).filter(f=>f.endsWith('.sql')&&f>migrationName).sort())await db.exec(fs.readFileSync(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'));
   const state=await rpc(A,'state_get',{p_account:a});
   assert.deepEqual(state.income.periods[0].installment_snapshot,[{payment_id:'i-1',installment_id:'i',date:'2027-01-20',amount:1000,early:false}]);
   await db.exec(migration);

@@ -51,6 +51,13 @@ export const ROLE_TITLES = {
 /* Годы плана: и те, где уже есть выплаты, и те, где пока задан только график.
    Пока нет ничего — предлагаем следующий календарный год. */
 export function planYears(state, today) {
+  if (state.account?.plan_kind === 'family') return [...new Set([
+    Number(today.slice(0,4)),
+    ...(state.family?.contributions ?? []).map(c => Number(c.pay_date?.slice(0,4))),
+    ...(state.family?.budget?.months ?? []).map(m => Number(m.month.slice(0,4))),
+    ...(state.family?.monthly_expenses ?? []).map(m => Number(m.month.slice(0,4))),
+    ...(state.family?.expense_facts ?? []).map(m => Number(m.month.slice(0,4))),
+  ])].filter(y=>Number.isFinite(y)&&y>0).sort((a,b)=>a-b);
   const inc = state.income ?? {};
   const list = [...new Set([
     ...(inc.periods ?? []).map(p => Number(p.year)),
@@ -296,7 +303,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
 
     // черновики форм живут в памяти вкладки и не перерисовывают экран
     root.addEventListener('change', ev => {
-      if (familyChange(ev, context())) return;
+      const familyChanged=familyChange(ev, context());
+      if (familyChanged) { if(familyChanged==='render')render();return; }
       if (ui.tab === categories.code && categories.handleChange(ev, context())) return;
       const el = ev.target.closest('[data-draft]');
       if (!el) return;

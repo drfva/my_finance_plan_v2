@@ -9,6 +9,7 @@
     "build:family-function": "node tools/build-family-function.mjs",
     "test:family-db": "node --test tests/family.database.mjs",
     "test:account-db": "node --test tests/account.database.mjs",
-    "test:expense-debts-db": "node --test tests/expense-debts.database.mjs"
+    "test:expense-debts-db": "node --test tests/expense-debts.database.mjs",
+    "test:family-budget-db": "node --test tests/family-budget.database.mjs"
   }
 }

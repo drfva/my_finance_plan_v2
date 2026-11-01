@@ -130,6 +130,11 @@ export function createFamilyAllocator({ state, income, reference = null, round =
 
 /* Месячные бюджеты независимы. Статистический факт не участвует в остатке. */
 export function familyBudget(family, month) {
+  const calculated = family.budget?.months?.find(m => m.month === month);
+  if (calculated) return { ...calculated,
+    balance: cash(calculated.received - calculated.planned),
+    forecastBalance: cash(calculated.expected - calculated.planned),
+    deviation: cash(calculated.actual - calculated.planned) };
   const list = (family.contributions ?? []).filter(c => c.pay_date?.startsWith(month));
   const sum=rows=>cash(rows.reduce((s,r)=>s+positive(r.amount),0));
   const received = sum(list.filter(c => c.status === 'posted'));
@@ -138,4 +143,10 @@ export function familyBudget(family, month) {
   const actual = sum((family.expense_facts ?? []).filter(e => e.month === month));
   return { received, future, expected: cash(received + future), planned, actual,
     balance: cash(received - planned), forecastBalance: cash(received + future - planned), deviation: cash(actual - planned) };
+}
+
+export function familyYearBudget(family, year) {
+  const months = Array.from({length:12},(_,i) => familyBudget(family,`${year}-${String(i+1).padStart(2,'0')}`));
+  return Object.fromEntries(['received','future','expected','planned','actual','balance','forecastBalance','deviation','unassigned']
+    .map(key => [key,cash(months.reduce((sum,m) => sum + (Number(m[key]) || 0),0))]));
 }

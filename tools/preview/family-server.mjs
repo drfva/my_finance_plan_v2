@@ -49,6 +49,10 @@ for(const [user,source,amount,date] of [[A,personal,500000,today],[B,other,60000
   const state=await rpc(user,'state_get',{p_account:source});
   const periods=[{id:'p1',year:Number(date.slice(0,4)),pay_date:date,window_start:date.slice(0,7)+'-01',window_end:date,calc_mode:'manual',income_net:amount,taxable:false}];
   if(user===A)periods.push({id:'p2',year:Number(nextMonth.slice(0,4)),pay_date:`${nextMonth}-05`,window_start:`${nextMonth}-01`,window_end:`${nextMonth}-15`,calc_mode:'manual',income_net:200000,taxable:false});
+  if(user===A)for(const offset of [1,2]){
+    const year=Number(today.slice(0,4))+offset,date=`${year}-01-05`;
+    periods.push({id:`next-${offset}`,year,pay_date:date,window_start:`${year}-01-01`,window_end:`${year}-01-15`,calc_mode:'manual',income_net:150000,taxable:false});
+  }
   await rpc(user,'state_save',{p_domain:'income',p_patch:{periods},p_account:source,p_version:state.versions.income});
   await cmd(user,'rule',{source_account_id:source,revision:0,rule:{mode:user===A?'percent':'monthly',percent:20,amount:40000,cap_per_payment:user===B?15000:null,effective_from:today}});
 }

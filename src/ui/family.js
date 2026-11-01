@@ -1,30 +1,22 @@
 import { esc, card, section, table, field, pill } from './dom.js';
-import { familyBudget, validateFamilyRule, familyToday } from '../engine/family.js';
-import { addMonths } from '../engine/dates.js';
+import { validateFamilyRule, familyToday } from '../engine/family.js';
 import { planSwitch, securityCard, handle as handleSettings } from './settings.js';
 import { uid } from './edit.js';
+import { familyCategories, familyOverview, familyIncomes, familyFacts, familyBudgetChange, familyBudgetHandle } from './family-budget.js';
 
 export const FAMILY_TABS = ['dashboard','periods','categories','facts','settings','family-history'].map(code => ({
   code, title: () => ({ dashboard:'Обзор',periods:'Доходы',categories:'Категории',facts:'Расходы',settings:'Настройки','family-history':'История изменений' })[code],
+  hasYears: ['dashboard','periods','categories','facts'].includes(code),
+  actions: () => ['dashboard','periods'].includes(code) ? '<button class="ghost small" data-family-action="refresh">Обновить прогноз</button>' : '',
   render: ctx => renderFamily(ctx,code), handle,
 }));
 const COLORS = { blue:'Голубой',pink:'Розовый',purple:'Фиолетовый',green:'Зелёный',orange:'Оранжевый' };
 const nameOf = member => member?.nickname || member?.email || 'Участник';
 const memberTag = member => `<span class="family-person family-${esc(member?.color || 'blue')}" title="${esc(member?.email || '')}"><i aria-hidden="true"></i>${esc(nameOf(member))}${member?.active === false ? ' · вышел' : ''}</span>`;
 const draftOf = ctx => ctx.ui.draft[ctx.ui.tab] ?? {};
-const monthOf = ctx => ctx.ui.draft.familyMonth || ctx.today.slice(0,7);
 const textField = (name,value,extra='') => `<input data-draft="${esc(name)}" value="${esc(value??'')}" ${extra}>`;
 const selectField = (name,value,entries,extra='') => `<select data-draft="${esc(name)}" ${extra}>${entries.map(([key,title])=>`<option value="${esc(key)}"${String(value)===key?' selected':''}>${esc(title)}</option>`).join('')}</select>`;
 const action = (name,label,value='',cls='small') => `<button class="${cls}" data-family-action="${esc(name)}" data-value="${esc(value)}">${esc(label)}</button>`;
-
-function monthNavigation(ctx) {
-  const month = monthOf(ctx), [year,m] = month.split('-').map(Number);
-  const shifted = step => { const d=addMonths(year,m,step);return `${d.y}-${String(d.m).padStart(2,'0')}`; };
-  return `<div class="row between wrap family-month-nav">
-    <div class="row" style="gap:10px;">${action('month','‹',shifted(-1),'ghost small')}
-      <h2 style="margin:0;">${esc(ctx.fmt.month(month))}</h2>${action('month','›',shifted(1),'ghost small')}</div>
-    ${action('refresh','Обновить прогноз','','ghost small')}</div>`;
-}
 
 export function personalFamilyCard(ctx) {
   if (!ctx.state.family_available) return '';
@@ -102,65 +94,6 @@ export function familyRuleDescription(ctx,c) {
   return parts.join('; ');
 }
 
-function overview(ctx) {
-  const family = ctx.state.family, budget = familyBudget(family,monthOf(ctx));
-  const stat = (label,value) => `<div class="card stat"><div class="v">${esc(ctx.fmt.money(value))}</div><div class="l">${label}</div></div>`;
-  return `<div class="grid cols-3">${stat('Получено за месяц',budget.received)}${stat('Ожидаются взносы',budget.future)}${stat('Расходы по плану',budget.planned)}</div>
-    ${card({ title:'Расчётный остаток месяца', body:`<div class="grid cols-2">
-      <div><b class="family-balance${budget.balance<0?' danger-text':''}">${esc(ctx.fmt.money(budget.balance))}</b><p class="small-note">Полученные взносы минус весь план расходов месяца.</p></div>
-      <div><b class="family-balance${budget.forecastBalance<0?' danger-text':''}">${esc(ctx.fmt.money(budget.forecastBalance))}</b><p class="small-note">Прогноз с учётом ожидаемых взносов и плана расходов.</p></div></div>
-      <p class="small-note">Это расчёт бюджета месяца. Остатки других месяцев и статистический факт трат в него не включаются.</p>` })}
-    ${incomes(ctx)}`;
-}
-
-function incomes(ctx) {
-  const f = ctx.state.family, month = monthOf(ctx), members = new Map(f.members.map(m=>[m.id,m]));
-  const list = f.contributions.filter(c=>c.pay_date.startsWith(month));
-  const rows = list.map(c=>`<tr><td>${esc(ctx.fmt.date(c.pay_date))}</td><td>${memberTag(members.get(c.member_id))}</td>
-    <td>${pill(c.status==='posted'?'получено':c.pay_date<=ctx.today?'ожидает проведения':'прогноз',c.status==='posted'?'ok':'')}
-      ${c.arrears_amount>0?`<div class="small-note">Погашение недобора: ${esc(ctx.fmt.money(c.arrears_amount))}${c.settlements?.filter(s=>s.month<c.pay_date.slice(0,7)).map(s=>` · ${esc(ctx.fmt.month(s.month))}`).join('')||''}</div>`:''}</td>
-    <td class="num">${familyContributionControl(ctx,c)}</td></tr>`);
-  return card({title:'Семейные поступления',note:'Прогноз показан отдельно от полученных денег. Поступления проводятся автоматически в дату исходной выплаты.',
-    body:table({head:['Дата','Участник','Состояние',{title:'На руки',cls:'num'}],rows:rows.length?rows:['<tr><td colspan="4" class="muted">Поступлений за месяц пока нет.</td></tr>']})});
-}
-
-function expenseTable(ctx, facts = false) {
-  const f=ctx.state.family, month=monthOf(ctx), money=n=>esc(ctx.fmt.money(n));
-  const planOf=id=>f.monthly_expenses.find(e=>e.category_id===id&&e.month===month)?.amount??0;
-  const factOf=id=>f.expense_facts.find(e=>e.category_id===id&&e.month===month)?.amount??'';
-  const rowClass=(planned,actual,hasFact=true)=>!facts||!hasFact?'fact-even':Math.abs(actual-planned)<=planned*(Number(ctx.cfg.get('fact_tolerance_pct'))||0)/100?'fact-even':actual>planned?'fact-over':'fact-under';
-  const cellInput=(op,id,value)=>`<input class="num" inputmode="decimal" data-family-edit="${op}" data-id="${esc(id)}" value="${esc(value)}" style="max-width:150px;text-align:right;">`;
-  const rows=[];
-  const leaf=(c,label=c.title)=>`<tr class="${rowClass(planOf(c.id),Number(factOf(c.id)||0),factOf(c.id)!=='')}"><td>${esc(label)}</td>${facts?`<td class="num muted">${money(planOf(c.id))}</td>`:''}
-    <td class="num">${cellInput(facts?'fact':'expense',c.id,facts?factOf(c.id):planOf(c.id))}</td>
-    ${facts?`<td class="num diff">${factOf(c.id)===''?'':money(Number(factOf(c.id))-planOf(c.id))}</td>`:
-      `<td>${c.parent_id?'':action('add-item','+ подстатья',c.id,'ghost small')} ${action('delete-category','✕',c.id,'ghost small')}</td>`}</tr>`;
-  for (const c of f.categories.filter(c=>!c.parent_id)) {
-    const items=f.categories.filter(i=>i.parent_id===c.id);
-    if (!items.length) rows.push(leaf(c));
-    else {
-      const group=[c,...items], planned=group.reduce((s,x)=>s+Number(planOf(x.id)),0), actual=group.reduce((s,x)=>s+Number(factOf(x.id)||0),0);
-      rows.push(`<tr class="${rowClass(planned,actual,group.some(x=>factOf(x.id)!==''))}"><td><b>${esc(c.title)}</b></td><td class="num"><b>${money(planned)}</b></td>${facts?`<td class="num">${money(actual)}</td><td class="num diff">${money(actual-planned)}</td>`:`<td>${action('add-item','+ подстатья',c.id,'ghost small')} ${action('delete-category','✕',c.id,'ghost small')}</td>`}</tr>`);
-      if (planOf(c.id)||factOf(c.id)!=='') rows.push(leaf(c,'Без подстатьи'));
-      rows.push(...items.map(i=>leaf(i,`↳ ${i.title}`)));
-    }
-  }
-  const b=familyBudget(f,month);
-  const heading=facts?['Категория / статья','План','Факт','Отклонение']:['Категория / статья','План на месяц',''];
-  return card({title:facts?'План и статистический факт':'План расходов месяца',
-    note:facts?'Факт влияет только на статистику. Расчётный остаток уменьшается по плану.':'Каждая сумма относится только к выбранному месяцу.',
-    body:table({head:heading,rows:rows.length?rows:[`<tr><td colspan="${heading.length}" class="muted">Добавьте семейные категории.</td></tr>`],
-      foot:`<tr><td><b>Итого</b></td><td class="num"><b>${money(b.planned)}</b></td>${facts?`<td class="num"><b>${money(b.actual)}</b></td><td class="num">${money(b.deviation)}</td>`:'<td></td>'}</tr>`})});
-}
-
-function categories(ctx) {
-  const d=draftOf(ctx), f=ctx.state.family;
-  const rename=f.categories.map(c=>`<div class="row" style="gap:10px;margin:8px 0;">
-    <input data-family-edit="category" data-id="${esc(c.id)}" value="${esc(c.title)}" aria-label="Название ${c.parent_id?'подстатьи':'категории'}">${action('delete-category','✕',c.id,'ghost small')}</div>`).join('');
-  return `${expenseTable(ctx)}${card({title:'Категории семьи',body:`${rename}<div class="row wrap" style="gap:12px;margin-top:16px;">
-    ${textField('category_title',d.category_title,'placeholder="Новая категория" style="max-width:320px;"')}${action('add-category','+ категория','','primary small')}</div>`})}`;
-}
-
 function ownMember(ctx,member) {
   const d=draftOf(ctx),color=d.color??member.color,open=ctx.ui.open.has('family-palette');
   return `<div class="family-profile-inline">
@@ -201,10 +134,11 @@ function settings(ctx) {
 }
 
 function renderHistory(ctx) {
-  const labels={families:'Семейный план',family_categories:'Категории',family_monthly_expenses:'План расходов',family_expense_facts:'Статистический факт',family_contributions:'Взнос',family_members:'Участники',family_invitations:'Приглашение'};
+  const labels={families:'Семейный план',family_categories:'Категории',family_monthly_expenses:'План расходов',family_expense_facts:'Статистический факт',family_contributions:'Взнос',family_allocation_overrides:'Распределение взноса',family_members:'Участники',family_invitations:'Приглашение'};
   const actions={INSERT:'Создано',UPDATE:'Изменено',DELETE:'Удалено'};
   const fields={title:'Название',month:'Месяц',amount:'Сумма',nickname:'Никнейм',color:'Цвет',role:'Роль',active:'Участие',email:'Почта',
-    status:'Состояние',pay_date:'Дата поступления',current_amount:'Текущий взнос',arrears_amount:'Погашение недобора',expires_at:'Срок приглашения',deleted:'План удалён'};
+    status:'Состояние',pay_date:'Дата поступления',current_amount:'Текущий взнос',arrears_amount:'Погашение недобора',expires_at:'Срок приглашения',deleted:'План удалён',
+    mode:'Способ расчёта',monthly_amount:'Сумма на месяц',percent_value:'Процент за месяц',archived:'Удалена из будущего плана',period_id:'Взнос',category_id:'Категория',season_from:'Период с',season_to:'Период по'};
   const status={posted:'получено',forecast:'прогноз',pending:'ожидает принятия',accepted:'принято',revoked:'отозвано'};
   const value=(key,v)=>v==null?'—':['amount','current_amount','arrears_amount'].includes(key)?ctx.fmt.money(v):key==='color'?COLORS[v]||v:key==='active'?v?'участвует':'вышел':key==='role'?v==='owner'?'владелец':'участник':key==='status'?status[v]||v:String(v);
   const details=a=>table({head:['Поле','До','После'],rows:Object.entries(fields).filter(([key])=>JSON.stringify(a.before_data?.[key])!==JSON.stringify(a.after_data?.[key]))
@@ -218,10 +152,17 @@ function renderHistory(ctx) {
 }
 
 export function renderFamily(ctx,code) {
-  return `${code==='settings'||code==='family-history'?'':monthNavigation(ctx)}${code==='dashboard'?overview(ctx):code==='periods'?incomes(ctx):code==='categories'?categories(ctx):code==='facts'?expenseTable(ctx,true):code==='settings'?settings(ctx):renderHistory(ctx)}`;
+  if(['dashboard','periods','categories','facts'].includes(code)&&!ctx.state.family?.budget) return card({
+    title:'Не удалось загрузить расчёт семейного бюджета',
+    body:'<p class="muted">Обновите страницу. Если проблема повторяется, попробуйте позже.</p>',
+  });
+  const helpers={memberTag,contributionControl:familyContributionControl};
+  return code==='dashboard'?familyOverview(ctx,helpers):code==='periods'?familyIncomes(ctx,helpers):code==='categories'?familyCategories(ctx):code==='facts'?familyFacts(ctx):code==='settings'?settings(ctx):renderHistory(ctx);
 }
 
 export function handleChange(ev,ctx) {
+  const budgetChange=familyBudgetChange(ev,ctx);
+  if(budgetChange)return budgetChange;
   const profile=ev.target.closest('[data-family-profile]');
   if(profile){
     const self=ctx.state.family?.members.find(m=>m.is_self&&m.active);
@@ -238,14 +179,15 @@ export function handleChange(ev,ctx) {
   const override=ctx.state.family_private?.overrides?.find(o=>o.period_id===el.dataset.id);
   const category=ctx.state.family?.categories.find(c=>c.id===el.dataset.id);
   const payload=op==='override'?{period_id:el.dataset.id,amount,revision:override?.revision??0,
-    source_account_id:ctx.state.family_private?.membership?.source_account_id}:op==='category'?{...category,title:el.value}:{category_id:el.dataset.id,month:monthOf(ctx),amount};
+    source_account_id:ctx.state.family_private?.membership?.source_account_id}:op==='category'?{...category,title:el.value}:{category_id:el.dataset.id,month:ctx.ui.draft.familyFactMonth||`${ctx.year}-${ctx.today.slice(5,7)}`,amount};
   ctx.store.familyCommand(op,payload).then(result=>{if(result.warning)ctx.notice('warn',result.warning);}).catch(e=>ctx.notice('danger',e.message)); return true;
 }
 
 export function handle(ev,ctx) {
+  if(familyBudgetHandle(ev,ctx))return true;
   const el=ev.target.closest('[data-family-action]'); if(!el)return handleSettings(ev,ctx);
   const op=el.dataset.familyAction,value=el.dataset.value,d=ctx.ui.draft[ctx.ui.tab]??(ctx.ui.draft[ctx.ui.tab]={});
-  if(op==='month'){ctx.ui.draft.familyMonth=value;return true;}
+
   if(op==='dismiss-invite'){delete ctx.ui.draft.familyInvite;return true;}
   if(op==='open'){ctx.store.switchAccount(value).catch(e=>ctx.notice('danger',e.message));return true;}
   if(op==='palette-toggle'){
