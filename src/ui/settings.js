@@ -81,16 +81,19 @@ function stagesCard(ctx) {
 }
 
 function creditRepayment(ctx) {
-  const credits = ctx.cfg.stages().find(s => s.code === 'credits');
-  return `<div class="credit-repayment"><h3>Как гасим кредитки</h3>
-    <div class="small-note">Обязательная часть закрывает долг до конца льготного периода.</div>
-    ${field('Остаток выплаты после копилок', select({ edit: 'settings|allocation_rules|params', key: { stage_code: 'credits' }, type: 'json',
-      value: JSON.stringify(credits?.params?.early_repayment === false ? { early_repayment: false } : { early_repayment: true }),
-      options: [
-        { value: '{"early_repayment":true}', label: 'гасить карты досрочно' },
-        { value: '{"early_repayment":false}', label: 'оставлять свободным' },
-      ], disabled: !ctx.canEdit, defaults: { priority: credits?.priority ?? 4, enabled: true } }))}
-  </div>`;
+  return `<div class="small-note" style="margin-top:20px;">Досрочное погашение использует свободный остаток после всех обычных распределений. Очередь кредиток и рассрочек — как у их этапов выше.</div>`
+    + ['credits','installments'].map(code => {
+      const stage = ctx.cfg.stages().find(s => s.code === code);
+      const enabled = code === 'credits' ? stage?.params?.early_repayment !== false : stage?.params?.early_repayment === true;
+      const params = value => JSON.stringify({ ...stage?.params, early_repayment: value });
+      return `<div class="credit-repayment"><h3>${code === 'credits' ? 'Как гасим кредитки' : 'Как гасим рассрочки'}</h3>
+        ${field('Свободный остаток выплаты', select({ edit: 'settings|allocation_rules|params', key: { stage_code: code }, type: 'json',
+          value: params(enabled), options: [
+            { value: params(true), label: code === 'credits' ? 'гасить карты досрочно' : 'досрочно уменьшать ближайшие платежи' },
+            { value: params(false), label: 'не гасить досрочно' },
+          ], disabled: !ctx.canEdit, defaults: { priority: stage?.priority ?? (code === 'credits' ? 4 : 3), enabled: true } }))}
+      </div>`;
+    }).join('');
 }
 
 function yearsCard(ctx) {
@@ -168,15 +171,23 @@ export function calendarCard(ctx) {
       data-calendar-day="${date}" aria-pressed="${date === selected}" aria-label="${esc(fmt.date(date))}: ${label}${info.title ? ', ' + esc(info.title) : ''}${info.source === 'account' ? ', свой день' : ''}"
       title="${esc(info.title || label)}"><span>${n}</span>${info.source === 'account' ? '<i aria-hidden="true">•</i>' : ''}</button>`);
   }
+  const pickerYear = Number(draft.calendarPickerYear) || year;
+  const pickerOpen = ctx.ui.open.has('calendar-picker');
   const blocks = `<div class="production-calendar">
     <div class="row between calendar-nav">
       ${button({ action: 'calendar-month', value: `${ym}:-1`, label: '‹', title: 'Предыдущий месяц', cls: 'ghost' })}
-      <div class="calendar-pickers">
-        <label>Месяц<select data-calendar-picker="month">${Array.from({ length: 12 }, (_, i) =>
-          `<option value="${i + 1}"${month === i + 1 ? ' selected' : ''}>${esc(fmt.monthName(i + 1))}</option>`).join('')}</select></label>
-        <label>Год<select data-calendar-picker="year">${[...new Set([...(ctx.years ?? []), ...Array.from({ length: 11 }, (_, i) => year + i - 5)])]
-          .filter(y => y > 0 && y <= 9999).sort((a,b) => a-b).map(y => `<option value="${y}"${year === y ? ' selected' : ''}>${y}</option>`).join('')}</select></label>
-      </div>
+      <button class="ghost calendar-month-title" data-toggle="calendar-picker" aria-expanded="${pickerOpen}" aria-controls="calendar-month-picker"
+        title="Выбрать месяц и год">${esc(fmt.monthName(month))} ${year} <span aria-hidden="true">⌄</span></button>
+      ${pickerOpen ? `<div class="calendar-month-picker" id="calendar-month-picker" role="group" aria-label="Выбор месяца и года">
+        <div class="row between">
+          ${button({ action: 'calendar-picker-year', value: `${pickerYear}:-1`, label: '‹', title: 'Предыдущий год', cls: 'ghost small', disabled: pickerYear <= 1 })}
+          <select data-calendar-picker="year" aria-label="Год календаря">${[...new Set([...(ctx.years ?? []), ...Array.from({ length: 11 }, (_, i) => pickerYear + i - 5)])]
+            .filter(y => y > 0 && y <= 9999).sort((a,b) => a-b).map(y => `<option value="${y}"${pickerYear === y ? ' selected' : ''}>${y}</option>`).join('')}</select>
+          ${button({ action: 'calendar-picker-year', value: `${pickerYear}:1`, label: '›', title: 'Следующий год', cls: 'ghost small', disabled: pickerYear >= 9999 })}
+        </div>
+        <div class="calendar-month-grid">${Array.from({ length: 12 }, (_, i) => `<button class="small" data-calendar-jump="${pickerYear}-${pad2(i + 1)}"
+          aria-pressed="${pickerYear === year && i + 1 === month}">${esc(fmt.monthName(i + 1))}</button>`).join('')}</div>
+      </div>` : ''}
       ${button({ action: 'calendar-month', value: `${ym}:1`, label: '›', title: 'Следующий месяц', cls: 'ghost' })}
     </div>
     <div class="calendar-week">${['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => `<span>${d}</span>`).join('')}</div>
@@ -184,9 +195,9 @@ export function calendarCard(ctx) {
     <div class="calendar-legend row wrap"><span class="working">Рабочий</span><span class="weekend">Выходной</span><span class="holiday">Праздник</span><span>• свой день</span></div>
     <div class="row wrap calendar-counts">${pill(`Рабочих: ${working}`, 'ok')}${pill(`Нерабочих: ${count - working}`)}${pill(`Праздников: ${holidays}`)}</div>
     <div class="info-box calendar-selection">
-      <b>${esc(fmt.date(selected))} — ${selectedInfo.working ? 'рабочий день' : selectedInfo.holiday ? 'праздник / нерабочий день' : 'выходной'}</b>
-      ${selectedInfo.title ? `<div>${esc(selectedInfo.title)}</div>` : ''}
-      ${canEdit ? `<div class="row wrap" style="gap:8px;margin-top:10px;">
+      <div><b>${esc(fmt.date(selected))} — ${selectedInfo.working ? 'рабочий день' : selectedInfo.holiday ? 'праздник / нерабочий день' : 'выходной'}</b>
+      ${selectedInfo.title ? `<div>${esc(selectedInfo.title)}</div>` : ''}</div>
+      ${canEdit ? `<div class="row wrap calendar-day-actions">
         ${button({ action: 'calendar-set', value: `${selected}:${selectedInfo.working ? 'holiday' : 'workday'}`,
           label: selectedInfo.working ? 'Сделать нерабочим' : 'Сделать рабочим', cls: 'ghost small' })}
         ${own ? button({ action: 'calendar-set', value: `${selected}:default`, label: 'По календарю', cls: 'ghost small' }) : ''}
@@ -414,6 +425,21 @@ export function render(ctx) {
 export function handle(ev, ctx) {
   const { store, cfg, fmt } = ctx;
 
+  const pickerYear = ev.target.closest('[data-calendar-picker-year]');
+  if (pickerYear) {
+    const [year, step] = pickerYear.dataset.calendarPickerYear.split(':').map(Number);
+    if (![-1,1].includes(step) || year + step < 1 || year + step > 9999) return false;
+    (ctx.ui.draft.settings ??= {}).calendarPickerYear = year + step;
+    return true;
+  }
+  const jump = ev.target.closest('[data-calendar-jump]');
+  if (jump) {
+    if (!isValid(`${jump.dataset.calendarJump}-01`)) return false;
+    (ctx.ui.draft.settings ??= {}).calendarMonth = jump.dataset.calendarJump;
+    ctx.ui.open.delete('calendar-picker');
+    return true;
+  }
+
   const month = ev.target.closest('[data-calendar-month]');
   if (month) {
     const [ym, step] = month.dataset.calendarMonth.split(':');
@@ -421,11 +447,14 @@ export function handle(ev, ctx) {
     const [y, m] = ym.split('-').map(Number);
     const next = addMonths(y, m, Number(step));
     (ctx.ui.draft.settings ??= {}).calendarMonth = `${next.y}-${pad2(next.m)}`;
+    delete ctx.ui.draft.settings.calendarPickerYear;
+    ctx.ui.open.delete('calendar-picker');
     return true;
   }
   const day = ev.target.closest('[data-calendar-day]');
   if (day) {
     if (!isValid(day.dataset.calendarDay)) return false;
+    ctx.ui.open.delete('calendar-picker');
     (ctx.ui.draft.settings ??= {}).calendarDay = day.dataset.calendarDay;
     return true;
   }
@@ -564,6 +593,9 @@ export function attachSettings(root, store, getCtx, render = () => {}) {
     if(button)button.disabled=sec.state.deleting||d.confirmation.trim().toUpperCase()!=='УДАЛИТЬ';
   });
   root.addEventListener('keydown',ev=>{
+    if (ev.key === 'Escape' && getCtx().ui.open.has('calendar-picker')) {
+      getCtx().ui.open.delete('calendar-picker'); render(); ev.preventDefault(); return;
+    }
     const modal=root.querySelector('.account-delete-dialog');if(!modal)return;
     if(ev.key==='Escape'){getCtx().security?.closeDeletion();ev.preventDefault();return;}
     if(ev.key!=='Tab')return;
@@ -577,14 +609,11 @@ export function attachSettings(root, store, getCtx, render = () => {}) {
     const ctx = getCtx();
     const el = ev.target;
     if (el.matches('[data-calendar-picker]')) {
-      const date = root.querySelector('[data-calendar-day]')?.dataset.calendarDay;
-      if (!isValid(date)) return;
-      const [year, month] = date.split('-').map(Number);
       const value = Number(el.value);
-      const next = el.dataset.calendarPicker === 'year' ? `${String(value).padStart(4, '0')}-${pad2(month)}` : `${String(year).padStart(4, '0')}-${pad2(value)}`;
-      if (!isValid(`${next}-01`)) return;
-      (ctx.ui.draft.settings ??= {}).calendarMonth = next;
+      if (!Number.isInteger(value) || value < 1 || value > 9999) return;
+      (ctx.ui.draft.settings ??= {}).calendarPickerYear = value;
       render();
+      root.querySelector('[data-calendar-picker="year"]')?.focus?.({ preventScroll: true });
       return;
     }
     if (el.matches('[data-account-title]')) { store.setAccountTitle(el.value); return; }

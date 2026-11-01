@@ -10,7 +10,7 @@ import { render as renderDashboard, handle as handleDashboard } from '../src/ui/
 import { render as renderPeriods, handle as handlePeriods } from '../src/ui/periods.js';
 import { calendarCard, handle as handleSettings, render as renderSettings, attachSettings } from '../src/ui/settings.js';
 import { render as renderCredits } from '../src/ui/credits.js';
-import { render as renderCategories, handle as handleCategories } from '../src/ui/categories.js';
+import { render as renderCategories, handle as handleCategories, handleChange as changeCategories } from '../src/ui/categories.js';
 import { yearOptions as vacationYears } from '../src/ui/vacations.js';
 import { yearOptions as sickYears } from '../src/ui/sick.js';
 import { fatalPage } from '../src/ui/fatal.js';
@@ -164,8 +164,12 @@ test('производственный календарь: месяцы, вис�
   assert.match(html, /2028-02-29/);
   assert.match(html, /Рабочих: 20/);
   assert.doesNotMatch(html, /working_day_overrides/);
-  assert.match(html, /data-calendar-picker="month"/);
+  assert.match(html, /data-toggle="calendar-picker" aria-expanded="false"/);
+  assert.doesNotMatch(html, /data-calendar-picker="year"/);
+  ctx.ui.open.add('calendar-picker');
+  html = calendarCard(ctx);
   assert.match(html, /data-calendar-picker="year"/);
+  assert.equal((html.match(/data-calendar-jump=/g) ?? []).length,12);
   assert.doesNotMatch(html, /<table|class="own/);
   assert.equal(handleSettings(click('calendar-month', '2028-12:1'), ctx), true);
   assert.equal(ctx.ui.draft.settings.calendarMonth, '2029-01');
@@ -688,16 +692,20 @@ test('годы графика независимы: в свёрнутом вид
   assert.match(renderSettings(ctx), /early_repayment/);
 });
 
-test('быстрый выбор месяца и года календаря работает через общий обработчик настроек', () => {
+test('пикер календаря: год выбирается внутри, месяц применяется по нажатию и закрывает пикер', () => {
   const ctx = goalContext([]); ctx.ui.draft.settings = { calendarMonth: '2028-02' };
   const listeners = {}; let renders = 0;
   const root = { addEventListener(type, fn) { listeners[type] = fn; }, querySelector: () => ({ dataset: { calendarDay: `${ctx.ui.draft.settings.calendarMonth}-01` } }) };
   attachSettings(root, ctx.store, () => ctx, () => renders++);
   const change = (part, value) => listeners.change({ target: { matches: s => s === '[data-calendar-picker]', dataset: { calendarPicker: part }, value } });
-  change('month', '12'); assert.equal(ctx.ui.draft.settings.calendarMonth, '2028-12');
-  change('year', '2031'); assert.equal(ctx.ui.draft.settings.calendarMonth, '2031-12');
-  change('month', '13'); assert.equal(ctx.ui.draft.settings.calendarMonth, '2031-12');
-  assert.equal(renders, 2);
+  ctx.ui.open.add('calendar-picker');
+  change('year', '2031'); assert.equal(ctx.ui.draft.settings.calendarPickerYear, 2031);
+  assert.equal(ctx.ui.draft.settings.calendarMonth, '2028-02');
+  assert.equal(handleSettings(click('calendar-jump','2031-12'),ctx),true);
+  assert.equal(ctx.ui.draft.settings.calendarMonth,'2031-12');
+  assert.ok(!ctx.ui.open.has('calendar-picker'));
+  change('year','10000'); assert.equal(ctx.ui.draft.settings.calendarPickerYear,2031);
+  assert.equal(renders, 1);
 });
 
 test('мастер первого входа просит прокрутку к открытому блоку; запрос исполняется один раз', () => {
@@ -840,4 +848,34 @@ test('добавленная категория и статья открыты �
     assert.equal(inputFocused, true); assert.equal(headerFocused, false);
     assert.equal(ctx.ui.scrollTarget, null);
   }
+});
+
+test('сезонная сумма: редактирование черновика, запрет пересечений, сохранение, удаление и читатель',()=>{
+  const ctx=categoryContext();ctx.ui.open.add('cat:life');
+  const key=index=>JSON.stringify({table:'expense_items',id:'food',index});
+  assert.equal(handleCategories(click('amount-season-edit',key(null)),ctx),true);
+  const change=(name,value)=>changeCategories({target:{closest:s=>s==='[data-amount-season-field]'?{dataset:{amountSeasonField:name},value}:null}},ctx);
+  change('from','12-01');change('to','02-28');change('amount','12000');
+  assert.equal(handleCategories(click('amount-season-save',''),ctx),true);
+  assert.deepEqual(ctx.state.expenses.expense_items[0].amount_seasons,[{from:'12-01',to:'02-28',amount:12000}]);
+  handleCategories(click('amount-season-edit',key(null)),ctx);
+  change('from','02-28');change('to','03-10');change('amount','5000');
+  assert.throws(()=>handleCategories(click('amount-season-save',''),ctx),/пересекаться/);
+  assert.equal(ctx.state.expenses.expense_items[0].amount_seasons.length,1);
+  change('from','03-01');assert.equal(handleCategories(click('amount-season-save',''),ctx),true);
+  assert.ok(renderCategories(ctx).includes(fmt.money(5000)), 'сезонная сумма статьи видна в разделе');
+  handleCategories(click('amount-season-delete',key(0)),ctx);
+  assert.equal(ctx.state.expenses.expense_items[0].amount_seasons.length,1);
+  assert.equal(handleCategories(click('amount-season-edit',key(null)),{...ctx,canEdit:false}),false);
+});
+
+test('Расходы: сезонная сумма статьи соответствует выплатам месяца, подсказка о допуске убрана',()=>{
+  const ctx=categoryContext();
+  ctx.state.expenses.expense_items[0].amount_seasons=[{from:'03-01',to:'03-31',amount:8000}];
+  ctx.state.income.periods=[{id:'p',year:2027,pay_date:'2027-03-05',window_start:'2027-03-01',window_end:'2027-03-31',calc_mode:'manual',taxable:false,income_net:50000}];
+  ctx.sim=simulate(ctx.state,ctx.cfg);
+  ctx.ui.draft.facts={month:'2027-03'};
+  const html=renderFacts(ctx);
+  assert.ok(html.includes(fmt.money(8000)));
+  assert.doesNotMatch(html,/План — то, что заложено|Отклонение больше/);
 });

@@ -1,7 +1,8 @@
 /* Расходы: факт по месяцам против плана */
 
 import { esc, card, table, input, pill } from './dom.js';
-import { inSeasonMonth } from '../engine/expenses.js';
+import { inSeasonMonth, expenseAppliesInMonth, monthlyAmountOn } from '../engine/expenses.js';
+import { expenseAmountOn } from '../engine/expense-seasons.js';
 
 export const code = 'facts';
 export const title = () => 'Расходы';
@@ -54,7 +55,8 @@ export function render(ctx) {
   for (const c of cats) {
     if (!inSeasonMonth(month, c.season_from, c.season_to)) continue;
     const allItems = items.filter(i => i.category_id === c.id);
-    const own = allItems.filter(i => inSeasonMonth(month, i.season_from, i.season_to));
+    if (!allItems.length && !expenseAppliesInMonth(c, month, 'monthly_amount')) continue;
+    const own = allItems.filter(i => expenseAppliesInMonth(i, month));
     if (allItems.length && !own.length) continue;
     const catPlan = plan.get(c.id) ?? 0;
     const catFact = facts.filter(f => f.ym === month && f.category_id === c.id).reduce((s, f) => s + (Number(f.amount) || 0), 0);
@@ -70,9 +72,14 @@ export function render(ctx) {
       <td class="num diff">${catPlan || catFact ? esc(fmt.money(diff, undefined, { sign: true })) : ''}</td>
     </tr>`);
     for (const i of own) {
+      const itemPlan = ctx.sim.rows.filter(r => (r.period.window_start || r.period.pay_date).slice(0,7) === month).reduce((sum, r) => {
+        const monthly = monthlyAmountOn(c, allItems, r.period.pay_date);
+        const amount = r.expenses.categories.find(x => x.category_id === c.id)?.amount ?? 0;
+        return sum + (monthly > 0 ? amount * expenseAmountOn(i, r.period.pay_date) / monthly : 0);
+      }, 0);
       rows.push(`<tr class="fact-item">
         <td>${esc(i.title)}</td>
-        <td class="num muted">${esc(fmt.money(Number(i.amount) || 0))}</td>
+        <td class="num muted">${esc(fmt.money(itemPlan))}</td>
         <td class="num">${input({
           edit: 'facts|expense_facts|amount', key: { ym: month, category_id: c.id, item_key: i.id },
           defaults: { category_title: c.title, item_title: i.title },
@@ -103,7 +110,6 @@ export function render(ctx) {
     ${stats}
     ${card({
       title: `Факт за ${fmt.month(month)}`,
-      note: `План — то, что заложено в выплаты этого месяца. Отклонение больше ${esc(fmt.percent(tolerance, 0))} подсвечивается.`,
       body: table({
         head: ['Категория', { title: 'План', cls: 'num' }, { title: 'Факт', cls: 'num' }, { title: 'Отклонение', cls: 'num' }],
         rows: rows.length ? rows : ['<tr><td colspan="4" class="muted">Категорий нет</td></tr>'],

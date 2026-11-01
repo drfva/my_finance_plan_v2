@@ -29,6 +29,7 @@
 --------------------------------------------------------------------- */
 
 import { daysInclusive, daysInMonth } from './dates.js';
+import { expenseAmountOn } from './expense-seasons.js';
 
 export function inSeason(date, from, to) {
   if (!from || !to || !date) return true;
@@ -49,9 +50,17 @@ export function monthlyAmountOn(category, items, date) {
   if (!inSeason(date, category.season_from, category.season_to)) return 0;
   const own = items.filter(i => i.category_id === category.id);
   if (own.length) {
-    return own.reduce((s, i) => s + (inSeason(date, i.season_from, i.season_to) ? Number(i.amount) || 0 : 0), 0);
+    return own.reduce((s, i) => s + expenseAmountOn(i, date), 0);
   }
-  return Number(category.monthly_amount) || 0;
+  return expenseAmountOn(category, date, 'monthly_amount');
+}
+
+export function expenseAppliesInMonth(row, month, amountKey = 'amount') {
+  if (!inSeasonMonth(month, row.season_from, row.season_to)) return false;
+  if (!(row.amount_seasons ?? []).length) return true;
+  const [year, m] = month.split('-').map(Number);
+  return Array.from({ length: daysInMonth(year, m) }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`)
+    .some(date => expenseAmountOn(row, date, amountKey) > 0);
 }
 
 const monthOf = p => (p.window_start || p.pay_date).slice(0, 7);

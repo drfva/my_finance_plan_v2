@@ -87,8 +87,11 @@ main{max-width:1160px;margin:0 auto;padding:32px 24px 56px;display:flex;flex-dir
 .card-title h2,.card-title h3{font-size:19px!important;}
 [data-section],[data-scroll-row]{scroll-margin-top:calc(var(--sticky-header-height,160px) + 16px);}
 .fatal-page{max-width:640px;padding-top:80px;}
-.period-body .card-title{flex-wrap:wrap;}
-.period-body .card-title > .row{margin-left:auto;justify-content:flex-end;}
+.period-body .card-title{align-items:flex-start;gap:18px;}
+.period-body .card-title > h2{flex:1;min-width:0;}
+.period-body .card-title > .row{flex-direction:column;align-items:stretch;flex-shrink:0;margin-left:auto;gap:8px;}
+.period-body .card-title > .row button{white-space:normal;}
+@media(max-width:1100px){.period-body .card-title{flex-wrap:wrap;}.period-body .card-title > .row{align-items:flex-end;}}
 .plan-year{background:var(--surface-2);border-radius:var(--r-md);padding:18px;margin-top:14px;}
 .credit-repayment{margin-top:24px;max-width:520px;}
 .credit-repayment .field{margin-top:12px;}
@@ -263,8 +266,18 @@ button.category-head:focus-visible{outline-offset:-3px;}
 .category-editor .grid{gap:16px;}
 .category-share{min-height:44px;display:flex;align-items:center;font-size:18px;}
 .category-season{margin-top:14px;}
-.category-season-fields{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-top:12px;}
-.category-season-fields .field{min-width:0;max-width:260px;}
+.category-season-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;align-items:start;gap:12px;margin-top:12px;}
+.category-season-fields .field{min-width:0;}
+.category-season-fields > button{margin-top:28px;}
+.season-format-note{grid-column:1/-1;margin-top:0;}
+.amount-seasons{margin-top:12px;}
+.amount-seasons-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px;}
+.amount-season-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;}
+.amount-season-row > .row{margin-left:auto;gap:4px;}
+.amount-season-form{margin-top:10px;padding:14px;background:var(--surface-2);border-radius:var(--r-sm);}
+.amount-season-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+.amount-season-form > .row{gap:8px;margin-top:12px;justify-content:flex-end;}
+@media(max-width:600px){.amount-season-fields{grid-template-columns:repeat(2,minmax(0,1fr));}.amount-season-fields > .field:last-child{grid-column:1/-1;}}
 .category-items{margin-top:22px;border-top:1px solid var(--line);padding-top:18px;}
 .category-items-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;}
 .category-items-title h3{margin:0;font-size:15px;}
@@ -284,7 +297,8 @@ button.category-head:focus-visible{outline-offset:-3px;}
   .category-editor{padding:0 16px 16px;}
   .category-item-main{grid-template-columns:minmax(0,1fr) minmax(100px,.7fr);gap:8px;}
   .category-item-actions{grid-column:1/-1;min-height:0;}
-  .category-season-fields{align-items:start;}
+  .category-season-fields{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .category-season-fields > button{grid-column:1/-1;margin-top:0;justify-self:end;}
 }
 @media(max-width:420px){
   button.category-head{flex-wrap:wrap;}
@@ -518,11 +532,14 @@ button.family-leave{max-width:100%;text-align:right;}
 }
 
 .production-calendar{max-width:600px;margin:0 auto;}
-.calendar-nav{gap:12px;margin:12px 0 20px;}
+.calendar-nav{gap:12px;margin:12px 0 20px;position:relative;}
 .calendar-nav h3{text-align:center;text-transform:capitalize;}
-.calendar-pickers{display:flex;gap:10px;flex:1;justify-content:center;min-width:0;}
-.calendar-pickers label{margin:0;min-width:0;}
-.calendar-pickers select{margin-top:4px;width:auto;max-width:100%;}
+.calendar-month-title{text-transform:capitalize;font-size:17px;}
+.calendar-month-picker{position:absolute;z-index:3;top:calc(100% + 8px);left:50%;transform:translateX(-50%);width:340px;max-width:100%;padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow-pop);}
+.calendar-month-picker select{width:110px;text-align:center;}
+.calendar-month-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:12px;}
+.calendar-month-grid button{padding:10px 4px;text-transform:capitalize;}
+.calendar-month-grid [aria-pressed="true"]{background:var(--accent);color:var(--on-accent);}
 .calendar-week,.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;}
 .calendar-week{text-align:center;font-size:12px;color:var(--muted);margin-bottom:8px;}
 button.calendar-day{position:relative;min-width:0;min-height:48px;padding:10px 2px;border-radius:12px;box-shadow:none;}
@@ -538,5 +555,8 @@ button.calendar-day{position:relative;min-width:0;min-height:48px;padding:10px 2
 .calendar-legend .weekend::before{background:var(--surface-3);}
 .calendar-legend .holiday::before{background:var(--danger-soft);}
 .calendar-counts{gap:8px;}
-.calendar-selection{margin:16px 0;}
+.calendar-selection{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0;padding:12px 14px;}
+.calendar-selection b{font-size:13px;}
+.calendar-day-actions{gap:4px;}
+.calendar-day-actions button{padding:6px 8px;font-size:12px;}
 @media(max-width:450px){.calendar-week,.calendar-grid{gap:4px;}button.calendar-day{min-height:40px;border-radius:8px;}}

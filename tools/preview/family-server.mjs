@@ -14,8 +14,8 @@ const db=new PGlite({extensions:{pgcrypto}});
 await db.exec('create role service_role nologin bypassrls');
 await db.exec(await fs.readFile(path.join(root,'tests/000_supabase_stub.sql'),'utf8'));
 for(const file of (await fs.readdir(path.join(root,'v2/sql'))).filter(f=>/^\d/.test(f)&&!f.startsWith('000')).sort())await db.exec(await fs.readFile(path.join(root,'v2/sql',file),'utf8'));
-await db.exec(await fs.readFile(path.join(root,'supabase/migrations/20261031172114_family_plan.sql'),'utf8'));
-await db.exec(await fs.readFile(path.join(root,'supabase/migrations/20261031204207_voluntary_account_deletion.sql'),'utf8'));
+for (const file of (await fs.readdir(path.join(root,'supabase/migrations'))).filter(f=>f.endsWith('.sql')).sort())
+  await db.exec(await fs.readFile(path.join(root,'supabase/migrations',file),'utf8'));
 const A='aaaaaaaa-0000-0000-0000-000000000001',B='bbbbbbbb-0000-0000-0000-000000000002',C='cccccccc-0000-0000-0000-000000000003';
 const users={a:{id:A,email:'anna@example.test'},b:{id:B,email:'sasha@example.test'},c:{id:C,email:'guest@example.test'}};
 await db.query('insert into auth.users(id,email) values($1,$2),($3,$4),($5,$6)',[A,users.a.email,B,users.b.email,C,users.c.email]);

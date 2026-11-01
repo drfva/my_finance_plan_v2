@@ -28,8 +28,10 @@
 
    После этапов — доливка остатка по целям: по одному этапу за раз, у кого срок
    ближе; цели без срока — по приоритету; подушки — отдельной группой на своём
-   месте в порядке этапов. Затем, если у этапа credits не выключено
-   params.early_repayment, остаток идёт в досрочное погашение карт.
+   месте в порядке этапов. Затем свободный остаток идёт в досрочные погашения
+   по очереди этапов долгов: credits включён по умолчанию, installments —
+   только при params.early_repayment = true. Проведённые части рассрочек
+   сохраняются в installment_snapshot выплаты и уменьшают будущий долг.
 
    Зафиксированная выплата (locked) или выплата с ручными суммами в копилки
    (savings_period_overrides) автоматически в цели не распределяется: в цели идут
@@ -41,7 +43,8 @@
 
 import { computeIncome } from './income.js';
 import { planExpenses } from './expenses.js';
-import { installmentsByPeriod, newCardState, sortedCardOps, cardApplyOp, cardApplyPayment } from './debts.js';
+import { newCardState, sortedCardOps, cardApplyOp, cardApplyPayment } from './debts.js';
+import { createInstallmentAllocator } from './installment-allocation.js';
 import { createTracker, milestonesOf, progressOf } from './savings.js';
 import { createFx } from './fx.js';
 import { createFamilyAllocator } from './family.js';
@@ -56,6 +59,7 @@ export function simulate(state, cfg, options = {}) {
   for (let i = 0; i < 4; i++) {
     const next = simulatePlan(state, cfg, { ...options, income, reference: result });
     const same = next.rows.every((r, n) => JSON.stringify(r.allocations) === JSON.stringify(result.rows[n].allocations)
+      && JSON.stringify(r.installmentDetails) === JSON.stringify(result.rows[n].installmentDetails)
       && r.familyContribution?.amount === result.rows[n].familyContribution?.amount);
     result = next;
     if (same) break;
@@ -99,7 +103,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   });
 
   const debts = state.debts ?? {};
-  const inst = installmentsByPeriod(debts.installments ?? [], debts.installment_payments ?? [], periods);
+  const inst = createInstallmentAllocator(debts.installments ?? [], debts.installment_payments ?? [], periods);
   if (inst.outside.length) warnOnce('installments_before_plan', { count: inst.outside.length });
 
   /* ---------------------------------------------------------- накопления */
@@ -154,11 +158,14 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   /* Что останется от будущей выплаты после расходов, рассрочек и уже закреплённых
      сумм в копилки — для прогноза, успеет ли карта закрыться в срок */
   const baseFree = new Map();
+  const projectedInstallments = createInstallmentAllocator(debts.installments ?? [], debts.installment_payments ?? [], periods);
   for (const r of inc.periods) {
     const p = r.period;
     const ov = savingsOv.get(p.id);
     const committed = (p.locked || ov?.size) ? [...(ov?.values() ?? [])].reduce((s, x) => s + x, 0) : 0;
-    const instTotal = (inst.byPeriod.get(p.id) ?? []).reduce((s, x) => s + x.amount, 0);
+    projectedInstallments.step(p);
+    const parts = reference?.byId.get(p.id)?.installmentDetails?.filter(d => p.locked || !d.early) ?? projectedInstallments.details(p);
+    const instTotal = parts.reduce((s, x) => s + x.amount, 0);
     baseFree.set(p.id, r.total - expenses.byPeriod.get(p.id).total - instTotal - committed);
   }
 
@@ -381,8 +388,8 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     applyCardOpsUpTo(p.pay_date);
 
     const expRow = expenses.byPeriod.get(p.id);
-    const instList = inst.byPeriod.get(p.id) ?? [];
-    const instTotal = instList.reduce((s, x) => s + x.amount, 0);
+    inst.step(p);
+    let instTotal = inst.details(p).reduce((s, x) => s + x.amount, 0);
     const ov = savingsOv.get(p.id);
     // ручные суммы по целям: такая цель получает ровно введённое, остальные считаются
     const fixedGoals = ov ?? new Map();
@@ -394,6 +401,10 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     const byStage = {};
     const debtPayments = {};
     const cardBefore = {};
+    if (p.locked && Array.isArray(p.installment_snapshot) && !stage('installments')) {
+      remaining -= instTotal;
+      byStage.installments = instTotal;
+    }
     const cardOrder = [...cards].sort((a, b) => {
       const ka = cardState.get(a.id).deadline || '9999-99-99';
       const kb = cardState.get(b.id).deadline || '9999-99-99';
@@ -485,10 +496,20 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       }
     }
 
-    /* досрочное погашение карт остатком */
+    /* Досрочные погашения — только из свободного остатка после распределения.
+       Очередь кредиток и рассрочек совпадает с очередью их обычных этапов. */
     let early = 0;
-    const credits = stage('credits');
-    if (credits && credits.params?.early_repayment !== false && !p.locked && remaining > 0.5) {
+    let earlyInstallments = 0;
+    for (const debtStage of stages.filter(s => ['credits','installments'].includes(s.code))) {
+      if (p.locked || remaining <= 0.5) break;
+      if (debtStage.code === 'installments') {
+        if (debtStage.params?.early_repayment === true) {
+          const paid = inst.prepay(p, Math.max(0, remaining));
+          remaining -= paid; instTotal += paid; earlyInstallments += paid; early += paid;
+        }
+        continue;
+      }
+      if (debtStage.params?.early_repayment === false) continue;
       for (const c of cardOrder) {
         if (remaining <= 0.5 || payOv.has(c.id)) continue;
         const cs = cardState.get(c.id);
@@ -511,7 +532,8 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       totalIncome: r.total,
       expenses: expRow,
       categoriesTotal: expRow.total,
-      installments: instList,
+      installments: inst.groups(p),
+      installmentDetails: inst.details(p),
       installmentsTotal: instTotal,
       // остаток после расходов и рассрочек — то, что показывается в заголовке выплаты
       free: r.total - expRow.total - instTotal,
@@ -520,7 +542,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       cardBefore,
       cardState: Object.fromEntries([...cardState].map(([k, v]) => [k, { ...v }])),
       allocations,
-      byStage: { ...byStage, cascade: cascaded, early_repayment: early },
+      byStage: { ...byStage, cascade: cascaded, early_repayment: early, early_installments: earlyInstallments },
       manual,
       unallocated: remaining,
       goalBalances: snap.balances,
@@ -532,6 +554,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   applyCardOpsUpTo(null);
 
   return {
+    installmentSchedule: inst.schedule(),
     income: inc,
     rows,
     byId: new Map(rows.map(x => [x.period.id, x])),
@@ -725,7 +748,9 @@ export function freezePeriods(state, sim, ids, round = Math.round) {
   const set = new Set(ids);
   const periods = (state.income?.periods ?? []).map(p => (set.has(p.id)
     ? { ...p, income_net: sim.byId.get(p.id)?.income.salary ?? p.income_net, locked: true,
-        ...(!p.sick_leave_id ? { sick_snapshot: sim.byId.get(p.id)?.income.sickParts ?? [] } : {}) } : p));
+        ...(!p.sick_leave_id ? { sick_snapshot: sim.byId.get(p.id)?.income.sickParts ?? [] } : {}),
+        ...('installment_snapshot' in p || sim.byId.get(p.id)?.installmentDetails?.length
+          ? { installment_snapshot: sim.byId.get(p.id)?.installmentDetails ?? [] } : {}) } : p));
   const savings = [...(state.savings?.savings_period_overrides ?? [])];
   const payments = [...(state.debts?.credit_payment_overrides ?? [])];
   for (const id of set) {

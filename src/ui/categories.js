@@ -3,6 +3,9 @@
 import { esc, card, table, input, select, addButton, delButton, button, pill, field } from './dom.js';
 import { uid } from './edit.js';
 import { monthlyAmountOn, categoryShare, inSeason } from '../engine/expenses.js';
+import { amountSeasons, amountSeasonHandle, amountSeasonChange } from './expense-seasons.js';
+
+export const handleChange = amountSeasonChange;
 
 export const code = 'categories';
 export const title = () => 'Категории';
@@ -14,13 +17,14 @@ function seasonBlock(ctx, { domain, table: tbl, id, from, to }) {
   const { canEdit } = ctx;
   const key = { id };
   if (!from && !to) {
-    return canEdit ? button({ action: 'add-season', value: `${domain}|${tbl}|${id}`, label: '+ сезон', cls: 'ghost small',
-      title: 'Категория считается только в свой сезон' }) : '';
+    return canEdit ? button({ action: 'add-season', value: `${domain}|${tbl}|${id}`, label: '+ период действия', cls: 'ghost small',
+      title: 'Ограничить период, когда учитывается строка' }) : '';
   }
   return `<div class="category-season-fields">
-    ${field('Сезон с', input({ edit: `${domain}|${tbl}|season_from`, key, value: from, placeholder: 'ММ-ДД', disabled: !canEdit, style: 'max-width:120px;' }), SEASON_HINT)}
-    ${field('по', input({ edit: `${domain}|${tbl}|season_to`, key, value: to, placeholder: 'ММ-ДД', disabled: !canEdit, style: 'max-width:120px;' }))}
-    ${canEdit ? button({ action: 'drop-season', value: `${domain}|${tbl}|${id}`, label: 'убрать сезон', cls: 'ghost small' }) : ''}
+    ${field('Период действия с', input({ edit: `${domain}|${tbl}|season_from`, key, value: from, placeholder: 'ММ-ДД', disabled: !canEdit }))}
+    ${field('по', input({ edit: `${domain}|${tbl}|season_to`, key, value: to, placeholder: 'ММ-ДД', disabled: !canEdit }))}
+    ${canEdit ? button({ action: 'drop-season', value: `${domain}|${tbl}|${id}`, label: 'убрать период', cls: 'ghost small' }) : ''}
+    <div class="small-note season-format-note">${SEASON_HINT} Вне периода строка не учитывается. Ограничение применяется ко всем её сезонным суммам.</div>
   </div>`;
 }
 
@@ -31,13 +35,14 @@ function itemsBlock(ctx, cat) {
   const rows = items.map(i => `<div class="category-item" data-scroll-row="${esc(i.id)}">
     <div class="category-item-main">
       ${field('Статья', input({ edit: 'expenses|expense_items|title', key: { id: i.id }, value: i.title, disabled: !canEdit }))}
-      ${field('Сумма в месяц', input({ edit: 'expenses|expense_items|amount', key: { id: i.id }, value: i.amount, type: 'money', disabled: !canEdit }))}
+      ${field('Основная сумма в месяц', input({ edit: 'expenses|expense_items|amount', key: { id: i.id }, value: i.amount, type: 'money', disabled: !canEdit }))}
       <div class="category-item-actions">
         ${!i.season_from && !i.season_to ? seasonBlock(ctx, { domain: 'expenses', table: 'expense_items', id: i.id }) : ''}
         ${canEdit ? delButton({ domain: 'expenses', table: 'expense_items', key: { id: i.id } }) : ''}
       </div>
     </div>
     ${i.season_from || i.season_to ? seasonBlock(ctx, { domain: 'expenses', table: 'expense_items', id: i.id, from: i.season_from, to: i.season_to }) : ''}
+    ${amountSeasons(ctx, 'expense_items', i)}
   </div>`).join('');
   return `<div class="category-items">
     <div class="category-items-title"><h3>Статьи${items.length ? ` · ${items.length}` : ''}</h3>
@@ -88,12 +93,13 @@ export function render(ctx) {
             ${field('Название', input({ edit: 'expenses|expense_categories|title', key: { id: c.id }, value: c.title, disabled: !canEdit }))}
             ${field('Как считать', select({ edit: 'expenses|expense_categories|mode', key: { id: c.id }, value: c.mode, options: modes, disabled: !canEdit }))}
             ${field('Сумма на месяц', input({ edit: 'expenses|expense_categories|monthly_amount', key: { id: c.id }, value: hasItems ? monthly : c.monthly_amount, type: 'money', disabled: !canEdit || hasItems }),
-              hasItems ? 'Складывается из статей с учётом сезона' : '')}
+              hasItems ? 'Складывается из статей с учётом сезона' : (c.amount_seasons?.length ? 'Основная сумма действует вне сезонов с отдельной суммой' : ''))}
             ${percent
               ? field('Доля от выплаты', `<div class="category-share num">${esc(fmt.percent(share, 1))}</div>`, 'Сумма категории ÷ общий план расходов. Доля пересчитывается автоматически.')
               : field('Делить между выплатами', select({ edit: 'expenses|expense_categories|split_mode', key: { id: c.id }, value: c.split_mode, options: splits, disabled: !canEdit }))}
           </div>
           <div class="category-season">${seasonBlock(ctx, { domain: 'expenses', table: 'expense_categories', id: c.id, from: c.season_from, to: c.season_to })}</div>
+          ${!hasItems ? amountSeasons(ctx, 'expense_categories', c) : ''}
           ${itemsBlock(ctx, c)}
           ${canEdit ? `<div class="category-delete">${delButton({ domain: 'expenses', table: 'expense_categories', key: { id: c.id },
             label: 'Удалить категорию', confirm: `Удалить категорию «${c.title}» вместе со статьями, правками в выплатах и фактом?` })}</div>` : ''}
@@ -120,6 +126,7 @@ export function render(ctx) {
 }
 
 export function handle(ev, ctx) {
+  if (amountSeasonHandle(ev, ctx)) return true;
   if (!ctx.canEdit) return false;
   const { store } = ctx;
   const add = ev.target.closest('[data-add-season]');

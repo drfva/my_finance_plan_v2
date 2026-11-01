@@ -12,18 +12,32 @@ export function render(ctx) {
   const list = (state.debts?.installments ?? []).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   const payments = state.debts?.installment_payments ?? [];
   const units = ctx.cfg.list('period_units').map(u => ({ value: u.code, label: u.title }));
+  const entries = new Map((sim.installmentSchedule ?? []).map(p => [p.id,p]));
+  const paidAmount = p => {
+    const entry = entries.get(p.id);
+    return entry?.target ? (entry.allocations ?? []).filter(a => a.pay_date <= ctx.today).reduce((s,a) => s+a.amount,0)
+      : p.pay_date && p.pay_date <= ctx.today ? Number(p.amount)||0 : 0;
+  };
 
   const cards = list.map(i => {
     const own = payments.filter(p => p.installment_id === i.id).sort((a, b) => ((a.pay_date || '') < (b.pay_date || '') ? -1 : 1));
-    const paid = own.filter(p => p.pay_date && p.pay_date <= ctx.today);
+    const paid = own.filter(p => paidAmount(p) >= (Number(p.amount)||0) - 0.5);
+    const received = sim.rows.filter(r => r.period.pay_date <= ctx.today).flatMap(r => r.installmentDetails ?? [])
+      .filter(p => p.installment_id === i.id).reduce((s,p) => s+p.amount,0);
+    const remaining = Math.max(0, own.reduce((s,p) => s+Math.max(0,(Number(p.amount)||0)-paidAmount(p)),0));
     const sum = own.reduce((s, p) => s + (Number(p.amount) || 0), 0);
     const open = ui.open.has(`inst:${i.id}`);
-    const rows = own.map(p => `<div class="item-row ip-row" style="grid-template-columns:1fr 1fr auto auto;align-items:center;">
+    const rows = own.map(p => {
+      const allocations = entries.get(p.id)?.allocations ?? [];
+      const early = allocations.filter(a => a.early).reduce((s,a) => s+a.amount,0);
+      const due = Math.max(0,(Number(p.amount)||0)-early);
+      const when = allocations.filter(a => !a.early).map(a => fmt.date(a.pay_date));
+      return `<div class="item-row ip-row" style="grid-template-columns:1fr 1fr auto auto;align-items:center;">
       ${input({ edit: 'debts|installment_payments|pay_date', key: { id: p.id }, value: p.pay_date, type: 'date', disabled: !canEdit, cls: p.manual_fields?.includes('pay_date') ? 'own' : '' })}
       ${input({ edit: 'debts|installment_payments|amount', key: { id: p.id }, value: p.amount, type: 'money', disabled: !canEdit, cls: p.manual_fields?.includes('amount') ? 'own' : '' })}
-      <span class="small-note">${esc((sim.rows.find(r => r.installments.some(x => x.date === p.pay_date && x.installments.includes(i.id)))?.period.pay_date ?? '') ? 'из выплаты ' + fmt.date(sim.rows.find(r => r.installments.some(x => x.date === p.pay_date && x.installments.includes(i.id))).period.pay_date) : 'вне плана')}</span>
+      <span class="small-note">${esc(early > 0 ? `Досрочно ${fmt.money(early)} · к дате части ${fmt.money(due)}` : when.length ? 'из выплаты ' + when.join(', ') : 'вне плана')}</span>
       ${canEdit ? delButton({ domain: 'debts', table: 'installment_payments', key: { id: p.id } }) : ''}
-    </div>`).join('');
+    </div>`; }).join('');
     return card({
       body: `
         <div class="row between wrap" style="gap:10px;">
@@ -39,7 +53,7 @@ export function render(ctx) {
           Меняете сумму, число частей или периодичность — график пересобирается на будущие даты, прошедшие платежи остаются.
         </div>
         <div class="small-note" style="margin-top:4px;">
-          Оплачено ${paid.length} из ${own.length}, осталось ${esc(fmt.money(own.filter(p => !paid.includes(p)).reduce((s, p) => s + (Number(p.amount) || 0), 0)))}
+          Оплачено частей ${paid.length} из ${own.length}, осталось ${esc(fmt.money(remaining))}${received > 0 ? ` · из выплат уже направлено ${esc(fmt.money(received))}` : ''}
           ${Math.abs(sum - (Number(i.total) || 0)) > 0.5 ? ` · <b style="color:var(--warn);">сумма платежей ${esc(fmt.money(sum))} ≠ сумме покупки</b>` : ''}
         </div>
         <div class="row wrap" style="gap:8px;margin-top:8px;">
@@ -53,7 +67,7 @@ export function render(ctx) {
 
   const schedule = sim.rows.filter(r => r.installments.length).map(r => `<tr>
     <td>${esc(fmt.date(r.period.pay_date))}</td>
-    <td>${r.installments.map(x => `${esc(fmt.date(x.date))} — ${esc(fmt.money(x.amount))}`).join('<br>')}</td>
+    <td>${r.installments.map(x => `${esc(fmt.date(x.date))} — ${esc(fmt.money(x.amount))}${x.early ? ' · досрочно' : ''}`).join('<br>')}</td>
     <td class="num">${esc(fmt.money(r.installmentsTotal))}</td></tr>`);
 
   return `

@@ -96,7 +96,7 @@ function body(ctx, r) {
     </tr>`;
   });
 
-  const instRows = r.installments.map(x => `<tr><td>${esc(fmt.date(x.date))}</td>
+  const instRows = r.installments.map(x => `<tr><td>${esc(fmt.date(x.date))}${x.early ? ` ${pill('досрочно','ok')}` : ''}</td>
     <td>${esc(x.installments.map(id => (state.debts?.installments ?? []).find(i => i.id === id)?.title ?? id).join(', '))}</td>
     <td class="num">${esc(fmt.money(x.amount))}</td></tr>`);
 

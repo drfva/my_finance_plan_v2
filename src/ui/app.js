@@ -297,6 +297,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     // черновики форм живут в памяти вкладки и не перерисовывают экран
     root.addEventListener('change', ev => {
       if (familyChange(ev, context())) return;
+      if (ui.tab === categories.code && categories.handleChange(ev, context())) return;
       const el = ev.target.closest('[data-draft]');
       if (!el) return;
       const draft = ui.draft[ui.tab] ?? (ui.draft[ui.tab] = {});
