@@ -66,7 +66,7 @@ await cmd(A,'expense',{category_id:'food',month:nextMonth,amount:50000});
 await cmd(A,'expense',{category_id:'home',month:nextMonth,amount:40000});
 const members=await rpc(null,'family_worker_members',{},'service_role');
 for(const memberId of members)await runFamilyMember({rpc:(name,args)=>rpc(null,name,args,'service_role'),memberId,post:true});
-const allowed=new Set(['bootstrap_user','state_get','state_save','family_command','family_get','family_history','log_client_event','account_deletion_preview','account_assign_owner','delete_my_account']);
+const allowed=new Set(['bootstrap_user','state_get','state_save','family_command','family_get','family_history','family_history_page','log_client_event','account_deletion_preview','account_assign_owner','delete_my_account']);
 const json=(res,data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));};
 const server=http.createServer(async(req,res)=>{
   const address=new URL(req.url,'http://localhost');

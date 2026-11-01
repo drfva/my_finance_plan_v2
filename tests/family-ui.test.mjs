@@ -102,6 +102,41 @@ test('семейный бюджет: при недоступном расчёт�
   assert.doesNotMatch(html,/ПОЛУЧЕНО|Получено за год|SQL|supabase|family_api/);
 });
 
+test('семейные карточки: каждый видит чужое распределение, редактирует только своё; прошедшие видны по каждому участнику',async()=>{
+  for(const own of ['me','other']){
+    const ctx=budgetContext();for(const m of ctx.state.family.members)m.is_self=m.id===own;
+    ctx.state.family_private.membership.id=own;
+    ctx.ui.open.add('family-income:me:mine');ctx.ui.open.add('family-income:other:theirs');
+    let html=renderFamily(ctx,'periods');
+    const mine=html.split('id="family-income-mine"')[1].split('</section>')[0],theirs=html.split('id="family-income-theirs"')[1].split('</section>')[0];
+    assert.equal(mine.includes('data-family-budget-field="allocation"'),own==='me');
+    assert.equal(theirs.includes('data-family-budget-field="allocation"'),own==='other');
+    assert.match(mine,/Кафе/);assert.match(theirs,/Кафе/);
+    const notices=[];ctx.notice=(kind,message)=>notices.push(message);
+    const foreign=own==='me'?'other':'me';
+    handleChange(budgetField('allocation','cafe','100',{member:foreign,period:'mine'}),ctx);await Promise.resolve();await Promise.resolve();
+    assert.equal(ctx.commands.length,0);assert.match(notices[0],/только распределение своих/);
+  }
+  const ctx=budgetContext();ctx.state.family.contributions.push({id:'old-other',member_id:'other',period_id:'old-other',pay_date:'2040-11-01',amount:100,status:'posted'});
+  const html=renderFamily(ctx,'periods');
+  assert.match(html,/01.11.2040/);assert.match(html,/05.11.2040/);
+  assert.doesNotMatch(html,/Показать предыдущие взносы/,'последняя прошедшая карточка каждого участника видна сразу');
+});
+
+test('семейная история: по 10 записей, номера страниц, переходы и обновление',async()=>{
+  const ctx=budgetContext();ctx.ui.tab='family-history';
+  ctx.state.family.audit=Array.from({length:15},(_,i)=>({id:25-i,created_at:'2040-11-01T12:00:00Z',actor_name:`Автор ${i}`,action:'UPDATE',object_type:'family_categories',before_data:{title:'Старое'},after_data:{title:'Новое'}}));
+  Object.assign(ctx.state.family,{audit_page:2,audit_pages:3,audit_total:25});
+  const html=renderFamily(ctx,'family-history');
+  assert.equal([...html.matchAll(/<summary>Изменения<\/summary>/g)].length,10);
+  assert.match(html,/Страница 2 из 3/);assert.match(html,/11–20 из 25/);assert.match(html,/последний месяц/);
+  assert.doesNotMatch(html,/history-more/);
+  const calls=[];ctx.store.familyHistory=async(...args)=>calls.push(args);
+  handle(actionEvent('history-page','3'),ctx);await Promise.resolve();
+  handle(actionEvent('history-refresh'),ctx);await Promise.resolve();
+  assert.deepEqual(calls,[[3],[1,{refresh:true}]]);
+});
+
 test('настройки семьи: блоки раскрываются, текущий план выделен, название и роль стоят до переключения',()=>{
   const ctx=context(),html=renderSettings(ctx);
   assert.ok(html.indexOf('data-account-title')<html.indexOf('Доступные планы'));

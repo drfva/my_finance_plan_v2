@@ -89,3 +89,33 @@ test('семейный прогноз: личные изменения обно�
   await store.flush();
   assert.equal(f.refreshes,1);
 });
+
+test('история: страница заменяет записи, обновление снимает закреплённый диапазон',async()=>{
+  const f=fixture(),base=f.client.rpc.bind(f.client),historyCalls=[];
+  f.state.family.audit_anchor=25;
+  f.client.rpc=async(name,args)=>{
+    if(name!=='family_history_page')return base(name,args);
+    historyCalls.push(args);
+    return {data:{items:[{id:args.p_page===2?15:30}],page:args.p_page,pages:3,total:25,anchor:args.p_anchor??30},error:null};
+  };
+  const store=createStore({client:f.client});await store.load();
+  await store.familyHistory(2);
+  assert.deepEqual(store.state.family.audit,[{id:15}]);assert.equal(store.state.family.audit_page,2);
+  assert.equal(historyCalls[0].p_anchor,25);assert.equal(store.state.family.history_loading,false);
+  await store.familyHistory(1,{refresh:true});
+  assert.equal(historyCalls[1].p_anchor,null);assert.equal(store.state.family.audit_anchor,30);
+  assert.deepEqual(store.state.family.audit,[{id:30}]);
+});
+
+test('история: запоздавший ответ не заменяет новую страницу и не переносится в другой план',async()=>{
+  const f=fixture(),base=f.client.rpc.bind(f.client),pending=[];
+  f.client.rpc=async(name,args)=>name==='family_history_page'?new Promise(resolve=>pending.push({args,resolve})):base(name,args);
+  const store=createStore({client:f.client});await store.load();
+  const second=store.familyHistory(2),third=store.familyHistory(3);
+  pending[1].resolve({data:{items:[{id:3}],page:3,pages:3,total:21,anchor:21}});await third;
+  pending[0].resolve({data:{items:[{id:13}],page:2,pages:3,total:21,anchor:21}});await second;
+  assert.equal(store.state.family.audit_page,3);assert.deepEqual(store.state.family.audit,[{id:3}]);
+  const old=store.familyHistory(2);await store.switchAccount('other');
+  pending[2].resolve({data:{items:[{id:100}],page:2,pages:3,total:21,anchor:21}});await old;
+  assert.equal(store.state.account.id,'other');assert.deepEqual(store.state.family.audit,[]);
+});

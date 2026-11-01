@@ -206,6 +206,18 @@ function sub(ctx, key, title, actions, body) {
   </div>`;
 }
 
+function currencyPicker(ctx,g) {
+  const current=ctx.cfg.currency(g.currency_code),key=`goal-currency:${g.id}`,open=ctx.ui.open.has(key);
+  return `<div class="goal-currency-picker"><button class="ghost goal-currency-toggle" data-goal-currency-toggle="${esc(g.id)}"
+    aria-label="Выбрать валюту: ${esc(g.currency_code)}" title="${esc(current?.title||g.currency_code)}" aria-expanded="${open}"
+    aria-controls="currency-palette-${esc(g.id)}"${ctx.canEdit?'':' disabled'}>${esc(current?.symbol||g.currency_code)}</button>
+    ${open&&ctx.canEdit?`<div class="goal-currency-options" id="currency-palette-${esc(g.id)}" role="group" aria-label="Валюта цели">
+      ${ctx.cfg.list('currencies').map(c=>`<button class="goal-currency-option" data-goal-currency="${esc(g.id)}" data-currency="${esc(c.code)}"
+        title="${esc(c.title||c.code)}" aria-label="${esc(c.code)}" aria-pressed="${c.code===g.currency_code}">
+        <span aria-hidden="true">${esc(c.symbol||c.code)}</span><span class="currency-code" aria-hidden="true">${esc(c.code)}</span></button>`).join('')}
+    </div>`:''}</div>`;
+}
+
 /* Карточка цели. Подушки показывают то же самое плюс темп (reserves.js). */
 export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycles = true, showPriority = true } = {}) {
   const { state, fmt, canEdit, sim, ui } = ctx;
@@ -213,7 +225,6 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
   const txs = (state.savings?.goal_transactions ?? []).filter(t => t.goal_id === g.id)
     .sort((a, b) => (a.date < b.date ? -1 : 1));
   const goalsById = new Map((state.savings?.goals ?? []).map(x => [x.id, x]));
-  const currencies = ctx.cfg.list('currencies').map(c => ({ value: c.code, label: c.code }));
 
   const total = goalTotal(g, state.savings?.goal_milestones ?? []);
   const hasTarget = total > 0;
@@ -298,7 +309,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
       : `<div class="small-note">на счету сейчас (${esc(fmt.date(ctx.today))}): <b>${esc(fmt.money(balance, g.currency_code))}</b>.
         Прогноза нет: не задана сумма цели и нет этапов.</div>`}
     <div class="row wrap" style="gap:12px;margin-top:12px;align-items:end;">
-      <div style="width:120px;">${field('Валюта', select({ edit: 'savings|goals|currency_code', key: { id: g.id }, value: g.currency_code, options: currencies, disabled: !canEdit }))}</div>
+      <div>${field('Валюта',currencyPicker(ctx,g))}</div>
       <div style="width:160px;">${field('Начальный остаток', input({ edit: 'savings|goals|starting_balance', key: { id: g.id }, value: g.starting_balance, type: 'money', disabled: !canEdit }))}</div>
       ${canEdit ? (`<div class="row wrap goal-actions" style="gap:8px;">
         ${button({ action: 'goal-close', value: g.id, label: g.completed ? 'Вернуть в работу' : 'Закрыть цель',
@@ -358,6 +369,19 @@ export function render(ctx) {
 
 export function handle(ev, ctx) {
   const { store, ui } = ctx;
+  const currencyToggle=ev.target.closest('[data-goal-currency-toggle]'),currencyChoice=ev.target.closest('[data-goal-currency]');
+  if(currencyToggle||currencyChoice){
+    if(!ctx.canEdit)return false;
+    const id=currencyToggle?.dataset.goalCurrencyToggle??currencyChoice.dataset.goalCurrency;
+    const goal=ctx.state.savings?.goals?.find(g=>g.id===id);
+    if(!goal)return false;
+    const key=`goal-currency:${id}`,wasOpen=ui.open.has(key);
+    if(currencyChoice&&!ctx.cfg.currency(currencyChoice.dataset.currency))return false;
+    for(const open of [...ui.open])if(open.startsWith('goal-currency:'))ui.open.delete(open);
+    if(currencyToggle){if(!wasOpen)ui.open.add(key);}
+    else store.update('savings',d=>{d.goals.find(g=>g.id===id).currency_code=currencyChoice.dataset.currency;});
+    return true;
+  }
 
   const archive = ev.target.closest('[data-goal-archive]');
   const show = ev.target.closest('[data-goal-show-overview]');

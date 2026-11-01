@@ -52,6 +52,28 @@ function goalContext(goals, milestones = []) {
     ui: { open: new Set(), draft: { dashboard: { view: 'saved' } } }, sim: simulate(state, cfg, { today: '2027-03-01' }) };
 }
 
+test('валюта целей: значки вместо списка, выбор и запрет редактирования читателю',()=>{
+  const goal={id:'currency-goal',title:'Покупка',kind_code:'bucket',currency_code:'RUB',target_amount:1000,starting_balance:100,completed:false};
+  const reserve={...goal,id:'currency-reserve',kind_code:'reserve'};
+  const ctx=goalContext([goal,reserve]);
+  ctx.state.ref.currencies.push({code:'USD',symbol:'$',sort_order:2});ctx.cfg=createConfig(ctx.state);
+  let html=goalCard(ctx,goal);
+  assert.doesNotMatch(html,/data-edit="savings\|goals\|currency_code"/);
+  assert.match(html,/data-goal-currency-toggle="currency-goal"/);
+  handleGoals(click('goal-currency-toggle',goal.id),ctx);
+  assert.match(goalCard(ctx,goal),/data-currency="USD"/);
+  handleGoals(click('goal-currency-toggle',reserve.id),ctx);
+  assert.equal(ctx.ui.open.has('goal-currency:currency-goal'),false);
+  assert.match(renderReserves(ctx),/goal-currency-options/);
+  const choose=code=>({target:{closest:s=>s==='[data-goal-currency]'?{dataset:{goalCurrency:reserve.id,currency:code}}:null}});
+  assert.equal(handleGoals(choose('USD'),ctx),true);
+  assert.equal(reserve.currency_code,'USD');assert.equal(reserve.target_amount,1000);assert.equal(reserve.starting_balance,100);
+  assert.equal(ctx.ui.open.has(`goal-currency:${reserve.id}`),false);
+  assert.equal(handleGoals(choose('UNKNOWN'),ctx),false);
+  ctx.canEdit=false;assert.equal(handleGoals(click('goal-currency-toggle',goal.id),ctx),false);
+  assert.match(goalCard(ctx,goal),/goal-currency-toggle[^>]* disabled/);
+});
+
 test('свёрнутая выплата: долги включают кредитки и рассрочки, в том числе без кредиток', () => {
   const ctx = goalContext([]);
   ctx.state.income.periods = [{ id: 'p', year: 2027, pay_date: '2027-04-05', calc_mode: 'manual', income_net: 1000 }];

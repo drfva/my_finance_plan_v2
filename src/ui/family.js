@@ -134,6 +134,7 @@ function settings(ctx) {
 }
 
 function renderHistory(ctx) {
+  const f=ctx.state.family, page=Number(f.audit_page)||1, pages=Number(f.audit_pages)||1, total=Number(f.audit_total)||f.audit.length;
   const labels={families:'Семейный план',family_categories:'Категории',family_monthly_expenses:'План расходов',family_expense_facts:'Статистический факт',family_contributions:'Взнос',family_allocation_overrides:'Распределение взноса',family_members:'Участники',family_invitations:'Приглашение'};
   const actions={INSERT:'Создано',UPDATE:'Изменено',DELETE:'Удалено'};
   const fields={title:'Название',month:'Месяц',amount:'Сумма',nickname:'Никнейм',color:'Цвет',role:'Роль',active:'Участие',email:'Почта',
@@ -143,12 +144,17 @@ function renderHistory(ctx) {
   const value=(key,v)=>v==null?'—':['amount','current_amount','arrears_amount'].includes(key)?ctx.fmt.money(v):key==='color'?COLORS[v]||v:key==='active'?v?'участвует':'вышел':key==='role'?v==='owner'?'владелец':'участник':key==='status'?status[v]||v:String(v);
   const details=a=>table({head:['Поле','До','После'],rows:Object.entries(fields).filter(([key])=>JSON.stringify(a.before_data?.[key])!==JSON.stringify(a.after_data?.[key]))
     .map(([key,label])=>`<tr><td>${label}</td><td>${esc(value(key,a.before_data?.[key]))}</td><td>${esc(value(key,a.after_data?.[key]))}</td></tr>`)});
-  const rows=ctx.state.family.audit.map(a=>`<tr><td>${esc(new Date(a.created_at).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}))}</td><td>${esc(a.actor_name)}${a.actor_kind==='system'?' · автоматически':''}</td>
+  const rows=f.audit.slice(0,10).map(a=>`<tr><td>${esc(new Date(a.created_at).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}))}</td><td>${esc(a.actor_name)}${a.actor_kind==='system'?' · автоматически':''}</td>
     <td>${esc(labels[a.object_type]||a.object_type)} · ${esc(actions[a.action]||a.action)}</td><td><details><summary>Изменения</summary>
       ${details(a)}</details></td></tr>`);
-  return card({title:'История изменений',note:'Автор, время по Москве и сохранённые значения до и после изменения.',
+  const pageButton=(number,label=number)=>`<button class="${number===page?'active':''}" data-family-action="history-page" data-value="${number}"${f.history_loading||number===page||number<1||number>pages?' disabled':''}${number===page?' aria-current="page"':''}>${esc(label)}</button>`;
+  const numbers=[...new Set([1,pages,page-1,page,page+1])].filter(p=>p>=1&&p<=pages).sort((a,b)=>a-b);
+  const pagination=`<div class="row between wrap history-pagination"><span class="small-note">Страница ${page} из ${pages} · ${total?`${(page-1)*10+1}–${Math.min(page*10,total)} из ${total} записей`:'Записей нет'}</span>
+    <nav class="month-tabs" aria-label="Страницы истории">${pageButton(page-1,'Назад')}${numbers.map((p,i)=>(i&&p>numbers[i-1]+1?'<span aria-hidden="true">…</span>':'')+pageButton(p)).join('')}${pageButton(page+1,'Вперёд')}</nav></div>`;
+  return card({title:'История изменений',note:'История за последний месяц. Более ранние записи удаляются автоматически. Время — по Москве.',
+    actions:`<button class="ghost small" data-family-action="history-refresh"${f.history_loading?' disabled':''}>${f.history_loading?'Обновление…':'Обновить'}</button>`,
     body:table({head:['Когда','Кто','Действие','Что изменилось'],rows:rows.length?rows:['<tr><td colspan="4" class="muted">История пока пуста.</td></tr>']})
-      + (ctx.state.family.audit_has_more!==false&&rows.length>=200?action('history-more','Более ранние изменения','','ghost small'):'')});
+      + pagination});
 }
 
 export function renderFamily(ctx,code) {
@@ -196,7 +202,8 @@ export function handle(ev,ctx) {
   }
   const run=async()=>{
     if(op==='refresh'){await ctx.store.refreshFamilyForecast();return;}
-    if(op==='history-more'){await ctx.store.familyHistory();return;}
+    if(op==='history-page'){await ctx.store.familyHistory(Number(value));return;}
+    if(op==='history-refresh'){await ctx.store.familyHistory(1,{refresh:true});return;}
     let payload={}; let actionName=op;
     if(op==='create')payload={title:d.family_title};
     else if(op==='rename')payload={title:d.family_title??ctx.state.family.title};

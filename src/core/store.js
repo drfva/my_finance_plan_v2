@@ -69,6 +69,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   let familyNeedsRefresh = false;
   let familyRefreshTimer = null;
   let pendingForecast = null;
+  let historyRequest = 0;
 
   function emit(type, payload = {}) {
     for (const fn of listeners) {
@@ -482,18 +483,25 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     },500);
   }
 
-  async function familyHistory() {
+  async function familyHistory(page = 1, { refresh = false } = {}) {
     const family = state.family;
     if (!family) return;
-    const before = family.audit?.at(-1)?.id ?? null;
-    const { data, error } = await client.rpc('family_history', { p_family: family.id, p_before: before });
-    if (error) throw toError(error, 'Не удалось загрузить историю');
-    if (state.family?.id !== family.id) return;
-    const target = state.family;
-    const ids = new Set(target.audit.map(a => a.id));
-    target.audit.push(...data.filter(a => !ids.has(a.id)));
-    target.audit_has_more = data.length === 100;
+    const request = ++historyRequest;
+    family.history_loading = true;
     emit('change', { domain: null });
+    try {
+      const { data, error } = await client.rpc('family_history_page', { p_family: family.id,
+        p_page: page, p_anchor: refresh ? null : family.audit_anchor ?? null });
+      if (error) throw toError(error, 'Не удалось загрузить историю');
+      if (state.family !== family || request !== historyRequest) return;
+      Object.assign(family, { audit: data.items, audit_page: data.page, audit_pages: data.pages,
+        audit_total: data.total, audit_anchor: data.anchor });
+    } finally {
+      if (state.family === family && request === historyRequest) {
+        family.history_loading = false;
+        emit('change', { domain: null });
+      }
+    }
   }
 
   return {

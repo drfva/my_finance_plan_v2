@@ -147,8 +147,9 @@ hr.sep{border:none;border-top:1px solid var(--line);margin:22px 0;}
 table{width:100%;border-collapse:separate;border-spacing:0;}
 th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line);font-size:14px;}
 th{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;background:var(--surface-2);border-bottom:none;}
-th:first-child{border-radius:var(--r-sm) 0 0 var(--r-sm);}
-th:last-child{border-radius:0 var(--r-sm) var(--r-sm) 0;}
+th:first-child{border-radius:var(--r-sm) 0 0 0;}
+th:last-child{border-radius:0 var(--r-sm) 0 0;}
+th:only-child{border-radius:var(--r-sm) var(--r-sm) 0 0;}
 tbody tr:hover td{background:var(--surface-2);}
 tr:last-child td{border-bottom:none;}
 td.num,th.num{text-align:right;font-family:var(--font-mono);}
@@ -480,6 +481,12 @@ nav.tabs button.active .late-dot,.month-tabs button.active .late-dot{background:
 .goal-card.goal-late{border:1px solid var(--warn);}
 .goal-archive{margin-top:16px;}
 .goal-eye{display:inline-flex;align-items:center;justify-content:center;}
+.goal-currency-picker{position:relative;}
+button.goal-currency-toggle{display:inline-flex;align-items:center;justify-content:center;width:52px;min-height:44px;padding:6px;font-size:24px;line-height:1;}
+.goal-currency-options{position:absolute;left:0;top:calc(100% + 8px);display:flex;flex-wrap:wrap;gap:8px;z-index:5;width:max-content;max-width:min(280px,calc(100vw - 48px));padding:12px;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-pop);}
+button.goal-currency-option{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:44px;min-height:52px;padding:5px;border:2px solid transparent;border-radius:8px;background:var(--surface-2);color:var(--ink);font-size:22px;box-shadow:none;}
+.goal-currency-option .currency-code{font-size:9px;font-weight:650;letter-spacing:.04em;}
+button.goal-currency-option[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink);}
 .period-card[data-past-anchor]{scroll-margin-top:150px;}
 .income-value{display:inline-flex;align-items:center;gap:6px;}
 button.income-info{display:inline-flex;align-items:center;justify-content:center;min-height:28px;width:28px;padding:0;}
@@ -505,6 +512,8 @@ button.family-income-head{width:100%;border:0;border-radius:0;box-shadow:none;te
 .family-income-head .period-pills{flex:1;gap:6px;}
 .family-income-filters{margin-bottom:18px;gap:12px;}
 .family-income-filters .field{min-width:240px;}
+.history-pagination{gap:12px;margin-top:18px;}
+.history-pagination .month-tabs{margin:0;gap:6px;}
 .plan-switch{background:var(--surface-2);color:var(--ink);}
 .plan-choice{display:inline-flex;align-items:center;min-height:34px;border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:650;line-height:1.35;}
 .plan-choice.current{background:var(--surface);border-color:var(--accent);color:var(--ink);box-shadow:inset 0 0 0 1px var(--accent);}

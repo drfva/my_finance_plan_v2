@@ -10,6 +10,6 @@
     "test:family-db": "node --test tests/family.database.mjs",
     "test:account-db": "node --test tests/account.database.mjs",
     "test:expense-debts-db": "node --test tests/expense-debts.database.mjs",
-    "test:family-budget-db": "node --test tests/family-budget.database.mjs"
+    "test:family-budget-db": "node --test tests/family-budget.database.mjs tests/family-access-history.database.mjs"
   }
 }

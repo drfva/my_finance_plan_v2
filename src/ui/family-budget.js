@@ -86,7 +86,8 @@ export function familyOverview(ctx,{memberTag}) {
 }
 
 function allocationTable(ctx,c,row) {
-  const editable=ctx.canEdit&&!row.locked&&c.status!=='posted'&&c.pay_date>ctx.today;
+  const editable=ctx.canEdit&&ctx.state.family.members.some(m=>m.id===c.member_id&&m.is_self&&m.active)
+    &&!row.locked&&c.status!=='posted'&&c.pay_date>ctx.today;
   const groups=new Map();
   for(const item of row.allocations){const id=item.parent_id||item.category_id;if(!groups.has(id))groups.set(id,[]);groups.get(id).push(item);}
   const rows=[];
@@ -108,12 +109,16 @@ export function familyIncomes(ctx,{memberTag,contributionControl}) {
   const filters=`<div class="row wrap family-income-filters">${field('Показать взносы',`<select data-family-budget-field="member-filter" aria-label="Фильтр участников">
     <option value="all"${filter==='all'?' selected':''}>Всех участников</option><option value="mine"${filter==='mine'?' selected':''}>Мои взносы</option>
     ${f.members.map(m=>`<option value="${esc(m.id)}"${filter===m.id?' selected':''}>${esc(m.nickname||m.email||'Участник')}${m.active?'':' · вышел'}</option>`).join('')}</select>`)}</div>`;
-  const past=list.filter(c=>c.pay_date<=ctx.today), visiblePast=ctx.ui.open.has('past')?past:past.slice(-1);
+  const past=list.filter(c=>c.pay_date<=ctx.today), latestByMember=new Map();
+  for(const c of past)latestByMember.set(c.member_id,c);
+  const recent=new Set([...latestByMember.values()].map(c=>c.id));
+  const hiddenPast=past.filter(c=>!recent.has(c.id));
+  const visiblePast=ctx.ui.open.has('past')?past:past.filter(c=>recent.has(c.id));
   const show=new Set(visiblePast.map(c=>c.id));
   const cards=list.filter(c=>c.pay_date>ctx.today||show.has(c.id)).map(c=>{
     const row=budgetRow(ctx,c),key=`family-income:${c.member_id}:${c.period_id}`,open=ctx.ui.open.has(key),member=members.get(c.member_id),free=Number(c.amount)-Number(row.expenses);
     const colors=['blue','pink','purple','green','orange'],color=colors.includes(member?.color)?member.color:'blue';
-    return `<section class="period-card family-income-card family-${color}${open?' open':''}${c.pay_date<=ctx.today?' past':''}"${ctx.ui.open.has('past')&&c.id===past.at(-2)?.id?' data-past-anchor tabindex="-1"':''}>
+    return `<section class="period-card family-income-card family-${color}${open?' open':''}${c.pay_date<=ctx.today?' past':''}"${ctx.ui.open.has('past')&&c.id===hiddenPast.at(-1)?.id?' data-past-anchor tabindex="-1"':''}>
       <button class="period-head family-income-head" data-toggle="${esc(key)}" aria-expanded="${open}" aria-controls="family-income-${esc(c.id)}">
         <span class="period-date"><b>${esc(ctx.fmt.date(c.pay_date))}</b><span class="small-note">Семейный взнос</span></span>
         <span class="row wrap period-pills">${memberTag(member)}${c.status==='posted'?pill('🔒 получено'):c.pay_date<=ctx.today?pill('ожидает проведения'):''}${free<0?pill('дефицит','danger'):''}</span>
@@ -123,7 +128,7 @@ export function familyIncomes(ctx,{memberTag,contributionControl}) {
         ${c.arrears_amount>0?`<p class="small-note">В том числе погашение недобора: ${esc(ctx.fmt.money(c.arrears_amount))}</p>`:''}
         ${allocationTable(ctx,c,row)}</div>`:''}</section>`;
   });
-  return `${filters}${past.length>1?`<button class="past-toggle" data-toggle="past">${ctx.ui.open.has('past')?'Скрыть предыдущие взносы':`Показать предыдущие взносы (${past.length-1})`}</button>`:''}
+  return `${filters}${hiddenPast.length?`<button class="past-toggle" data-toggle="past">${ctx.ui.open.has('past')?'Скрыть предыдущие взносы':`Показать предыдущие взносы (${hiddenPast.length})`}</button>`:''}
     ${cards.join('')||'<div class="card muted">Взносов за этот год с выбранным фильтром нет.</div>'}`;
 }
 
@@ -162,6 +167,7 @@ export function familyBudgetChange(ev,ctx) {
   if(!ctx.canEdit)return true;
   const run=async()=>{
     if(column==='allocation'){
+      if(!ctx.state.family.members.some(m=>m.id===el.dataset.member&&m.is_self&&m.active))throw new Error('Можно изменять только распределение своих взносов');
       const amount=el.value.trim()===''?null:ctx.fmt.parseMoney(el.value);
       if(el.value.trim()&&(!Number.isFinite(amount)||amount===null||amount<0))throw new Error('Введите неотрицательную сумму');
       await ctx.store.familyCommand('allocation',{member_id:el.dataset.member,period_id:el.dataset.period,category_id:el.dataset.id,amount});
@@ -202,7 +208,10 @@ export function familyBudgetHandle(ev,ctx) {
     if(op==='add-season'||op==='drop-season'){
       await ctx.store.familyCommand('category',{id,season_from:op==='add-season'?'01-01':null,season_to:op==='add-season'?'12-31':null});return;
     }
-    if(op==='reset-allocations')await ctx.store.familyCommand('reset_allocations',{member_id:el.dataset.member,period_id:el.dataset.period});
+    if(op==='reset-allocations'){
+      if(!ctx.state.family.members.some(m=>m.id===el.dataset.member&&m.is_self&&m.active))throw new Error('Можно изменять только распределение своих взносов');
+      await ctx.store.familyCommand('reset_allocations',{member_id:el.dataset.member,period_id:el.dataset.period});
+    }
   };
   run().catch(e=>ctx.notice('danger',e.message));return true;
 }
