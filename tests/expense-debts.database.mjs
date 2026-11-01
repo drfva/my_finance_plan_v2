@@ -114,4 +114,25 @@ test('семейный worker: взнос и досрочная рассрочк
   assert.ok(state.income.periods.find(p=>p.id==='j1').installment_snapshot.some(d=>d.early&&d.amount===400));
 });
 
+test('процент сохраняется без суммы; серверный семейный прогноз использует процент от выплаты',async()=>{
+  const actor='cccccccc-0000-0000-0000-000000000003';
+  await db.query('insert into auth.users(id,email) values($1,$2)',[actor,'percent@example.test']);
+  let state=await rpc(actor,'bootstrap_user');const account=state.account.id;
+  const now=new Date(),today=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).format(now),date=addDays(today,2);
+  await rpc(actor,'state_save',{p_account:account,p_domain:'income',p_version:state.versions.income,p_patch:{periods:[{id:'pay',year:Number(date.slice(0,4)),pay_date:date,window_start:date,window_end:date,calc_mode:'manual',taxable:false,income_net:10000}]}});
+  state=await rpc(actor,'state_get',{p_account:account});
+  await rpc(actor,'state_save',{p_account:account,p_domain:'expenses',p_version:state.versions.expenses,p_patch:{expense_categories:[{id:'percent',title:'Категория',mode:'percent_income',percent_value:12.5}]}});
+  state=await rpc(actor,'state_get',{p_account:account});
+  assert.equal(state.expenses.expense_categories[0].monthly_amount,0);
+  assert.equal(simulate(state,createConfig(state)).byId.get('pay').categoriesTotal,1250);
+  const created=await rpc(actor,'family_command',{p_action:'create',p_family:null,p_payload:{title:'Процентная семья'},p_version:null,p_request:crypto.randomUUID()});
+  let family=await rpc(actor,'family_get',{p_family:created.family_id});
+  await rpc(actor,'family_command',{p_action:'rule',p_family:family.id,p_payload:{source_account_id:account,revision:0,rule:{mode:'per_payment',amount:2000,effective_from:today}},p_version:family.version,p_request:crypto.randomUUID()});
+  await runFamilyMember({rpc:(name,args)=>rpc('',name,args,'service_role'),memberId:family.members[0].id,post:false,now});
+  family=await rpc(actor,'family_get',{p_family:created.family_id});
+  const forecast=family.contributions.find(c=>c.period_id==='pay');
+  assert.equal(forecast.amount,2000);
+  assert.notEqual(forecast.status,'posted');
+});
+
 test.after(async()=>{await db.close();});

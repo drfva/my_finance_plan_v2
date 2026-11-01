@@ -2,7 +2,7 @@
 
 import { esc, card, table, input, select, addButton, delButton, button, pill, field } from './dom.js';
 import { uid } from './edit.js';
-import { monthlyAmountOn, categoryShare, inSeason } from '../engine/expenses.js';
+import { monthlyAmountOn, categoryPercentOn, inSeason } from '../engine/expenses.js';
 import { amountSeasons, amountSeasonHandle, amountSeasonChange } from './expense-seasons.js';
 
 export const handleChange = amountSeasonChange;
@@ -62,19 +62,19 @@ export function render(ctx) {
 
   const monthTotal = cats.reduce((s, c) => s + (c.mode === 'percent_income' ? 0 : monthlyAmountOn(c, items, ctx.today)), 0);
   const percentTotal = cats.filter(c => c.mode === 'percent_income')
-    .reduce((s, c) => s + categoryShare(c, cats, items, ctx.today), 0);
+    .reduce((s, c) => s + categoryPercentOn(c, ctx.today), 0);
 
   const cards = cats.map(c => {
     const open = ui.open.has(`cat:${c.id}`);
     const monthly = monthlyAmountOn(c, items, ctx.today);
     const ownItems = items.filter(i => i.category_id === c.id);
-    const hasItems = ownItems.length > 0;
     const percent = c.mode === 'percent_income';
-    const share = categoryShare(c, cats, items, ctx.today);
+    const hasItems = !percent && ownItems.length > 0;
+    const share = Number(c.percent_value) || 0;
     const splitTitle = c.split_mode === 'by_days' ? 'по дням периода' : 'поровну между выплатами';
     const metadata = [
       hasItems ? `${ownItems.length} ${fmt.plural(ownItems.length, { one: 'статья', few: 'статьи', many: 'статей' })}` : (percent ? '' : 'фиксированная сумма'),
-      percent ? `план ${fmt.money(monthly)} в месяц` : splitTitle,
+      percent ? 'сумма рассчитывается от каждой выплаты' : splitTitle,
       c.season_from && c.season_to ? `сезон ${c.season_from}–${c.season_to}` : '',
       !inSeason(ctx.today, c.season_from, c.season_to) ? 'сейчас вне сезона' : '',
     ].filter(Boolean).join(' · ');
@@ -92,15 +92,15 @@ export function render(ctx) {
           <div class="grid cols-2">
             ${field('Название', input({ edit: 'expenses|expense_categories|title', key: { id: c.id }, value: c.title, disabled: !canEdit }))}
             ${field('Как считать', select({ edit: 'expenses|expense_categories|mode', key: { id: c.id }, value: c.mode, options: modes, disabled: !canEdit }))}
-            ${field('Сумма на месяц', input({ edit: 'expenses|expense_categories|monthly_amount', key: { id: c.id }, value: hasItems ? monthly : c.monthly_amount, type: 'money', disabled: !canEdit || hasItems }),
-              hasItems ? 'Складывается из статей с учётом сезона' : (c.amount_seasons?.length ? 'Основная сумма действует вне сезонов с отдельной суммой' : ''))}
             ${percent
-              ? field('Доля от выплаты', `<div class="category-share num">${esc(fmt.percent(share, 1))}</div>`, 'Сумма категории ÷ общий план расходов. Доля пересчитывается автоматически.')
-              : field('Делить между выплатами', select({ edit: 'expenses|expense_categories|split_mode', key: { id: c.id }, value: c.split_mode, options: splits, disabled: !canEdit }))}
+              ? field('Процент от выплаты, %', input({ edit: 'expenses|expense_categories|percent_value', key: { id: c.id }, value: share, type: 'number', ariaLabel: 'Процент от выплаты', disabled: !canEdit }), 'Сумма = выплата × процент ÷ 100. Сумму категории вводить не нужно.')
+              : `${field('Сумма на месяц', input({ edit: 'expenses|expense_categories|monthly_amount', key: { id: c.id }, value: hasItems ? monthly : c.monthly_amount, type: 'money', disabled: !canEdit || hasItems }),
+                hasItems ? 'Складывается из статей с учётом сезона' : (c.amount_seasons?.length ? 'Основная сумма действует вне сезонов с отдельной суммой' : ''))}
+                ${field('Делить между выплатами', select({ edit: 'expenses|expense_categories|split_mode', key: { id: c.id }, value: c.split_mode, options: splits, disabled: !canEdit }))}`}
           </div>
           <div class="category-season">${seasonBlock(ctx, { domain: 'expenses', table: 'expense_categories', id: c.id, from: c.season_from, to: c.season_to })}</div>
-          ${!hasItems ? amountSeasons(ctx, 'expense_categories', c) : ''}
-          ${itemsBlock(ctx, c)}
+          ${!percent && !hasItems ? amountSeasons(ctx, 'expense_categories', c) : ''}
+          ${!percent ? itemsBlock(ctx, c) : ''}
           ${canEdit ? `<div class="category-delete">${delButton({ domain: 'expenses', table: 'expense_categories', key: { id: c.id },
             label: 'Удалить категорию', confirm: `Удалить категорию «${c.title}» вместе со статьями, правками в выплатах и фактом?` })}</div>` : ''}
         </div>` : ''}</div>

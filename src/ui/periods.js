@@ -210,7 +210,7 @@ function body(ctx, r) {
         title: 'Расходы по категориям',
         actions: !canEdit ? '' : `
           ${button({ action: 'spread-categories', value: p.id, label: 'Распределить выплату',
-            title: 'Разложить доход этой выплаты по категориям в их долях' })}
+            title: 'Рассчитать процентные категории, остальное распределить по фиксированным' })}
           ${hasCatOverrides
             ? button({ action: 'reset-categories', value: p.id, label: 'Подставить по шаблону' })
             : button({ action: 'clear-categories', value: p.id, label: 'Очистить поля' })}`,
@@ -360,8 +360,8 @@ export function handle(ev, ctx) {
     return false;
   }
 
-  /* разложить доход выплаты по категориям в их долях от общих расходов:
-     так разовая премия тоже расходится по конвертам */
+  /* Процентные категории сохраняют заданный процент выплаты. Оставшийся
+     доход распределяется между фиксированными категориями по их суммам. */
   const spread = ev.target.closest('[data-spread-categories]');
   if (spread) {
     const id = spread.dataset.spreadCategories;
@@ -371,12 +371,18 @@ export function handle(ev, ctx) {
     const items = ctx.state.expenses?.expense_items ?? [];
     const date = row.period.pay_date;
     const total = cats.reduce((s, c) => s + monthlyAmountOn(c, items, date), 0);
-    if (!(total > 0)) throw new Error('Суммы категорий не заданы — распределять нечего');
-    const income = row.totalIncome;
+    const percentages = new Map(row.expenses.categories.filter(c => c.mode === 'percent_income').map(c => [c.category_id, c.planned]));
+    if (!(total > 0) && !cats.some(c => c.mode === 'percent_income' && Number(c.percent_value) > 0)) {
+      throw new Error('Задайте сумму или процент категории');
+    }
+    const income = Math.max(0, fmt.round(row.totalIncome) - [...percentages.values()].reduce((s, n) => s + n, 0));
+    const lastFixed = cats.filter(c => monthlyAmountOn(c, items, date) > 0).at(-1)?.id;
     let given = 0;
-    const parts = cats.map((c, i) => {
+    const parts = cats.map(c => {
+      if (c.mode === 'percent_income') return { category_id: c.id, amount: percentages.get(c.id) ?? 0 };
       const weight = monthlyAmountOn(c, items, date);
-      const amount = i === cats.length - 1 ? fmt.round(income) - given : fmt.round(income * weight / total);
+      const amount = weight <= 0 ? 0 : Math.max(0, Math.min(income - given,
+        c.id === lastFixed ? income - given : fmt.round(income * weight / total)));
       given += amount;
       return { category_id: c.id, amount: Math.max(0, amount) };
     });

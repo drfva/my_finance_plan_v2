@@ -18,13 +18,13 @@ const json = value => (value === undefined ? '' : ` data-key='${esc(JSON.stringi
 const jsonAttr = (name, value) => (value === undefined ? '' : ` ${name}='${esc(JSON.stringify(value)).replace(/'/g, '&#39;')}'`);
 
 /* Поле ввода, привязанное к строке таблицы */
-export function input({ edit, key, value, type = 'text', defaults, removeWhen, empty, disabled, style, placeholder, cls = '' }) {
+export function input({ edit, key, value, type = 'text', defaults, removeWhen, empty, disabled, style, placeholder, ariaLabel, cls = '' }) {
   const kind = type === 'date' || type === 'monthday' ? 'date' : 'text';
   const mode = type === 'money' || type === 'number' || type === 'int' ? ' inputmode="decimal"' : '';
   return `<input class="${esc(cls)}${type === 'money' || type === 'number' || type === 'int' ? ' num' : ''}" type="${kind}"${mode}`
     + attr('data-edit', edit) + json(key) + jsonAttr('data-defaults', defaults)
     + attr('data-type', type) + attr('data-remove-when', removeWhen) + attr('data-empty', empty)
-    + attr('value', value ?? '') + attr('placeholder', placeholder) + attr('style', style)
+    + attr('value', value ?? '') + attr('placeholder', placeholder) + attr('aria-label', ariaLabel) + attr('style', style)
     + (disabled ? ' disabled' : '') + '>';
 }
 

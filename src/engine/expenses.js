@@ -7,12 +7,11 @@
        by_days — пропорционально длине расчётного периода выплаты.
      Остаток от округления уходит в последнюю выплату месяца, чтобы за месяц
      выходила ровно сумма категории.
-   * percent_income — доля категории в общих расходах. Процент не задаётся руками:
-     сумма всех категорий на месяц — это 100 %, и категория получает свою часть.
-     Категория на 10 000 при общих расходах 100 000 — это 10 %, и с каждой выплаты
-     в неё уходит 10 % её дохода на руки: с выплаты 1 000 — 100. Сезон меняет
-     знаменатель: категория вне сезона в долях не участвует. monthly_amount
-     остаётся планом месяца — удержанное за месяц сверяется с ним (monthChecks).
+   * percent_income — заданный percent_value от каждой выплаты. Например, 10 %
+     от выплаты 1 000 — это 100. Суммы и статьи других категорий на процент не
+     влияют; monthly_amount и денежные сезоны этой категории не используются.
+     План месяца — сумма рассчитанных процентов, с ней сравниваются ручные
+     правки выплат (monthChecks). Вне периода действия категории процент — 0.
 
    Месяц выплаты — месяц начала её расчётного периода: аванс за 01–15 марта и
    зарплата за 16–31 марта (которую платят 5 апреля) делят расходы марта.
@@ -47,6 +46,7 @@ export function inSeasonMonth(month, from, to) {
 
 /* Сумма категории на месяц с учётом сезона на дату выплаты */
 export function monthlyAmountOn(category, items, date) {
+  if (category.mode === 'percent_income') return 0;
   if (!inSeason(date, category.season_from, category.season_to)) return 0;
   const own = items.filter(i => i.category_id === category.id);
   if (own.length) {
@@ -65,14 +65,11 @@ export function expenseAppliesInMonth(row, month, amountKey = 'amount') {
 
 const monthOf = p => (p.window_start || p.pay_date).slice(0, 7);
 
-/* Доля категории в общих расходах на дату, в процентах.
-   Знаменатель — сумма всех категорий на месяц (с учётом сезона), поэтому
-   проценты не задаются руками и всегда складываются в 100 %. */
-export function categoryShare(category, categories, items, date) {
-  const own = monthlyAmountOn(category, items, date);
-  if (!(own > 0)) return 0;
-  const total = categories.reduce((s, c) => s + monthlyAmountOn(c, items, date), 0);
-  return total > 0 ? own / total * 100 : 0;
+/* Заданный процент категории, действующий на дату выплаты. */
+export function categoryPercentOn(category, date) {
+  if (category.mode !== 'percent_income' || !inSeason(date, category.season_from, category.season_to)) return 0;
+  const percent = Number(category.percent_value);
+  return Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : 0;
 }
 
 /* Доли выплат в сумме месяца: Map period_id → { share, last, month }.
@@ -136,28 +133,27 @@ export function planExpenses({ categories = [], items = [], overrides = [], peri
 
   for (const c of cats) {
     if (c.mode === 'percent_income') {
-      const collected = new Map();                       // месяц → удержано
-      const shares = new Map();                          // выплата → доля категории, %
+      const months = new Map();
       for (const p of sorted) {
-        const base = percentBase ? percentBase(p) : (incomeById.get(p.id) ?? 0);
-        const share = categoryShare(c, cats, items, p.pay_date);
-        shares.set(p.id, share);
-        const planned = round(Math.max(0, base) * share / 100);
+        const base = Math.max(0, Number(percentBase ? percentBase(p) : (incomeById.get(p.id) ?? 0)) || 0);
+        const share = categoryPercentOn(c, p.pay_date);
+        const planned = round(base * share / 100);
         const key = `${p.id}|${c.id}`;
         const amount = ov.has(key) ? ov.get(key) : planned;
         byPeriod.get(p.id).categories.push({ category_id: c.id, mode: c.mode, planned, amount, share, overridden: ov.has(key) });
         const m = monthOf(p);
-        collected.set(m, (collected.get(m) ?? 0) + amount);
+        const month = months.get(m) ?? { plan: 0, collected: 0, base: 0 };
+        month.plan += planned;
+        month.collected += amount;
+        if (share > 0) month.base += base;
+        months.set(m, month);
       }
-      for (const [month, got] of collected) {
-        const plan = monthlyAmountOn(c, items, `${month}-15`);
+      for (const [month, { plan, collected, base }] of months) {
         if (plan > 0) {
-          const share = categoryShare(c, cats, items, `${month}-15`);
+          const shortfall = Math.max(0, plan - collected);
           monthChecks.push({
-            category_id: c.id, month, plan, collected: got, share,
-            shortfall: Math.max(0, plan - got),
-            // сколько процентов не хватило, чтобы покрыть план месяца
-            missingPercent: got > 0 && plan > got ? share * (plan / got - 1) : 0,
+            category_id: c.id, month, plan, collected, share: Number(c.percent_value) || 0,
+            shortfall, missingPercent: base > 0 ? shortfall / base * 100 : 0,
           });
         }
       }

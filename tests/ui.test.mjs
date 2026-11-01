@@ -760,7 +760,7 @@ function categoryContext() {
   ctx.state.expenses = {
     expense_categories: [
       { id: 'life', title: 'Жизнь', mode: 'fixed_month', monthly_amount: 999, split_mode: 'by_days', sort_order: 1 },
-      { id: 'joy', title: 'Радости', mode: 'percent_income', monthly_amount: 2000, split_mode: 'even', sort_order: 5 },
+      { id: 'joy', title: 'Радости', mode: 'percent_income', monthly_amount: 2000, percent_value: 25, split_mode: 'even', sort_order: 5 },
       { id: 'winter', title: 'Зимний спорт', mode: 'fixed_month', monthly_amount: 3000, season_from: '12-01', season_to: '02-28', sort_order: 6 },
     ],
     expense_items: [
@@ -789,7 +789,7 @@ test('категории списком: сводка видна без поле
   assert.match(escaped, /&lt;img/);
 });
 
-test('раскрытие категории независимо; правка статьи и сезона сразу меняет сводку и долю', () => {
+test('раскрытие категории независимо; правки сумм и сезонов не меняют процент другой категории', () => {
   const ctx = categoryContext(); ctx.ui.open.add('cat:life');
   let html = renderCategories(ctx);
   assert.match(html, /data-toggle="cat:life" aria-expanded="true"/);
@@ -800,11 +800,11 @@ test('раскрытие категории независимо; правка �
   applyEdit(ctx.store, el({ edit: 'expenses|expense_items|amount', key: '{"id":"food"}', type: 'money' }, '6000'), ctx.fmt);
   html = renderCategories(ctx);
   assert.ok(html.includes(fmt.money(8000)));
-  assert.ok(html.includes(fmt.percent(20, 1)));
+  assert.ok(html.includes(fmt.percent(25, 1)));
   handleCategories(click('drop-season', 'expenses|expense_items|skis'), ctx);
   html = renderCategories(ctx);
   assert.ok(html.includes(fmt.money(9000)), 'бывшая сезонная статья включилась в сумму');
-  assert.ok(html.includes(fmt.percent(2000 / 11000 * 100, 1)), 'доля другой категории пересчиталась');
+  assert.ok(html.includes(fmt.percent(25, 1)), 'заданный процент другой категории сохранился');
   assert.match(html, /data-del="expenses\|expense_categories"/);
   assert.ok(ctx.ui.open.has('cat:life'), 'правка не сворачивает категорию');
   assert.ok(!ctx.ui.open.has('cat:joy'));
@@ -819,6 +819,53 @@ test('категории читателя: можно раскрывать, по
   assert.doesNotMatch(html, /data-add=|data-del=|data-add-season=|data-drop-season=/);
   assert.equal(handleCategories(click('drop-season', 'expenses|expense_items|skis'), ctx), false);
   assert.equal(ctx.state.expenses.expense_items[2].season_from, '12-01');
+});
+
+test('процентная категория: ввод процента без суммы и статей, валидация и немедленный пересчёт', () => {
+  const ctx = categoryContext(); ctx.ui.open.add('cat:joy');
+  ctx.state.income.periods = [{ id: 'p', year: 2027, pay_date: '2027-03-20', calc_mode: 'manual', income_net: 50000, taxable: false }];
+  const html = renderCategories(ctx).split('id="category-body-joy"')[1].split('</section>')[0];
+  assert.match(html, /data-edit="expenses\|expense_categories\|percent_value"[^>]*value="25"/);
+  assert.doesNotMatch(html, /monthly_amount|expense_items|data-amount-season-edit/);
+  const input = value => el({ edit: 'expenses|expense_categories|percent_value', key: '{"id":"joy"}', type: 'number' }, value);
+  applyEdit(ctx.store, input('12,5'), ctx.fmt);
+  ctx.sim = simulate(ctx.state, ctx.cfg, { today: ctx.today });
+  assert.equal(ctx.sim.byId.get('p').expenses.categories.find(c => c.category_id === 'joy').amount, 6250);
+  for (const value of ['-1', '101']) assert.throws(() => applyEdit(ctx.store, input(value), ctx.fmt), /от 0 до 100/);
+  assert.equal(ctx.state.expenses.expense_categories[1].percent_value, 12.5);
+});
+
+test('распределить выплату: проценты соблюдаются, остаток делится только между фиксированными', () => {
+  const ctx = categoryContext();
+  ctx.state.income.periods = [{ id: 'p', year: 2027, pay_date: '2027-03-20', calc_mode: 'manual', income_net: 10000, taxable: false }];
+  const amounts = () => Object.fromEntries(ctx.state.expenses.expense_period_overrides.map(o => [o.category_id, o.amount]));
+  const spread = () => { ctx.sim = simulate(ctx.state, ctx.cfg, { today: ctx.today }); handlePeriods(click('spread-categories', 'p'), ctx); };
+  spread();
+  assert.deepEqual(amounts(), { life: 7500, joy: 2500, winter: 0 });
+  ctx.state.expenses.expense_items[0].amount = 8000;
+  spread();
+  assert.equal(amounts().joy, 2500);
+  ctx.state.expenses.expense_categories = ctx.state.expenses.expense_categories.filter(c => c.id === 'joy');
+  ctx.state.expenses.expense_period_overrides = [];
+  spread();
+  assert.deepEqual(amounts(), { joy: 2500 }, 'оставшиеся 7500 свободны, процент не доводится до 100');
+  ctx.state.expenses.expense_categories = ['a', 'b', 'c', 'd'].map(id => ({ id, mode: 'fixed_month', monthly_amount: 1 }));
+  ctx.state.expenses.expense_period_overrides = [];
+  ctx.state.income.periods[0].income_net = 2;
+  spread();
+  assert.equal(Object.values(amounts()).reduce((s, n) => s + n, 0), 2, 'округление не создаёт лишние деньги');
+});
+
+test('расходы процентной категории не зависят от старых сумм и статей; внесённые факты сохранены', () => {
+  const ctx = categoryContext();
+  ctx.state.expenses.expense_categories[1].amount_seasons = [{ from: '12-01', to: '12-31', amount: 100 }];
+  ctx.state.expenses.expense_categories[1].monthly_amount = 0;
+  ctx.state.expenses.expense_items.push({ id: 'old', category_id: 'joy', title: 'Старая статья', amount: 0, season_from: '12-01', season_to: '12-31' });
+  ctx.state.facts = { expense_facts: [{ ym: '2027-03', category_id: 'joy', item_key: 'old', item_title: 'Старая статья', amount: 123 }] };
+  const html = renderFacts(ctx);
+  assert.match(html, /<b>Радости<\/b>/);
+  assert.match(html, /Старая статья.*ранее внесено по статье/);
+  assert.match(html, /data-edit="facts\|expense_facts\|amount"[^>]*value="123"/);
 });
 
 test('добавленная категория и статья открыты до перерисовки, фокус получает поле ввода', () => {

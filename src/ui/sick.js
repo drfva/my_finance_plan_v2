@@ -12,7 +12,7 @@ export const render = ctx => renderSick(ctx);
 export const handle = (ev, ctx) => handleSick(ev, ctx);
 
 const options = entries => entries.map(([value, label]) => ({ value, label }));
-export const earningsHelp = () => `<details class="info-box" style="margin-bottom:16px;">
+export const earningsHelp = () => `<details style="margin-bottom:16px;">
   <summary><b>Какой заработок указывать для больничного?</b></summary>
   <p>Указывайте начисленные суммы <b>до удержания НДФЛ</b> за каждый календарный год, со всех мест работы, с которых начислялись взносы на временную нетрудоспособность и материнство.</p>
   <p><b>Включать:</b> зарплату и оклад, премии, надбавки и доплаты, оплату сверхурочных и работы в выходные, <b>отпускные</b>, компенсацию за неиспользованный отпуск. Вознаграждение по ГПХ — если оно входило в облагаемую базу соответствующего года.</p>

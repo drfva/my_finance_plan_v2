@@ -54,8 +54,9 @@ export function render(ctx) {
   const factTotal = facts.filter(f => f.ym === month).reduce((s, f) => s + (Number(f.amount) || 0), 0);
   for (const c of cats) {
     if (!inSeasonMonth(month, c.season_from, c.season_to)) continue;
-    const allItems = items.filter(i => i.category_id === c.id);
-    if (!allItems.length && !expenseAppliesInMonth(c, month, 'monthly_amount')) continue;
+    const percent = c.mode === 'percent_income';
+    const allItems = percent ? [] : items.filter(i => i.category_id === c.id);
+    if (!percent && !allItems.length && !expenseAppliesInMonth(c, month, 'monthly_amount')) continue;
     const own = allItems.filter(i => expenseAppliesInMonth(i, month));
     if (allItems.length && !own.length) continue;
     const catPlan = plan.get(c.id) ?? 0;
@@ -86,6 +87,15 @@ export function render(ctx) {
           value: factOf(c.id, i.id)?.amount ?? '', type: 'money', removeWhen: '0', disabled: !canEdit, style: 'max-width:130px;text-align:right;' })}</td>
         <td></td>
       </tr>`);
+    }
+    // Старые факты по статьям сохраняются при переходе на процент категории.
+    if (percent) for (const f of facts.filter(f => f.ym === month && f.category_id === c.id && f.item_key)) {
+      rows.push(`<tr class="fact-item">
+        <td>${esc(f.item_title || f.item_key)} <span class="small-note">ранее внесено по статье</span></td>
+        <td class="num muted">—</td><td class="num">${input({
+          edit: 'facts|expense_facts|amount', key: { ym: month, category_id: c.id, item_key: f.item_key },
+          value: f.amount, type: 'money', removeWhen: '0', disabled: !canEdit, style: 'max-width:130px;text-align:right;',
+        })}</td><td></td></tr>`);
     }
   }
 

@@ -7,6 +7,7 @@
 --------------------------------------------------------------------- */
 
 import { createStore } from './core/store.js';
+import { openPersonalPlan } from './core/startup.js';
 import { ensureSignedIn, askNewPassword, recoveryPending, signOut } from './core/auth.js';
 import { createApp } from './ui/app.js';
 import { byId } from './ui/dom.js';
@@ -41,8 +42,10 @@ async function boot() {
   const store = createStore({ client });
   try {
     await store.load();
-    const selected = new URLSearchParams(location.search).get('plan');
-    if (selected && store.state.accounts?.some(a => a.id === selected)) await store.switchAccount(selected);
+    const address = new URL(location.href);
+    await openPersonalPlan(store, client, address.searchParams.get('plan'));
+    address.searchParams.set('plan', store.state.account.id);
+    window.history.replaceState(null, '', address);
   } catch (e) {
     showFatal('load');
     return;

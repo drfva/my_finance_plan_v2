@@ -189,8 +189,9 @@ test('расходы: больничное не добавляет долю фи
   assert.equal(sim.byId.get('salary').categoriesTotal, 9000);
   assert.equal(sim.rows.length, 1);
   state.expenses.expense_categories[0].mode = 'percent_income';
+  state.expenses.expense_categories[0].percent_value = 25;
   sim = simulate(state, createConfig(state));
-  assert.equal(sim.byId.get('salary').categoriesTotal, 27400);
+  assert.equal(sim.byId.get('salary').categoriesTotal, 6850);
 });
 
 test('больничные и отпуска: пересекающиеся периоды исключаются из среднего один раз', () => {

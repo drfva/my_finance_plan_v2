@@ -85,11 +85,11 @@ test('расходы: сезон категории и статей, в том �
   assert.equal(cat('2027-04-1', 'health'), 1500);
 });
 
-test('расходы: доля категории в общих расходах, а не заданный процент', () => {
+test('расходы: заданный процент выплаты не зависит от сумм и статей категорий', () => {
   const periods = payouts([3]);
   const inc = new Map([['2027-03-1', 1000], ['2027-03-2', 1000]]);
   const cats = [
-    { id: 'life', mode: 'percent_income', monthly_amount: 10000 },   // 10 % от 100 000
+    { id: 'life', mode: 'percent_income', monthly_amount: 10000, percent_value: 10 },
     { id: 'rest', mode: 'fixed_month', monthly_amount: 90000, split_mode: 'even' },
   ];
   const r = planExpenses({ periods, slots: SLOTS, incomeById: inc, categories: cats });
@@ -97,9 +97,10 @@ test('расходы: доля категории в общих расходах
   assert.equal(first.share, 10);
   assert.equal(first.amount, 100);                       // 10 % от выплаты 1 000
 
-  // сезон меняет знаменатель: вне сезона категория в долях не участвует
+  // Другие суммы и сезонные категории не меняют заданный процент.
   const seasonal = planExpenses({ periods, slots: SLOTS, incomeById: inc,
-    categories: [...cats, { id: 'winter', mode: 'percent_income', monthly_amount: 100000, season_from: '12-01', season_to: '02-28' }] });
+    categories: [...cats, { id: 'winter', mode: 'percent_income', monthly_amount: 100000, percent_value: 50, season_from: '12-01', season_to: '02-28' }],
+    items: [{ id: 'old-item', category_id: 'life', amount: 999999 }] });
   const inMarch = seasonal.byPeriod.get('2027-03-1').categories.find(c => c.category_id === 'life');
   assert.equal(inMarch.share, 10);
   const off = seasonal.byPeriod.get('2027-03-1').categories.find(c => c.category_id === 'winter');
@@ -110,7 +111,7 @@ test('расходы: процентная категория сверяется
   const periods = payouts([3]);
   const inc = new Map([['2027-03-1', 60000], ['2027-03-2', 80000]]);
   const r = planExpenses({ periods, slots: SLOTS, incomeById: inc,
-    categories: [{ id: 'fun', mode: 'percent_income', monthly_amount: 20000 },
+    categories: [{ id: 'fun', mode: 'percent_income', monthly_amount: 20000, percent_value: 10 },
       { id: 'rest', mode: 'fixed_month', monthly_amount: 180000, split_mode: 'even' }],
     overrides: [{ period_id: '2027-03-2', category_id: 'fun', amount: 5000 }] });
   const first = r.byPeriod.get('2027-03-1').categories.find(c => c.category_id === 'fun');
@@ -120,8 +121,9 @@ test('расходы: процентная категория сверяется
   assert.deepEqual([second.planned, second.amount, second.overridden], [8000, 5000, true]);
   const check = r.monthChecks[0];
   assert.equal(check.collected, 11000);
-  assert.equal(check.shortfall, 9000);
-  assert.ok(Math.abs(check.missingPercent - 10 * (20000 / 11000 - 1)) < 1e-9);
+  assert.equal(check.plan, 14000, 'план месяца — процент от выплат, старые 20000 игнорируются');
+  assert.equal(check.shortfall, 3000);
+  assert.ok(Math.abs(check.missingPercent - 3000 / 140000 * 100) < 1e-9);
 });
 
 test('рассрочка: график по неделям и месяцам, конец месяца', () => {
@@ -369,7 +371,7 @@ test('разовая выплата: проценты от начисленно�
     periods: [...payouts([3]), { id: 'side', year: 2027, slot_order: null, pay_date: '2027-03-18',
       window_start: '2027-03-01', window_end: '2027-03-31', calc_mode: 'manual', income_net: 2000, taxable: false }],
     rules: [{ stage_code: 'categories', priority: 1, enabled: true, params: { percent_base: 'gross' } }],
-    categories: [{ id: 'life', mode: 'percent_income', monthly_amount: 10000 }],
+    categories: [{ id: 'life', mode: 'percent_income', percent_value: 100 }],
   });
   st.income.salary_rates = [{ id: 'r', effective_from: '2027-01-01', amount: 230000, is_gross: true }];
   const row = run(st).byId.get('side');
