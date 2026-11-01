@@ -103,7 +103,7 @@ export function applyEdit(store, el, fmt) {
   const defaults = JSON.parse(el.dataset.defaults || '{}');
   const value = readValue(el, fmt);
   if (value === undefined) return false;
-  if (domain === 'expenses' && table === 'expense_categories' && column === 'percent_value'
+  if (domain === 'expenses' && ['expense_categories', 'expense_items'].includes(table) && column === 'percent_value'
     && (!Number.isFinite(value) || value < 0 || value > 100)) {
     throw new Error('Процент от выплаты должен быть от 0 до 100');
   }

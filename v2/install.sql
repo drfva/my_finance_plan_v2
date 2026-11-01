@@ -2584,5 +2584,18 @@ comment on column public.expense_categories.amount_seasons is 'Сезонные 
 comment on column public.periods.installment_snapshot is 'Проведённые части рассрочек: payment_id, installment_id, date, amount, early. NULL — снимка нет, [] — платежей не было.';
 notify pgrst, 'reload schema';
 
+
+-- SOURCE: supabase/migrations/20261101124514_expense_item_percentages.sql
+
+-- Денежная сумма и процент независимы: смена режима категории не стирает их.
+alter table public.expense_items
+  add column if not exists percent_value numeric not null default 0
+    constraint expense_items_percent_value_check check (percent_value >= 0 and percent_value <= 100);
+
+comment on column public.expense_items.percent_value is
+  'Процент от полной выплаты для подкатегории в режиме percent_income; процент категории складывается из активных подкатегорий.';
+
+notify pgrst, 'reload schema';
+
 notify pgrst, 'reload schema';
 commit;

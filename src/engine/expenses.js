@@ -7,7 +7,8 @@
        by_days — пропорционально длине расчётного периода выплаты.
      Остаток от округления уходит в последнюю выплату месяца, чтобы за месяц
      выходила ровно сумма категории.
-   * percent_income — заданный percent_value от каждой выплаты. Например, 10 %
+   * percent_income — заданный percent_value от каждой выплаты. Если есть
+     подкатегории, процент складывается из их действующих percent_value. Например, 10 %
      от выплаты 1 000 — это 100. Суммы и статьи других категорий на процент не
      влияют; monthly_amount и денежные сезоны этой категории не используются.
      План месяца — сумма рассчитанных процентов, с ней сравниваются ручные
@@ -65,11 +66,36 @@ export function expenseAppliesInMonth(row, month, amountKey = 'amount') {
 
 const monthOf = p => (p.window_start || p.pay_date).slice(0, 7);
 
-/* Заданный процент категории, действующий на дату выплаты. */
-export function categoryPercentOn(category, date) {
-  if (category.mode !== 'percent_income' || !inSeason(date, category.season_from, category.season_to)) return 0;
-  const percent = Number(category.percent_value);
+/* Процент подкатегории от полной выплаты, с учётом её периода действия. */
+export function itemPercentOn(item, date) {
+  if (!inSeason(date, item.season_from, item.season_to)) return 0;
+  const percent = Number(item.percent_value);
   return Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : 0;
+}
+
+/* При наличии подкатегорий собственный процент категории не прибавляется. */
+export function categoryPercentOn(category, date, items = []) {
+  if (category.mode !== 'percent_income' || !inSeason(date, category.season_from, category.season_to)) return 0;
+  const own = items.filter(i => i.category_id === category.id);
+  return own.length ? own.reduce((sum, i) => sum + itemPercentOn(i, date), 0) : itemPercentOn(category, date);
+}
+
+/* План подкатегорий в деньгах: ручная сумма выплаты распределяется в их
+   пропорциях, а округление сохраняет итог категории. */
+export function categoryItemAmounts(category, items, date, total, round = Math.round) {
+  if (!inSeason(date, category.season_from, category.season_to)) return new Map();
+  const active = items.filter(i => i.category_id === category.id)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.id).localeCompare(String(b.id)))
+    .map(i => ({ id: i.id, weight: category.mode === 'percent_income' ? itemPercentOn(i, date) : expenseAmountOn(i, date) }))
+    .filter(i => i.weight > 0);
+  const weight = active.reduce((sum, i) => sum + i.weight, 0);
+  let exact = 0, given = 0;
+  return new Map(active.map((i, index) => {
+    exact += total * i.weight / weight;
+    const amount = round(index === active.length - 1 ? total : exact) - given;
+    given += amount;
+    return [i.id, amount];
+  }));
 }
 
 /* Доли выплат в сумме месяца: Map period_id → { share, last, month }.
@@ -136,7 +162,7 @@ export function planExpenses({ categories = [], items = [], overrides = [], peri
       const months = new Map();
       for (const p of sorted) {
         const base = Math.max(0, Number(percentBase ? percentBase(p) : (incomeById.get(p.id) ?? 0)) || 0);
-        const share = categoryPercentOn(c, p.pay_date);
+        const share = categoryPercentOn(c, p.pay_date, items);
         const planned = round(base * share / 100);
         const key = `${p.id}|${c.id}`;
         const amount = ov.has(key) ? ov.get(key) : planned;
@@ -152,7 +178,7 @@ export function planExpenses({ categories = [], items = [], overrides = [], peri
         if (plan > 0) {
           const shortfall = Math.max(0, plan - collected);
           monthChecks.push({
-            category_id: c.id, month, plan, collected, share: Number(c.percent_value) || 0,
+            category_id: c.id, month, plan, collected, share: base > 0 ? plan / base * 100 : 0,
             shortfall, missingPercent: base > 0 ? shortfall / base * 100 : 0,
           });
         }

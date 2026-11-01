@@ -4,7 +4,7 @@ import { esc, card, table, pill, input, field, button, delButton, select } from 
 import { uid } from './edit.js';
 import { freezePeriods } from '../engine/allocation.js';
 import { generateYear } from '../engine/income.js';
-import { monthlyAmountOn } from '../engine/expenses.js';
+import { monthlyAmountOn, categoryPercentOn } from '../engine/expenses.js';
 import { familyContributionControl, familyRuleDescription } from './family.js';
 
 export const code = 'periods';
@@ -372,7 +372,7 @@ export function handle(ev, ctx) {
     const date = row.period.pay_date;
     const total = cats.reduce((s, c) => s + monthlyAmountOn(c, items, date), 0);
     const percentages = new Map(row.expenses.categories.filter(c => c.mode === 'percent_income').map(c => [c.category_id, c.planned]));
-    if (!(total > 0) && !cats.some(c => c.mode === 'percent_income' && Number(c.percent_value) > 0)) {
+    if (!(total > 0) && !cats.some(c => categoryPercentOn(c, date, items) > 0)) {
       throw new Error('Задайте сумму или процент категории');
     }
     const income = Math.max(0, fmt.round(row.totalIncome) - [...percentages.values()].reduce((s, n) => s + n, 0));

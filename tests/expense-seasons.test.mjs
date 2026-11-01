@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateAmountSeasons, expenseAmountOn } from '../src/engine/expense-seasons.js';
-import { monthlyAmountOn, categoryPercentOn, planExpenses, expenseAppliesInMonth } from '../src/engine/expenses.js';
+import { monthlyAmountOn, categoryPercentOn, categoryItemAmounts, planExpenses, expenseAppliesInMonth } from '../src/engine/expenses.js';
 
 test('сезоны сумм: реальные даты, Новый год, граничное пересечение и 29 февраля', () => {
   assert.equal(validateAmountSeasons([{from:'12-01',to:'03-20',amount:100},{from:'03-21',to:'11-30',amount:200}]),null);
@@ -49,4 +49,36 @@ test('процент от выплаты: дробный процент без �
   assert.equal(run([{ period_id: 'jan', category_id: 'c', amount: 3000 }]).byPeriod.get('jan').total, 3000);
   category.percent_value = 0;
   assert.equal(run().byPeriod.get('dec').total, 0, 'ноль не заменяется долей старой суммы');
+});
+
+test('процентные подкатегории: сумма процентов, периоды, ноль и возврат к собственному проценту', () => {
+  const category = { id: 'c', mode: 'percent_income', percent_value: 90 };
+  const items = [
+    { id: 'a', category_id: 'c', percent_value: 3.5, amount: 999999 },
+    { id: 'b', category_id: 'c', percent_value: 6.5, season_from: '12-01', season_to: '01-31' },
+    { id: 'other', category_id: 'elsewhere', percent_value: 100 },
+  ];
+  assert.equal(categoryPercentOn(category, '2027-12-20', items), 10);
+  assert.equal(categoryPercentOn(category, '2028-02-20', items), 3.5);
+  items[0].percent_value = 0;
+  assert.equal(categoryPercentOn(category, '2028-02-20', items), 0, 'не подставляется собственный процент 90');
+  assert.equal(categoryPercentOn(category, '2028-02-20', []), 90);
+  assert.equal(categoryPercentOn({ ...category, season_from: '06-01', season_to: '08-31' }, '2027-12-20', items), 0);
+});
+
+test('процентные подкатегории: доход, ручная сумма и округление плана подкатегорий', () => {
+  const category = { id: 'c', mode: 'percent_income', percent_value: 99 };
+  const items = [{ id: 'a', category_id: 'c', percent_value: 5 }, { id: 'b', category_id: 'c', percent_value: 7.5 }];
+  const periods = [{ id: 'p', pay_date: '2027-03-20' }];
+  const run = (income, overrides = []) => planExpenses({ categories: [category], items, periods, overrides, incomeById: new Map([['p', income]]) }).byPeriod.get('p');
+  assert.equal(run(10000).total, 1250);
+  assert.equal(run(20000).total, 2500);
+  const overridden = run(10000, [{ period_id: 'p', category_id: 'c', amount: 2000 }]);
+  assert.equal(overridden.total, 2000);
+  assert.deepEqual([...categoryItemAmounts(category, items, periods[0].pay_date, overridden.total)], [['a', 800], ['b', 1200]]);
+  for (const amount of [1, 2, 3, 10]) {
+    assert.equal([...categoryItemAmounts(category, items, periods[0].pay_date, amount).values()].reduce((s, n) => s + n, 0), amount);
+  }
+  items[0].percent_value = 10;
+  assert.equal(run(10000).total, 1750, 'правка подкатегории немедленно меняет общий процент');
 });

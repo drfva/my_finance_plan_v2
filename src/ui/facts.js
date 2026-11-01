@@ -1,8 +1,7 @@
 /* Расходы: факт по месяцам против плана */
 
 import { esc, card, table, input, pill } from './dom.js';
-import { inSeasonMonth, expenseAppliesInMonth, monthlyAmountOn } from '../engine/expenses.js';
-import { expenseAmountOn } from '../engine/expense-seasons.js';
+import { inSeasonMonth, expenseAppliesInMonth, categoryItemAmounts } from '../engine/expenses.js';
 
 export const code = 'facts';
 export const title = () => 'Расходы';
@@ -55,9 +54,9 @@ export function render(ctx) {
   for (const c of cats) {
     if (!inSeasonMonth(month, c.season_from, c.season_to)) continue;
     const percent = c.mode === 'percent_income';
-    const allItems = percent ? [] : items.filter(i => i.category_id === c.id);
+    const allItems = items.filter(i => i.category_id === c.id);
     if (!percent && !allItems.length && !expenseAppliesInMonth(c, month, 'monthly_amount')) continue;
-    const own = allItems.filter(i => expenseAppliesInMonth(i, month));
+    const own = allItems.filter(i => percent ? inSeasonMonth(month, i.season_from, i.season_to) : expenseAppliesInMonth(i, month));
     if (allItems.length && !own.length) continue;
     const catPlan = plan.get(c.id) ?? 0;
     const catFact = facts.filter(f => f.ym === month && f.category_id === c.id).reduce((s, f) => s + (Number(f.amount) || 0), 0);
@@ -72,12 +71,15 @@ export function render(ctx) {
         value: factOf(c.id)?.amount ?? '', type: 'money', removeWhen: '0', disabled: !canEdit, style: 'max-width:130px;text-align:right;' })}</td>
       <td class="num diff">${catPlan || catFact ? esc(fmt.money(diff, undefined, { sign: true })) : ''}</td>
     </tr>`);
+    const itemPlans = new Map();
+    for (const r of ctx.sim.rows.filter(r => (r.period.window_start || r.period.pay_date).slice(0, 7) === month)) {
+      const amount = r.expenses.categories.find(x => x.category_id === c.id)?.amount ?? 0;
+      for (const [id, value] of categoryItemAmounts(c, allItems, r.period.pay_date, amount, fmt.round)) {
+        itemPlans.set(id, (itemPlans.get(id) ?? 0) + value);
+      }
+    }
     for (const i of own) {
-      const itemPlan = ctx.sim.rows.filter(r => (r.period.window_start || r.period.pay_date).slice(0,7) === month).reduce((sum, r) => {
-        const monthly = monthlyAmountOn(c, allItems, r.period.pay_date);
-        const amount = r.expenses.categories.find(x => x.category_id === c.id)?.amount ?? 0;
-        return sum + (monthly > 0 ? amount * expenseAmountOn(i, r.period.pay_date) / monthly : 0);
-      }, 0);
+      const itemPlan = itemPlans.get(i.id) ?? 0;
       rows.push(`<tr class="fact-item">
         <td>${esc(i.title)}</td>
         <td class="num muted">${esc(fmt.money(itemPlan))}</td>
@@ -88,12 +90,13 @@ export function render(ctx) {
         <td></td>
       </tr>`);
     }
-    // Старые факты по статьям сохраняются при переходе на процент категории.
-    if (percent) for (const f of facts.filter(f => f.ym === month && f.category_id === c.id && f.item_key)) {
+    // Старый факт категории и факты отсутствующих подкатегорий остаются доступны.
+    if (percent) for (const f of facts.filter(f => f.ym === month && f.category_id === c.id
+      && (f.item_key ? !allItems.some(i => i.id === f.item_key) : own.length > 0))) {
       rows.push(`<tr class="fact-item">
-        <td>${esc(f.item_title || f.item_key)} <span class="small-note">ранее внесено по статье</span></td>
+        <td>${esc(f.item_key ? f.item_title || f.item_key : 'Без подкатегории')} <span class="small-note">${f.item_key ? 'ранее внесено по статье' : 'ранее внесено по категории'}</span></td>
         <td class="num muted">—</td><td class="num">${input({
-          edit: 'facts|expense_facts|amount', key: { ym: month, category_id: c.id, item_key: f.item_key },
+          edit: 'facts|expense_facts|amount', key: { ym: month, category_id: c.id, item_key: f.item_key ?? '' },
           value: f.amount, type: 'money', removeWhen: '0', disabled: !canEdit, style: 'max-width:130px;text-align:right;',
         })}</td><td></td></tr>`);
     }

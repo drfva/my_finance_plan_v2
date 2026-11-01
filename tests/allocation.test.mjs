@@ -85,7 +85,7 @@ test('расходы: сезон категории и статей, в том �
   assert.equal(cat('2027-04-1', 'health'), 1500);
 });
 
-test('расходы: заданный процент выплаты не зависит от сумм и статей категорий', () => {
+test('расходы: процент выплаты не зависит от денежных сумм и других категорий', () => {
   const periods = payouts([3]);
   const inc = new Map([['2027-03-1', 1000], ['2027-03-2', 1000]]);
   const cats = [
@@ -100,7 +100,7 @@ test('расходы: заданный процент выплаты не зав
   // Другие суммы и сезонные категории не меняют заданный процент.
   const seasonal = planExpenses({ periods, slots: SLOTS, incomeById: inc,
     categories: [...cats, { id: 'winter', mode: 'percent_income', monthly_amount: 100000, percent_value: 50, season_from: '12-01', season_to: '02-28' }],
-    items: [{ id: 'old-item', category_id: 'life', amount: 999999 }] });
+    items: [{ id: 'old-item', category_id: 'life', amount: 999999, percent_value: 10 }] });
   const inMarch = seasonal.byPeriod.get('2027-03-1').categories.find(c => c.category_id === 'life');
   assert.equal(inMarch.share, 10);
   const off = seasonal.byPeriod.get('2027-03-1').categories.find(c => c.category_id === 'winter');
