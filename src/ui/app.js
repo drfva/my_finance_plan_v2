@@ -199,6 +199,9 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
           <span class="savebadge" id="save-badge"></span>
           <span class="today-date">Сегодня <b>${esc(ctx.fmt.date(ctx.today, 'weekday'))}</b></span>
           <button class="ghost small" id="sign-out">Выйти</button>
+          <a class="help-link" href="help/" target="_blank" rel="noopener" aria-label="Открыть руководство пользователя" title="Руководство пользователя (в новой вкладке)">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 8.5a2.5 2.5 0 0 1 5 .5c0 1.7-2.5 2-2.5 4"/><path d="M12 16.5h.01"/></svg>
+          </a>
           ${themeButton()}
         </div>
       </div>

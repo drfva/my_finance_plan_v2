@@ -69,6 +69,12 @@ await cmd(A,'expense',{category_id:'food',month:nextMonth,amount:50000});
 await cmd(A,'expense',{category_id:'home',month:nextMonth,amount:40000});
 const members=await rpc(null,'family_worker_members',{},'service_role');
 for(const memberId of members)await runFamilyMember({rpc:(name,args)=>rpc(null,name,args,'service_role'),memberId,post:true});
+if(process.env.FINANCE_GUIDE_PREVIEW==='1'){
+  const {seedGuideData}=await import('./guide-data.mjs');
+  try { await seedGuideData({rpc,user:A,account:personal,today}); }
+  catch(error){console.error('Не удалось подготовить примеры руководства:',error.message);process.exit(1);}
+  for(const memberId of members)await runFamilyMember({rpc:(name,args)=>rpc(null,name,args,'service_role'),memberId,post:false});
+}
 const allowed=new Set(['bootstrap_user','state_get','state_save','family_command','family_get','family_history','family_history_page','log_client_event','account_deletion_preview','account_assign_owner','delete_my_account']);
 const json=(res,data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));};
 const server=http.createServer(async(req,res)=>{
@@ -107,8 +113,11 @@ const server=http.createServer(async(req,res)=>{
     }
     const decoded=decodeURIComponent(address.pathname);
     const absolute=path.resolve(root,'.'+decoded);
-    if(!decoded.startsWith('/src/')||!absolute.startsWith(path.join(root,'src')+path.sep))return json(res,{error:'Not found'},404);
-    res.writeHead(200,{'Content-Type':absolute.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'});res.end(await fs.readFile(absolute));
+    const folder=decoded.startsWith('/src/')?'src':decoded.startsWith('/help/')?'help':null;
+    if(!folder||absolute!==path.join(root,folder)&&!absolute.startsWith(path.join(root,folder)+path.sep))return json(res,{error:'Not found'},404);
+    const file=decoded.endsWith('/')?path.join(absolute,'index.html'):absolute;
+    const type={'.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.html':'text/html; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.webp':'image/webp'}[path.extname(file)]||'application/octet-stream';
+    res.writeHead(200,{'Content-Type':type});res.end(await fs.readFile(file));
   }catch(e){json(res,{error:e.message},500);}
 });
 server.listen(0,'127.0.0.1',()=>console.log(JSON.stringify({url:`http://127.0.0.1:${server.address().port}/?plan=${family}`,pid:process.pid})));
