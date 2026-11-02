@@ -104,7 +104,7 @@ assert.equal(tab2.status(), 'saved'); ok('исправили — сохраня�
 
 
 // 7. полный пример плана целиком уходит в базу и читается обратно
-const { fillSample } = await import('../src/ui/settings.js');
+const { fillSample } = await import('./fixtures/sample-plan.mjs');
 const { generateYear } = await import('../src/engine/income.js');
 const { simulate } = await import('../src/engine/allocation.js');
 const { syncGenerated } = await import('../src/engine/savings.js');
