@@ -70,6 +70,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   let familyRefreshTimer = null;
   let pendingForecast = null;
   let historyRequest = 0;
+  let accountRequest = 0;
 
   function emit(type, payload = {}) {
     for (const fn of listeners) {
@@ -227,11 +228,35 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
 
   /* Открыть другой план, к которому есть доступ. Несохранённое сначала уходит в базу. */
   async function switchAccount(accountId) {
-    if (!accountId || accountId === state?.account?.id) return state;
-    await flush();
-    const { data, error } = await client.rpc('state_get', { p_account: accountId });
-    if (error) throw toError(error, 'Не удалось открыть план');
-    applyLoaded(data);
+    if (!accountId) return state;
+    const request = ++accountRequest;
+    // Нажатие на текущий план отменяет ещё не завершившийся переход в другой.
+    if (accountId === state?.account?.id) return state;
+    try {
+      await flush();
+      if (request !== accountRequest) return state;
+      let response;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try { response = await client.rpc('state_get', { p_account: accountId }); }
+        catch (error) { response = { error }; }
+        if (request !== accountRequest) return state;
+        const error = response.error;
+        const networkFailure = /load failed|failed to fetch|networkerror|network request failed|fetch failed/i.test(error?.message ?? '');
+        if (!networkFailure) break;
+        if (attempt === 1) {
+          const unavailable = new Error('Не удалось загрузить план. Проверьте подключение и выберите план ещё раз.');
+          unavailable.code = 'NETWORK_ERROR';
+          unavailable.cause = error;
+          throw unavailable;
+        }
+      }
+      if (response.error) throw toError(response.error, 'Не удалось открыть план');
+      if (response.data?.account?.id !== accountId) throw new Error('Не удалось открыть выбранный план. Попробуйте ещё раз.');
+      applyLoaded(response.data);
+    } catch (error) {
+      if (request !== accountRequest) return state;
+      throw error;
+    }
     emit('loaded', { state });
     emit('change', { domain: null });
     return state;

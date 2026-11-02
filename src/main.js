@@ -25,11 +25,11 @@ const client = window.supabase.createClient(APP.url, APP.key, {
 });
 initLogger(client);
 
-function showFatal(stage) {
+function showFatal(stage, error) {
   byId('login-screen').style.display = 'none';
   byId('root').style.display = '';
   byId('root').innerHTML = fatalPage(stage);
-  log.error('boot_failed', { stage });
+  log.error('boot_failed', { stage, code: error?.code || null });
   byId('retry').addEventListener('click', () => location.reload());
 }
 
@@ -37,17 +37,17 @@ async function boot() {
   try {
     await ensureSignedIn(client);
     if (recoveryPending()) await askNewPassword(client);
-  }catch(e){showFatal('auth');return;}
+  }catch(e){showFatal('auth',e);return;}
 
   const store = createStore({ client });
   try {
     await store.load();
     const address = new URL(location.href);
-    await openPersonalPlan(store, client, address.searchParams.get('plan'));
+    await openPersonalPlan(store, client);
     address.searchParams.set('plan', store.state.account.id);
     window.history.replaceState(null, '', address);
   } catch (e) {
-    showFatal('load');
+    showFatal('load',e);
     return;
   }
 

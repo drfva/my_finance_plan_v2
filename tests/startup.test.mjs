@@ -17,13 +17,14 @@ test('вход: из семейного плана переходим в соб�
   assert.deepEqual(store.switched, ['mine']);
 });
 
-test('вход: ссылка на доступный личный план сохраняется, неизвестный план игнорируется', async () => {
+test('вход: сохранённая ссылка на чужой или другой собственный план не меняет стартовый план', async () => {
   const second = { id: 'second', plan_kind: 'personal', role: 'owner' };
-  const store = storeFor(personal, [family, personal, second]);
-  await openPersonalPlan(store, {}, 'second');
-  assert.deepEqual(store.switched, ['second']);
-  await openPersonalPlan(store, {}, 'unavailable');
-  assert.deepEqual(store.switched, ['second', 'second']);
+  const shared = { id: 'shared', plan_kind: 'personal', role: 'editor' };
+  for (const previous of ['shared','second','family','unavailable']) {
+    const store = storeFor(personal, [family, shared, personal, second]);
+    await openPersonalPlan(store, {}, previous);
+    assert.deepEqual(store.switched, ['mine']);
+  }
 });
 
 test('вход: текущий собственный личный план сохраняется; старый план без plan_kind поддерживается', async () => {
@@ -34,11 +35,13 @@ test('вход: текущий собственный личный план со
   }
 });
 
-test('вход: доступный личный общий план открывается, если собственного нет', async () => {
+test('вход: доступ к чужому плану до первого входа не заменяет собственный план', async () => {
   const shared = { id: 'shared', plan_kind: 'personal', role: 'editor' };
-  const store = storeFor(family, [family, shared]);
-  await openPersonalPlan(store, {});
-  assert.deepEqual(store.switched, ['shared']);
+  for (const current of [family, shared]) {
+    const store = storeFor(current, [family, shared]);
+    await openPersonalPlan(store, { async rpc() { return { data: 'new-personal', error: null }; } },'shared');
+    assert.deepEqual(store.switched, ['new-personal']);
+  }
 });
 
 test('вход: если осталась только семья, создаётся личный план, ошибка создания не игнорируется', async () => {

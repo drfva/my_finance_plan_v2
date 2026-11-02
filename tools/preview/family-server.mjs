@@ -35,6 +35,9 @@ const cmd=async(user,action,payload={},familyId=family)=>{
   return rpc(user,'family_command',{p_action:action,p_family:familyId,p_payload:payload,p_version:f?.version??null,p_request:crypto.randomUUID()});
 };
 const personal=(await rpc(A,'bootstrap_user',{p_title:'Личный план Анны'})).account.id;
+// Общий доступ выдан до первого входа: он не должен заменить личный план.
+for(const [email,role] of [[users.b.email,'editor'],[users.c.email,'viewer']])
+  await rpc(A,'add_account_member',{p_account:personal,p_email:email,p_role:role});
 const other=(await rpc(B,'bootstrap_user',{p_title:'Личный план Саши'})).account.id;
 await rpc(C,'bootstrap_user',{p_title:'Личный план гостя'});
 const family=(await cmd(A,'create',{title:'Наш семейный план'},null)).family_id;
