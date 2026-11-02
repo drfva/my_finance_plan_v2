@@ -187,7 +187,7 @@ function body(ctx, r) {
         ${input({ edit: 'income|periods|income_net', key: { id: p.id }, value: r.income.salary, type: 'money', disabled: !canEdit || !!p.sick_leave_id || r.familyContribution?.posted,
           cls: p.sick_leave_id ? (r.income.sick?.manual ? 'own' : '') : p.income_manual || p.calc_mode === 'manual' ? 'own' : '' })}
         <div class="small-note">${f
-          ? `${esc(fmt.money(f.net))} по формуле: ${f.workedDays} из ${f.windowDays} рабочих дней,
+          ? `${esc(fmt.money(f.net))} по формуле: ${f.error?esc(f.error):f.percentage?(f.settlement?'окончательный расчёт за месяц':`${f.percent}% оклада, ${f.workedDays} из ${f.windowDays} рабочих дней периода`):`${f.workedDays} из ${f.windowDays} рабочих дней`}${f.overpaid?' · Предыдущие выплаты превысили оклад за месяц':''},
              начислено ${esc(fmt.money(f.gross))}, налог ${esc(fmt.money(f.tax))}
              ${canEdit && (p.income_manual || Math.abs(r.income.salary - f.net) > 0.5)
                ? button({ action: 'fill-income', value: p.id, label: 'подставить по формуле', cls: 'ghost small' }) : ''}`

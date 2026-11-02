@@ -148,7 +148,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   /* Прошедшие выплаты фиксируются: расчёт превращается в факт и больше не меняется */
   function freezePast(ctx) {
     if (!ctx.canEdit) return false;
-    const ids = ctx.sim.rows.filter(r => !r.period.locked && !r.income.sick?.pendingTax && !r.income.sickPendingTax
+    const ids = ctx.sim.rows.filter(r => !r.period.locked && !r.income.formula?.error && !r.income.formula?.overpaid && !r.income.sick?.pendingTax && !r.income.sickPendingTax
       && (!r.familyContribution?.member_id || r.familyContribution.posted) && r.period.pay_date < ctx.today).map(r => r.period.id);
     if (!ids.length) return false;
     const patch = freezePeriods(ctx.state, ctx.sim, ids, ctx.fmt.round);

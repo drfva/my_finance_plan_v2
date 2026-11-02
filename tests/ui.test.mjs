@@ -52,6 +52,17 @@ function goalContext(goals, milestones = []) {
     ui: { open: new Set(), draft: { dashboard: { view: 'saved' } } }, sim: simulate(state, cfg, { today: '2027-03-01' }) };
 }
 
+test('Обзор расходов: статьи и средние за 12 месяцев без двойного суммирования',()=>{
+  const ctx=goalContext([]);ctx.ui.draft.dashboard.view='expenses';
+  ctx.state.expenses={expense_categories:[{id:'life',title:'Жизнь',mode:'fixed_month',monthly_amount:12000}],expense_items:[{id:'food',category_id:'life',title:'Продукты',amount:9000},{id:'bus',category_id:'life',title:'Транспорт',amount:3000}]};
+  ctx.state.facts={expense_facts:[{category_id:'life',item_key:'food',ym:'2027-01',amount:6000}]};
+  ctx.sim.rows=[{period:{pay_date:'2027-01-20',year:2027},expenses:{categories:[{category_id:'life',amount:12000}]},categoriesTotal:12000,installmentsTotal:0,debtPayments:{},installments:[],savings:{},income:{total:12000}}];
+  const html=renderDashboard(ctx);
+  assert.match(html,/План в среднем за месяц/);assert.match(html,/Факт в среднем за месяц/);
+  assert.match(html,/Продукты/);assert.match(html,/Транспорт/);
+  assert.ok(html.includes(fmt.money(750)));assert.ok(html.includes(fmt.money(250)));assert.ok(html.includes(fmt.money(500)));
+});
+
 test('валюта целей: значки вместо списка, выбор и запрет редактирования читателю',()=>{
   const goal={id:'currency-goal',title:'Покупка',kind_code:'bucket',currency_code:'RUB',target_amount:1000,starting_balance:100,completed:false};
   const reserve={...goal,id:'currency-reserve',kind_code:'reserve'};

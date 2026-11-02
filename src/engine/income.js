@@ -25,6 +25,7 @@
 
 import { createCalendar, payoutSchedule } from './calendar.js';
 import { rateOn, salaryForWindow, absenceRanges, isSalaryPeriod } from './salary.js';
+import {percentageSalary,percentageScheduleError} from './percentage-salary.js';
 import { scaleForYear, taxForPayment, taxParts, grossFromNet, estimateMonthlyNet } from './tax.js';
 import { vacationFormula, vacationPay, splitVacationPay } from './vacation.js';
 import { createFx } from './fx.js';
@@ -69,7 +70,11 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
     for (const f of sickInfo) if (!f.disabled) f.errors.push('Автоматические поступления больничного поддерживаются в плане с базовой валютой RUB: суммы пособия и НДФЛ считаются в рублях.');
   }
   const preparedPeriods = sickPeriods(inc);
-  const periods = [...preparedPeriods, ...extraPeriods].sort(byDate);
+  const periods = [...preparedPeriods, ...extraPeriods].sort((a,b)=>{
+    if(a.pay_date===b.pay_date&&isSalaryPeriod(a)&&isSalaryPeriod(b)&&a.window_start?.slice(0,7)===b.window_start?.slice(0,7)
+      &&inc.plan_years?.find(y=>Number(y.year)===Number(a.window_start?.slice(0,4)))?.salary_model==='percentage')return (a.slot_order-b.slot_order)||byDate(a,b);
+    return byDate(a,b);
+  });
   const warnings = [];
   const sickByPeriod = new Map();
   for (const f of sickInfo) {
@@ -105,6 +110,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
         Этот проход идёт без отпускных — они добавляются ниже, когда посчитаны. */
   const grossOfPeriod = new Map();
   {
+    const previous=new Map();
     let cum = 0;
     let cumYear = null;
     for (const p of periods) {
@@ -117,11 +123,21 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
       const scale = scaleForYear(scales, brackets, payYear);
       const net = Number(p.income_net) || 0;
       const taxable = p.taxable !== false;
+      if(isSalaryPeriod(p)&&inc.plan_years?.find(y=>Number(y.year)===Number(p.window_start?.slice(0,4)))?.salary_model==='percentage'){
+        const f=percentageSalary(p,{slots,rates,calendar,absences,previous,round});
+        formulaGross.set(p.id,f);
+        if(f.error||f.overpaid)warnings.push({code:f.error?'salary_percentage_incomplete':'salary_percentage_overpaid',period_id:p.id,message:f.error||'Предыдущие выплаты превысили оклад за отработанный месяц.'});
+      }
       const f = formulaGross.get(p.id);
       const useFormula = f && (automaticIncome(p) || fillIds?.has(p.id));
       const gross = useFormula ? f.grossTaxable + grossFromNet(f.grossNet, cum + f.grossTaxable, scale)
         : taxable ? grossFromNet(net, cum, scale) : net;
       grossOfPeriod.set(p.id, { gross, taxable });
+      if(isSalaryPeriod(p)){
+        const key=p.window_start?.slice(0,7),paid=previous.get(key)||{taxable:0,net:0};
+        const netRate=rateOn(rates,p.window_end)?.is_gross===false;
+        previous.set(key,{taxable:paid.taxable+(useFormula?f.grossTaxable:netRate?0:taxable?gross:net),net:paid.net+(useFormula?f.grossNet:netRate?net:0)});
+      }
       if (taxable) cum += gross;
       cum += sickPartsFor(p).filter(x => x.payer === 'employer').reduce((n, x) => n + x.gross, 0);
     }
@@ -325,6 +341,9 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
    Возвращает строки для state.income.periods — добавить их вызывающий код. */
 export function generateYear(state, cfg, year, { round = Math.round } = {}) {
   const inc = state.income ?? {};
+  if(inc.plan_years?.find(y=>Number(y.year)===Number(year))?.salary_model==='percentage'){
+    const error=percentageScheduleError(year,inc.payout_slots??[]);if(error)throw new Error(error);
+  }
   const calendar = calendarFor(state, cfg);
   const existing = new Set((inc.periods ?? []).map(p => p.id));
   const taken = new Set((inc.periods ?? []).map(p => `${p.year}|${p.slot_order}|${p.window_start}`));

@@ -17,7 +17,7 @@ export async function runFamilyMember({ rpc, memberId, actor = null, post = fals
     let waiting = false;
     const due = post ? rows.filter(r => {
       if (r.period.pay_date > today) return false;
-      waiting ||= Boolean(r.income.sickPendingTax || r.income.sick?.pendingTax);
+      waiting ||= Boolean(r.income.formula?.error || r.income.formula?.overpaid || r.income.sickPendingTax || r.income.sick?.pendingTax);
       return !waiting;
     }) : [];
     const dueIds = new Set(due.map(r => r.period.id));

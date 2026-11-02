@@ -103,15 +103,17 @@ function yearsCard(ctx) {
 
   const blocks = (inc.plan_years ?? []).slice().sort((a, b) => a.year - b.year).map(y => {
     const year = Number(y.year);
+    const percentModel=y.salary_model==='percentage';
     const slots = (inc.payout_slots ?? []).filter(s => Number(s.year) === year).sort((a, b) => a.sort_order - b.sort_order);
     const count = (inc.periods ?? []).filter(p => Number(p.year) === year).length;
-    const slotRows = slots.map(s => `<div class="item-row" style="grid-template-columns:1.2fr .8fr .8fr .8fr .8fr 1fr auto;align-items:end;">
+    const slotRows = slots.map(s => `<div class="item-row" style="grid-template-columns:1.2fr .8fr .8fr .8fr .8fr 1fr ${percentModel?'.8fr ':''}auto;align-items:end;">
       ${field('Название', input({ edit: 'income|payout_slots|title', key: { year, sort_order: s.sort_order }, value: s.title, disabled: !canEdit }))}
       ${field('Число выплаты', input({ edit: 'income|payout_slots|pay_day', key: { year, sort_order: s.sort_order }, value: s.pay_day, type: 'int', disabled: !canEdit }))}
       ${field('Через месяцев', input({ edit: 'income|payout_slots|month_offset', key: { year, sort_order: s.sort_order }, value: s.month_offset, type: 'int', disabled: !canEdit }))}
       ${field('Период с дня', input({ edit: 'income|payout_slots|window_from_day', key: { year, sort_order: s.sort_order }, value: s.window_from_day, type: 'int', disabled: !canEdit }))}
       ${field('по день', input({ edit: 'income|payout_slots|window_to_day', key: { year, sort_order: s.sort_order }, value: s.window_to_day, type: 'int', disabled: !canEdit }))}
       ${field('Если выходной', select({ edit: 'income|payout_slots|shift_rule', key: { year, sort_order: s.sort_order }, value: s.shift_rule, options: shifts, disabled: !canEdit }))}
+      ${percentModel?field('Доля оклада, %',input({edit:'income|payout_slots|salary_percent',key:{year,sort_order:s.sort_order},value:s.salary_percent??0,type:'number',disabled:!canEdit})):''}
       ${canEdit ? delButton({ domain: 'income', table: 'payout_slots', key: { year, sort_order: s.sort_order } }) : ''}
     </div>`).join('');
     const preview = slots.length ? payoutSchedule(year, slots, ctx.sim.income.calendar).slice(0, 2)
@@ -129,7 +131,9 @@ function yearsCard(ctx) {
             confirm: `Удалить ${year} год? Вместе с ним удалятся его график и ${count} выплат со всеми ручными суммами.` }) : ''}
         </div>
       </div>
-      ${open ? `<div style="margin-top:16px;">${slotRows || '<div class="small-note">Выплат в графике нет.</div>'}
+      ${open ? `<div style="margin-top:16px;">${field('Модель выплаты оклада',select({edit:'income|plan_years|salary_model',key:{year},value:y.salary_model??'worked_days',options:[{value:'worked_days',label:'По отработанным дням'},{value:'percentage',label:'В процентном соотношении'}],disabled:!canEdit}))}
+        ${percentModel?`<div class="small-note">Всего ${slots.reduce((n,s)=>n+Number(s.salary_percent||0),0)}% из 100%. Предыдущие выплаты — доля оклада с учётом отработанных дней периода; последняя — остаток за отработанный месяц. Для запуска расчёта необходимо 100%.</div>`:''}
+        ${slotRows || '<div class="small-note">Выплат в графике нет.</div>'}
         ${preview ? `<div class="small-note">Например: ${esc(preview)}</div>` : ''}</div>` : ''}
     </div>`;
   }).join('');
@@ -387,7 +391,7 @@ export function render(ctx) {
       title: 'Оклад',
       actions: canEdit ? addButton({ domain: 'income', table: 'salary_rates', label: '+ запись',
         row: { id: uid('rate'), effective_from: `${ctx.year}-01-01`, amount: 0, is_gross: true, note: '' } }) : '',
-      note: 'С какой даты действует оклад и сколько он. Отработанный день стоит «оклад ÷ рабочих дней месяца». '
+      note: 'С какой даты действует оклад и сколько он. В модели по дням отработанный день стоит «оклад ÷ рабочих дней месяца». '
         + 'Галочка «Всем» — повышение коснулось всех работников: тогда при расчёте отпускных заработок до этой даты индексируется (п. 16 Положения № 922).',
       body: table({ head: ['С даты', { title: 'Оклад', cls: 'num' }, 'До налога', 'Всем', { title: 'На руки в месяц', cls: 'num' }, 'Комментарий', ''],
         rows: rateRows.length ? rateRows : ['<tr><td colspan="7" class="muted">Оклад не задан</td></tr>'] }),
