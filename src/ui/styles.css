@@ -207,6 +207,17 @@ input:disabled,select:disabled{background:var(--surface-3);color:var(--muted);cu
 .dash-tile.active .v{color:var(--on-accent);}
 .dash-tile.active .l{color:var(--on-accent-muted);}
 .table-scroll{overflow-x:auto;}
+
+/* Годовые расходы: категория — заметный итог группы, ниже её состав. */
+#root .annual-expenses .annual-expense-category>td{
+  background:var(--surface-3);font-weight:700;padding-block:16px;
+  border-top:10px solid var(--surface);
+}
+#root .annual-expenses .annual-expense-category:first-child>td{border-top:0;}
+#root .annual-expenses .annual-expense-category>td:first-child{
+  box-shadow:inset 3px 0 var(--accent);padding-left:15px;
+}
+#root .annual-expenses .fact-item>td:first-child{color:var(--muted);}
 .progress > i.year-start{position:absolute;left:0;top:0;height:100%;background:var(--accent);opacity:.35;border-radius:inherit;}
 /* факт против плана: меньше плана — мягкий зелёный, ±5% — обычный фон, больше плана — мягкий красный */
 .fact-under td{background:var(--good-soft);}

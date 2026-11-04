@@ -67,7 +67,7 @@ function expensesView(ctx, rows) {
     const unassigned=facts.filter(x=>x.category_id===c.id&&!x.item_key).reduce((s,x)=>s+Number(x.amount||0),0);
     const unassignedPlan=Math.max(0,p-children.reduce((s,i)=>s+(itemPlans.get(i.id)||0),0));
     if(sub.length&&(unassigned||unassignedPlan>.5))sub.push(childLine('Без подкатегории',unassignedPlan,unassigned));
-    return `<tr>
+    return `<tr class="annual-expense-category">
       <td>${esc(c.title)}</td><td class="num muted">${esc(share(p))}</td>
       <td class="num">${esc(fmt.money(p))}</td><td class="num">${esc(fmt.money(f))}</td>
       <td class="num" style="${diff > 0 ? 'color:var(--danger);' : diff < 0 ? 'color:var(--good);' : ''}">${f ? esc(fmt.money(diff, undefined, { sign: true })) : ''}</td>
@@ -111,7 +111,7 @@ function expensesView(ctx, rows) {
         и погашение кредиток${family ? ', взносы в семейный план' : ''} — всё, что уходит из выплат. Траты из копилок показаны отдельно: это деньги,
         отложенные в прошлых выплатах, поэтому в плитку они не входят.</div>
       ${catRows.length ? `<h3 style="margin:18px 0 6px;font-size:15px;">Категории</h3>
-        ${table({ head: ['Категория', { title: 'Доля', cls: 'num' }, { title: 'План за год', cls: 'num' },
+        ${table({ cls: 'annual-expenses', head: ['Категория', { title: 'Доля', cls: 'num' }, { title: 'План за год', cls: 'num' },
           { title: 'Факт за год', cls: 'num' }, { title: 'Разница', cls: 'num' },{title:'План в среднем за месяц',cls:'num'},{title:'Факт в среднем за месяц',cls:'num'}],
           rows: catRows,
           foot: `<tr><td><b>Итого</b></td><td class="num muted">${esc(share(catPlan))}</td>
