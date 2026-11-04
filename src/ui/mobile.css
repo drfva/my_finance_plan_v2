@@ -37,7 +37,7 @@ body.navigation-open{overflow:hidden;}
   #root .card-title .row{gap:8px;}
   #root .goal-actions{gap:8px;}
   #root .goal-actions button{min-height:44px;}
-  #root .table-scroll:has(>.mobile-cards){overflow:visible;background:none;}
+  #root .table-scroll:has(>.mobile-cards){overflow:visible;background:none;max-height:none;}
   #root .mobile-cards,#root .mobile-cards tbody,#root .mobile-cards tfoot{display:block;width:100%;min-width:0;}
   #root .mobile-cards>thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);}
   #root .mobile-cards>tbody>tr,#root .mobile-cards>tfoot>tr{display:block;margin:12px 0;border:1px solid var(--line);border-radius:14px;padding:10px;background:var(--surface);}
@@ -47,6 +47,11 @@ body.navigation-open{overflow:hidden;}
   #root .mobile-cards td[data-label=""]:before{display:none;}
   #root .mobile-cards>tbody>tr>td.mobile-table-block{display:block;text-align:left;}
   #root .mobile-cards .mobile-table-block:before{display:none;}
+  #root .gift-events .mobile-cards>tbody>tr>td:not([data-label=""]){grid-template-columns:minmax(0,1fr);text-align:left;gap:6px;}
+  #root .gift-events .mobile-cards>tbody>tr>td{background:transparent;}
+  #root .gift-events input,#root .gift-events select{width:100%;}
+  #root .gift-plan .pill{max-width:100%;white-space:normal;overflow-wrap:anywhere;justify-self:end;text-align:right;}
+  #root .gift-plan tfoot td:empty{display:none;}
   #root .mobile-comparison th:first-child,#root .mobile-comparison td:first-child{position:sticky;left:0;background:var(--surface);z-index:1;max-width:130px;white-space:normal;}
   #root .mobile-comparison th:first-child{background:var(--surface-2);z-index:2;}
   #root .modal-back,#root .modal-backdrop{padding:0;align-items:flex-end;}

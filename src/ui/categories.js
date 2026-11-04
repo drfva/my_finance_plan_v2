@@ -94,6 +94,7 @@ export function render(ctx) {
       </button></h2>
       <div id="category-body-${esc(c.id)}"${open ? '' : ' hidden'}>${open ? `
         <div class="category-editor">
+          <div class="category-settings"><h3>Настройки категории</h3>
           <div class="grid cols-2">
             ${field('Название', input({ edit: 'expenses|expense_categories|title', key: { id: c.id }, value: c.title, disabled: !canEdit }))}
             ${field('Как считать', select({ edit: 'expenses|expense_categories|mode', key: { id: c.id }, value: c.mode, options: modes, disabled: !canEdit }))}
@@ -105,6 +106,7 @@ export function render(ctx) {
           </div>
           <div class="category-season">${seasonBlock(ctx, { domain: 'expenses', table: 'expense_categories', id: c.id, from: c.season_from, to: c.season_to })}</div>
           ${!percent && !hasItems ? amountSeasons(ctx, 'expense_categories', c) : ''}
+          </div>
           ${itemsBlock(ctx, c)}
           ${canEdit ? `<div class="category-delete">${delButton({ domain: 'expenses', table: 'expense_categories', key: { id: c.id },
             label: 'Удалить категорию', confirm: `Удалить категорию «${c.title}» вместе со статьями, правками в выплатах и фактом?` })}</div>` : ''}

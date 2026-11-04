@@ -12,12 +12,15 @@ export function adaptTables(root){
     for(const row of table.rows){
       row.setAttribute('role','row');
       const rowLabel=row.cells[0]?.querySelector('input')?.value||row.cells[0]?.textContent.trim()||'';
-      for(const [index,cell] of [...row.cells].entries()){
+      let column=0;
+      for(const cell of row.cells){
+        const label=labels[column]||'';
+        column+=cell.colSpan;
         cell.setAttribute('role',cell.tagName==='TH'?'columnheader':'cell');
         if(cell.tagName==='TH')continue;
         if(cell.colSpan>1){cell.classList.add('mobile-table-block');continue;}
-        cell.dataset.label=labels[index]||'';
-        for(const control of cell.querySelectorAll('input,select'))if(!control.hasAttribute('aria-label'))control.setAttribute('aria-label',[rowLabel,labels[index]||'Значение'].filter(Boolean).join(': '));
+        cell.dataset.label=label;
+        for(const control of cell.querySelectorAll('input,select'))if(!control.hasAttribute('aria-label'))control.setAttribute('aria-label',[rowLabel,label||'Значение'].filter(Boolean).join(': '));
       }
     }
   }

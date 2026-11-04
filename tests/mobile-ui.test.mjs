@@ -4,7 +4,7 @@ import {input} from '../src/ui/dom.js';
 import {attachDateFields} from '../src/ui/date-field.js';
 import {applyEdit} from '../src/ui/edit.js';
 import {mobileNavigation,attachMobileNavigation} from '../src/ui/mobile-navigation.js';
-import {tableLayout} from '../src/ui/responsive-tables.js';
+import {tableLayout,adaptTables} from '../src/ui/responsive-tables.js';
 
 test('мобильные таблицы: ввод карточками, годовые матрицы сохраняют сравнение',()=>{
   assert.equal(tableLayout(['Месяц','Всего','Разовые','Общий доход'],false),'mobile-comparison');
@@ -12,6 +12,19 @@ test('мобильные таблицы: ввод карточками, годо
   assert.equal(tableLayout(['Категория','План','Факт','Разница'],true),'mobile-cards');
   assert.equal(tableLayout(['Название','С','По','Начислено','В плане','На руки','Откуда','Дата','',''],true),'mobile-cards');
   assert.equal(tableLayout(['Категория','Доля','План','Факт','Разница','Среднее'],false),'mobile-comparison');
+});
+
+test('подписи мобильного итога учитывают объединённые ячейки',()=>{
+  const cell=(text,colSpan=1,tagName='TD')=>({
+    textContent:text,colSpan,tagName,dataset:{},classList:{add(){}},
+    setAttribute(){},querySelector(){return null;},querySelectorAll(){return [];},
+  });
+  const head={cells:['Дата','Праздник','Сумма','Статус'].map(text=>cell(text,1,'TH')),setAttribute(){}};
+  const total={cells:[cell('Итого за 2027',2),cell('35 000 ₽'),cell('')],setAttribute(){}};
+  const table={tHead:{rows:[head]},rows:[head,total],classList:{add(){}},setAttribute(){},querySelector(){return null;}};
+  adaptTables({querySelectorAll:()=>[table]});
+  assert.equal(total.cells[1].dataset.label,'Сумма');
+  assert.equal(total.cells[2].dataset.label,'Статус');
 });
 
 test('необязательная дата: явный сброс и Safari input без change записывают null',()=>{

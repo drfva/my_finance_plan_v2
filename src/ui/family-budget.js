@@ -47,11 +47,13 @@ export function familyCategories(ctx) {
         <span class="category-meta">${items.length?`${items.length} ${ctx.fmt.plural(items.length,{one:'подкатегория',few:'подкатегории',many:'подкатегорий'})} · `:''}${percent?'процент от взносов месяца':'фиксированная сумма в месяц'}</span></span>
         <span class="category-amount num">${esc(percent?ctx.fmt.percent(value,1):ctx.fmt.money(value))}<span class="category-meta">${percent?'от взносов месяца':'в месяц'}</span></span>
       </button></h2><div id="family-category-${esc(c.id)}"${open?'':' hidden'}>${open?`<div class="category-editor">
+      <div class="category-settings"><h3>Настройки категории</h3>
       <div class="grid cols-2">${field('Название',control(c,'title',c.title,{disabled:!ctx.canEdit,label:'Название категории'}))}
         ${field('Как считать',`<select data-family-budget-field="mode" data-id="${esc(c.id)}" aria-label="Способ расчёта ${esc(c.title)}"${!ctx.canEdit?' disabled':''}>
           <option value="fixed_month"${percent?'':' selected'}>Фиксированная сумма в месяц</option><option value="percent_month"${percent?' selected':''}>Фиксированный процент в месяц</option></select>`)}
         ${valueField(c,items.length>0)}</div><div class="category-season">${season(ctx,c)}</div>
         ${!percent&&!items.length?amountSeasons(ctx,'expense_categories',c):''}
+        </div>
         <div class="category-items"><div class="category-items-title"><h3>Подкатегории${items.length?` · ${items.length}`:''}</h3>
           ${ctx.canEdit?act('add-item','+ подкатегория',c.id):''}</div>
           ${items.map(i=>`<div class="category-item" data-scroll-row="${esc(i.id)}"><div class="category-item-main">

@@ -44,13 +44,13 @@ export function render(ctx) {
     const amount = giftAmountForYear(e.id, amounts, year);
     return `<tr>
       <td>${input({ edit: 'gifts|gift_events|title', key: { id: e.id }, value: e.title, disabled: !canEdit })}</td>
-      <td style="width:170px;">${input({ edit: 'gifts|gift_events|day', key: { id: e.id }, value: eventDate(e, year),
+      <td>${input({ edit: 'gifts|gift_events|day', key: { id: e.id }, value: eventDate(e, year),
         type: 'monthday', disabled: !canEdit })}</td>
-      <td style="width:150px;">${input({ edit: 'gifts|gift_event_amounts|amount', key: { event_id: e.id, year },
+      <td>${input({ edit: 'gifts|gift_event_amounts|amount', key: { event_id: e.id, year },
         value: set ? amount : '', placeholder: fmt.money(amount), type: 'money', disabled: !canEdit, cls: set ? 'own' : '' })}</td>
-      <td style="width:180px;">${select({ edit: 'gifts|gift_events|repeat_kind', key: { id: e.id }, value: e.repeat_kind, disabled: !canEdit,
+      <td>${select({ edit: 'gifts|gift_events|repeat_kind', key: { id: e.id }, value: e.repeat_kind, disabled: !canEdit,
         options: [{ value: 'yearly', label: 'Каждый год' }, { value: 'once', label: 'Один раз' }] })}</td>
-      <td style="width:40px;">${canEdit ? delButton({ domain: 'gifts', table: 'gift_events', key: { id: e.id },
+      <td>${canEdit ? delButton({ domain: 'gifts', table: 'gift_events', key: { id: e.id },
         confirm: `Удалить праздник «${e.title}» вместе с его этапами и тратами?` }) : ''}</td>
     </tr>`;
   });
@@ -62,6 +62,7 @@ export function render(ctx) {
         day: 1, month: 1, repeat_kind: 'yearly', base_year: year, sort_order: events.length + 1 } }) : '',
     body: `<div class="info-box" style="margin-bottom:20px;">${HOW}</div>
       ${table({
+        cls: 'gift-events',
         head: ['Праздник', 'Дата', 'Сумма', 'Повтор', ''],
         rows: rows.length ? rows : ['<tr><td colspan="5" class="muted">Праздников пока нет</td></tr>'],
       })}`,
@@ -93,7 +94,7 @@ export function giftPlanTable(ctx, goal, { savedThisYear = null } = {}) {
     </tr>`;
   });
   return table({
-    cls: 'tall',
+    cls: 'tall gift-plan',
     head: ['Дата', 'Праздник', { title: 'Сумма', cls: 'num' }, 'Статус'],
     rows: rows.length ? rows : [`<tr><td colspan="4" class="muted">В ${year} году праздников нет</td></tr>`],
     foot: rows.length ? `<tr><td colspan="2"><b>Итого за ${year}</b></td>

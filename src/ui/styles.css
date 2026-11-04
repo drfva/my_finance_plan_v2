@@ -207,6 +207,12 @@ input:disabled,select:disabled{background:var(--surface-3);color:var(--muted);cu
 .dash-tile.active .v{color:var(--on-accent);}
 .dash-tile.active .l{color:var(--on-accent-muted);}
 .table-scroll{overflow-x:auto;}
+@media(min-width:761px){
+  .gift-events td:nth-child(2){width:170px;}
+  .gift-events td:nth-child(3){width:150px;}
+  .gift-events td:nth-child(4){width:180px;}
+  .gift-events td:last-child{width:40px;}
+}
 
 /* Годовые расходы: категория — заметный итог группы, ниже её состав. */
 #root .annual-expenses .annual-expense-category>td{
@@ -269,7 +275,7 @@ input:disabled,select:disabled{background:var(--surface-3);color:var(--muted);cu
 .category-list{display:flex;flex-direction:column;gap:14px;min-width:0;}
 .category-card{padding:0;overflow:hidden;}
 .category-heading{margin:0;font:inherit;}
-button.category-head{display:flex;align-items:center;gap:16px;width:100%;min-height:88px;padding:20px 24px;border:0;border-radius:0;background:transparent;color:var(--ink);box-shadow:none;text-align:left;}
+button.category-head{display:flex;align-items:center;gap:16px;width:100%;min-height:88px;padding:20px 24px;border:0;border-radius:0;background:var(--surface-3);color:var(--ink);box-shadow:inset 3px 0 var(--accent);text-align:left;}
 button.category-head:hover{background:var(--surface-2);color:var(--ink);}
 button.category-head:active{transform:none;}
 button.category-head:focus-visible{outline-offset:-3px;}
@@ -278,15 +284,16 @@ button.category-head:focus-visible{outline-offset:-3px;}
 .category-name{display:block;font-size:17px;font-weight:750;line-height:1.4;overflow-wrap:anywhere;}
 .category-meta{display:block;font-family:var(--font-body);font-size:12.5px;font-weight:500;line-height:1.5;color:var(--muted);margin-top:3px;}
 .category-amount{flex-shrink:0;text-align:right;font-size:18px;font-weight:750;}
-.category-editor{padding:4px 24px 20px;}
+.category-editor{padding:20px 24px;}
+.category-settings>h3{margin:0 0 14px;font-size:15px;}
 .category-editor .grid{gap:16px;}
 .category-share{min-height:44px;display:flex;align-items:center;font-size:18px;}
 .category-season{margin-top:14px;}
-.category-season-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;align-items:start;gap:12px;margin-top:12px;}
+.category-season-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;align-items:start;gap:12px;margin-top:12px;padding:14px;border:1px dashed var(--line);border-radius:var(--r-sm);background:var(--surface);}
 .category-season-fields .field{min-width:0;}
 .category-season-fields > button{margin-top:28px;}
 .season-format-note{grid-column:1/-1;margin-top:0;}
-.amount-seasons{margin-top:12px;}
+.amount-seasons{margin-top:12px;padding:14px;border:1px dashed var(--line);border-radius:var(--r-sm);background:var(--surface);}
 .amount-seasons-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px;}
 .amount-season-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;}
 .amount-season-row > .row{margin-left:auto;gap:4px;}
@@ -297,12 +304,13 @@ button.category-head:focus-visible{outline-offset:-3px;}
 .category-items{margin-top:22px;border-top:1px solid var(--line);padding-top:18px;}
 .category-items-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;}
 .category-items-title h3{margin:0;font-size:15px;}
+.category-item{padding:16px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);}
 .category-item + .category-item{margin-top:14px;}
 .category-item-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,180px) auto;align-items:end;gap:12px;}
 .category-item-main .field{min-width:0;}
+.category-item-main input{background:var(--surface);}
 .category-item-main input.num{text-align:right;}
 .category-item-actions{display:flex;align-items:center;justify-content:flex-end;gap:4px;min-height:44px;}
-.category-item > .category-season-fields{padding:0 0 12px;border-bottom:1px solid var(--line);}
 .category-delete{display:flex;justify-content:flex-end;margin-top:18px;}
 .category-delete > button{color:var(--danger);}
 @media(max-width:760px){
@@ -310,7 +318,8 @@ button.category-head:focus-visible{outline-offset:-3px;}
   button.category-head{padding:16px;gap:10px;}
   .category-name{font-size:16px;}
   .category-amount{font-size:16px;}
-  .category-editor{padding:0 16px 16px;}
+  .category-editor{padding:18px 16px;}
+  .category-item{padding:12px;}
   .category-item-main{grid-template-columns:minmax(0,1fr) minmax(100px,.7fr);gap:8px;}
   .category-item-actions{grid-column:1/-1;min-height:0;}
   .category-season-fields{grid-template-columns:repeat(2,minmax(0,1fr));}
@@ -323,7 +332,7 @@ button.category-head:focus-visible{outline-offset:-3px;}
   .category-amount .category-meta{display:inline;margin-left:5px;}
   .category-item-main{grid-template-columns:minmax(0,1fr);}
   .category-item-actions{grid-column:auto;}
-  .category-editor{padding:0 14px 14px;}
+  .category-editor{padding:16px 14px;}
 }
 .sub-section{background:var(--surface-2);border-radius:var(--r-md);padding:14px 16px;margin-top:12px;}
 .sub-section > .card-title{margin-bottom:0;}
