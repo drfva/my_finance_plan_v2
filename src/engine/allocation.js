@@ -23,7 +23,8 @@
      gifts, buckets, reserves — темп для целей своего типа (ref_goal_kinds).
 
    Темп подушки (pace_amount) откладывается раньше копилок: если у подушки задан
-   темп, эта сумма уходит в неё из свободных денег до этапа buckets. Старая версия
+   темп, эта сумма уходит в неё из свободных денег до этапа buckets, но уменьшается,
+   если иначе подарки и копилки не успеют к своим срокам. Старая версия
    так не делала — для сверки с ней есть опция paceFirst: false.
 
    После этапов — доливка остатка по целям: по одному этапу за раз, у кого срок
@@ -240,8 +241,8 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     return { g, reserve, remaining, maximum: paced, per, deadline };
   }
 
-  /* Темп подушки: если у подушки задана сумма на выплату, она откладывается
-     раньше копилок — на то он и темп. Возвращает, сколько ушло из выплаты. */
+  /* Темп подушки откладывается раньше копилок в пределах денег, которые
+     можно выделить без срыва их сроков. Возвращает, сколько ушло из выплаты. */
   function reservePaceStep(p, allocations, fixedGoals, remaining, deposit, given) {
     let spent = 0;
     const list = activeGoals('reserves')
@@ -255,7 +256,9 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       if (!b) continue;
       const paceBase = fx.toBase(Number(g.pace_amount) || 0, g.currency_code, p.pay_date);
       if (paceBase === null) continue;
-      const limits = fundingLimits(req, p, fixedGoals, allocations);
+      // Ранний темп подушки можно снизить ради сроков подарков и копилок.
+      // Собственный срок подушки не превращает этот взнос в обязательный.
+      const limits = fundingLimits({ ...req, deadline: '', reservePace: true }, p, fixedGoals, allocations);
       const give = Math.min(paceBase, Math.max(0, left - limits.protect), b.remainingBase);
       if (give > 0.0001 && deposit(g.id, give, p.pay_date, allocations)) {
         spent += give;
@@ -340,7 +343,8 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     let protect = manual;
     let minimum = 0;
     if (!reference) return { protect, minimum };
-    const needs = enabled.filter(g => !g.completed && !g.archived).flatMap(g => {
+    const needs = enabled.filter(g => !g.completed && !g.archived
+      && (!req.reservePace || stageOfGoal(g) !== 'reserves')).flatMap(g => {
       return tracker.milestones(g.id).map((m, i) => {
         if (!m.deadline) return null;
         const r = requirement(g, p, i);
@@ -448,7 +452,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
           if (amt > 0.0001 && depositBase(g.id, amt, p.pay_date, allocations)) remaining -= amt;
         }
         if (!manual && remaining > 0) {
-          // темп подушки идёт раньше копилок: если он задан, его откладываем обязательно
+          // темп подушки идёт раньше копилок с защитой их сроков
           const familyBeforeReserve = stage('family') && stage('reserves')
             && stages.indexOf(stage('family')) < stages.indexOf(stage('reserves'));
           if (paceFirst && !paceDone && s.code !== 'reserves' && (!familyBeforeReserve || familyContribution)) {

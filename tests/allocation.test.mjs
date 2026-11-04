@@ -796,6 +796,27 @@ test('подушка: заданный темп откладывается ра�
   assert.equal(without.allocations.trip, 50000);
 });
 
+test('рост расходов на 500 в месяц уменьшает темп подушки, сохраняя сроки подарков и копилок', () => {
+  for (const reserveDeadline of [null, '2027-02-28', '2027-12-31']) {
+    const st = plan({ periods: payouts([1, 2], { net: 5000 }), goals: [
+      goal('gifts', { kind_code: 'gifts', target_amount: 5000, deadline: '2027-02-28' }),
+      goal('trip', { target_amount: 3000, deadline: '2027-02-28' }),
+      goal('cushion', { kind_code: 'reserve', target_amount: 500000, pace_amount: 3000, deadline: reserveDeadline }),
+    ], categories: [{ id: 'life', mode: 'fixed_month', monthly_amount: 0, split_mode: 'even' }] });
+    const before = run(st);
+    st.expenses.expense_categories[0].monthly_amount = 500;
+    const after = run(st);
+    for (const id of ['gifts', 'trip']) {
+      assert.ok(before.milestoneDates[id][0] && before.milestoneDates[id][0] <= '2027-02-28');
+      assert.ok(after.milestoneDates[id][0] && after.milestoneDates[id][0] <= '2027-02-28',
+        `${id} успевает при сроке подушки ${reserveDeadline}: ${JSON.stringify(after.rows.map(r => r.allocations))}`);
+    }
+    const allocated = (sim, id) => sim.rows.reduce((s, r) => s + (r.allocations[id] ?? 0), 0);
+    assert.ok(Math.abs(allocated(before, 'cushion') - allocated(after, 'cushion') - 1000) < 0.01);
+    assert.ok(after.rows.every(r => r.unallocated >= -0.01));
+  }
+});
+
 test('копилки: ручная сумма фиксируется, остальные считаются автоматически', () => {
   const goals = [
     goal('trip', { target_amount: 500000, priority: 1 }),
