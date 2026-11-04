@@ -18,6 +18,8 @@ import { familyToday } from '../engine/family.js';
 import { applyTheme, nextTheme } from '../core/theme.js';
 import { themeButton, updateThemeButton } from './theme-switch.js';
 import { scrollToPending } from './navigation.js';
+import {mobileNavigation,syncMobileNavigation,attachMobileNavigation} from './mobile-navigation.js';
+import {adaptTables} from './responsive-tables.js';
 
 import * as dashboard from './dashboard.js';
 import * as periods from './periods.js';
@@ -190,7 +192,9 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       : '';
     return `
       <div class="topbar"><div class="topbar-inner">
+        ${mobileNavigation(tabsHtml(ctx,late),{planTitle:ctx.state.account?.title,role:ROLE_TITLES[ctx.state.account?.role]??''})}
         <div class="brand"><h1 style="font-size:19px;">${esc(ctx.state.account?.title || 'Финансы')}</h1>
+          <span class="mobile-current-section">${esc(tab?.title(ctx)??'Обзор')}</span>
           ${env === 'dev' ? '<span class="pill danger" style="font-size:11px;">ТЕСТ</span>' : ''}
           ${ctx.canEdit ? '' : '<span class="pill" style="font-size:11px;">только просмотр</span>'}
           ${ctx.years.length ? `<span class="pill" style="font-size:11px;">${esc(ROLE_TITLES[ctx.state.account?.role] ?? ctx.state.account?.role ?? '')}</span>` : ''}
@@ -275,6 +279,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       body = `<div class="card"><h2>Не получилось показать вкладку</h2><p class="muted">${esc(e.message)}</p></div>`;
     }
     byId('root').innerHTML = shell(ctx, invitationCard(ctx) + body);
+    adaptTables(byId('root'));
+    syncMobileNavigation(byId('root'),ui);
     const deletion=byId('root').querySelector('.account-delete-dialog');
     (deletion?.querySelector('[data-account-delete-word]')??deletion?.querySelector('select:not(:disabled)')??deletion?.querySelector('button:not(:disabled)'))?.focus({preventScroll:true});
     byId('sign-out').addEventListener('click', async () => { await store.flush(); onSignOut(); });
@@ -303,6 +309,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     const root = byId('root');
     attachEditing(root, store, context, e => notice('danger', e.message));
     attachSettings(root, store, context, render);
+    attachMobileNavigation(root,ui,render);
 
     // черновики форм живут в памяти вкладки и не перерисовывают экран
     root.addEventListener('change', ev => {

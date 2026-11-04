@@ -246,7 +246,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
       ${input({ edit: 'savings|goal_milestones|title', key: { id: m.id }, value: m.title, placeholder: 'Этап', disabled: !canEdit, cls: generated && m.user_edited ? 'own' : '' })}
       ${input({ edit: 'savings|goal_milestones|target', key: { id: m.id }, value: m.target, type: 'money',
         placeholder: 'Сколько накопить', disabled: !canEdit, defaults: { user_edited: true }, cls: generated && m.user_edited ? 'own' : '' })}
-      ${input({ edit: 'savings|goal_milestones|deadline', key: { id: m.id }, value: m.deadline, type: 'date', disabled: !canEdit, cls: generated && m.user_edited ? 'own' : '' })}
+      ${input({ edit: 'savings|goal_milestones|deadline', key: { id: m.id }, value: m.deadline, type: 'date', clearable: true, disabled: !canEdit, cls: generated && m.user_edited ? 'own' : '' })}
       ${canEdit ? delButton({ domain: 'savings', table: 'goal_milestones', key: { id: m.id } }) : ''}
       <div class="ms-foot row wrap">
         ${pill(label, cls)}
@@ -325,7 +325,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
     ${extraFields}
     ${!milestones.length ? `<div class="row wrap" style="gap:12px;margin-top:12px;align-items:end;">
         <div style="flex:1;min-width:160px;">${field('Сколько накопить', input({ edit: 'savings|goals|target_amount', key: { id: g.id }, value: g.target_amount, type: 'money', disabled: !canEdit }))}</div>
-        <div style="flex:1;min-width:160px;">${field('К дате', input({ edit: 'savings|goals|deadline', key: { id: g.id }, value: g.deadline, type: 'date', disabled: !canEdit }))}</div>
+        <div style="flex:1;min-width:160px;">${field('К дате', input({ edit: 'savings|goals|deadline', key: { id: g.id }, value: g.deadline, type: 'date', clearable: true, disabled: !canEdit }))}</div>
         ${canEdit && showCycles ? `<div class="row goal-actions">${button({ action: 'make-cycle', value: `goal:${g.id}`, label: 'Сделать периодической',
           title: 'Копить эту сумму к дате и повторять' })}</div>` : ''}
       </div>

@@ -43,6 +43,7 @@
 .guide-table td{border-top:1px solid var(--line);}
 .guide-table td:first-child{font-weight:650;width:27%;}
 .guide-page figure{margin:30px 0;}
+.guide-page figure.guide-phone{max-width:390px;margin-inline:auto;}
 .guide-page figure>a{display:block;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow-card);cursor:zoom-in;background:#08111f;}
 .guide-page figure img{width:100%;height:auto;display:block;}
 .guide-page figcaption{font-size:12px;line-height:1.6;color:var(--muted);padding:10px 3px;}

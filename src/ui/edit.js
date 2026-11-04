@@ -30,6 +30,7 @@
 
 import { rebuildFuture } from '../engine/debts.js';
 import { revealAddedRow } from './navigation.js';
+import {attachDateFields} from './date-field.js';
 
 const DEPENDENTS = {
   'expenses|expense_categories': [
@@ -237,6 +238,7 @@ const SCHEDULE_FIELDS = new Set(['total', 'parts', 'every_n', 'period_unit', 'fi
 /* Обработчики на контейнере: одна установка на всё приложение */
 export function attachEditing(container, store, getCtx, onError) {
   const run = fn => { try { fn(); } catch (e) { onError(e); } };
+  attachDateFields(container,el=>run(()=>applyEdit(store,el,getCtx().fmt)));
 
   container.addEventListener('change', ev => {
     const el = ev.target.closest('[data-edit]');

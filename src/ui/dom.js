@@ -6,6 +6,7 @@
 --------------------------------------------------------------------- */
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+import {nullableDate} from './date-field.js';
 
 export function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ESC[ch]);
@@ -18,14 +19,15 @@ const json = value => (value === undefined ? '' : ` data-key='${esc(JSON.stringi
 const jsonAttr = (name, value) => (value === undefined ? '' : ` ${name}='${esc(JSON.stringify(value)).replace(/'/g, '&#39;')}'`);
 
 /* Поле ввода, привязанное к строке таблицы */
-export function input({ edit, key, value, type = 'text', defaults, removeWhen, empty, disabled, style, placeholder, ariaLabel, cls = '' }) {
+export function input({ edit, key, value, type = 'text', defaults, removeWhen, empty, disabled, style, placeholder, ariaLabel, clearable=false, cls = '' }) {
   const kind = type === 'date' || type === 'monthday' ? 'date' : 'text';
   const mode = type === 'money' || type === 'number' || type === 'int' ? ' inputmode="decimal"' : '';
-  return `<input class="${esc(cls)}${type === 'money' || type === 'number' || type === 'int' ? ' num' : ''}" type="${kind}"${mode}`
+  const control=`<input class="${esc(cls)}${type === 'money' || type === 'number' || type === 'int' ? ' num' : ''}" type="${kind}"${mode}`
     + attr('data-edit', edit) + json(key) + jsonAttr('data-defaults', defaults)
     + attr('data-type', type) + attr('data-remove-when', removeWhen) + attr('data-empty', empty)
     + attr('value', value ?? '') + attr('placeholder', placeholder) + attr('aria-label', ariaLabel) + attr('style', style)
     + (disabled ? ' disabled' : '') + '>';
+  return clearable&&type==='date'?nullableDate(control,{disabled,hasValue:Boolean(value)}):control;
 }
 
 export function checkbox({ edit, key, value, defaults, disabled, title }) {
