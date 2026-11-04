@@ -52,6 +52,20 @@ function goalContext(goals, milestones = []) {
     ui: { open: new Set(), draft: { dashboard: { view: 'saved' } } }, sim: simulate(state, cfg, { today: '2027-03-01' }) };
 }
 
+test('валютная копилка: Обзор показывает взнос в валюте цели, карточка — курс и дату', () => {
+  const ctx = goalContext([{ id:'usd', title:'Доллары', kind_code:'bucket', currency_code:'USD', target_amount:1000 }]);
+  ctx.state.income.periods = [{ id:'p', year:2027, pay_date:'2027-03-20', window_start:'2027-03-01', window_end:'2027-03-20', calc_mode:'manual', income_net:5000 }];
+  ctx.state.settings.fx_rates = [{ base_code:'RUB', quote_code:'USD', rate_date:'2027-03-01', rate:100 }];
+  ctx.sim = simulate(ctx.state, ctx.cfg, { today:ctx.today });
+  const html = renderDashboard(ctx);
+  assert.ok(html.includes(fmt.money(50, 'USD')));
+  assert.ok(!html.includes(fmt.money(5000, 'USD')));
+  const detail = goalCard(ctx, ctx.state.savings.goals[0]);
+  assert.match(detail, /Курс для прогноза: 1 USD = 100 RUB на 01.03.2027/);
+  ctx.state.current_fx = { error:true };
+  assert.match(goalCard(ctx, ctx.state.savings.goals[0]), /Не удалось обновить курс/);
+});
+
 test('Обзор расходов: статьи и средние за 12 месяцев без двойного суммирования',()=>{
   const ctx=goalContext([]);ctx.ui.draft.dashboard.view='expenses';
   ctx.state.expenses={expense_categories:[{id:'life',title:'Жизнь',mode:'fixed_month',monthly_amount:12000}],expense_items:[{id:'food',category_id:'life',title:'Продукты',amount:9000},{id:'bus',category_id:'life',title:'Транспорт',amount:3000}]};

@@ -236,6 +236,11 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
   const nextMs = summary.next?.m;
   const mainStatus = summary.next?.status;
   const hasPriority = showPriority && !g.completed && !g.archived;
+  const foreign = g.currency_code && g.currency_code !== ctx.cfg.get('base_currency');
+  const quote = foreign ? sim.savingsFx?.quoteOn(g.currency_code, ctx.today) : null;
+  const fxNote = foreign ? `<p class="small-note">${state.current_fx?.loading ? 'Обновляем курс валюты… ' : ''}${quote
+    ? `Курс для прогноза: 1 ${esc(g.currency_code)} = ${esc(fmt.number(quote.rate, 4))} ${esc(ctx.cfg.get('base_currency'))} на ${esc(fmt.date(quote.date))}.`
+    : 'Нет курса валюты: автоматическое накопление и прогноз недоступны.'}${state.current_fx?.error ? ' Не удалось обновить курс; показаны сохранённые данные.' : ''}</p>` : '';
 
   const msList = milestones.slice().sort((a, b) => ((a.deadline || '9999') < (b.deadline || '9999') ? -1 : 1));
   const msRow = m => {
@@ -300,6 +305,7 @@ export function goalCard(ctx, g, { extraFields = '', canDelete = true, showCycle
           confirm: `Удалить «${g.title}» вместе с этапами, движениями и ручными суммами?` }) : ''}
       </div>
     </div>
+    ${fxNote}
     ${hasTarget ? `<div class="progress"><i style="width:${pct}%"></i></div>
       <div class="row between wrap" style="gap:8px;">
         <span class="small-note" style="margin:0;">${esc(fmt.money(progress, g.currency_code))} / ${esc(fmt.money(total, g.currency_code))} (${pct}%) ·

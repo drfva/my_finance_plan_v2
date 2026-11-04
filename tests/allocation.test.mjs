@@ -699,6 +699,40 @@ test('конвейер: цель в долларах копится по кур�
   assert.ok(noRate.warnings.some(w => w.code === 'no_fx_rate' && w.goal_id === 'usd'));
 });
 
+test('валютные накопления: прогноз использует курс на сегодня, а не будущую дату выплаты', () => {
+  const st = plan({ periods: payouts([1], { net: 5000 }), goals: [goal('usd', { currency_code: 'USD', target_amount: 300 })],
+    fx: [{ base_code: 'RUB', quote_code: 'USD', rate_date: '2026-11-04', rate: 100 },
+      { base_code: 'RUB', quote_code: 'USD', rate_date: '2027-01-01', rate: 200 }] });
+  const sim = simulate(st, createConfig(st), { today: '2026-11-04' });
+  assert.equal(sim.finalPhase.balances.usd, 100);
+  assert.equal(sim.rows[0].goalAllocations.usd, 50);
+  assert.equal(forecastBeyondPlan(sim, st.savings.goals[0]).perPayout, 50);
+  assert.equal(forecastBeyondPlan(sim, st.savings.goals[0]).payouts, 4);
+  st.savings.goals[0].kind_code = 'reserve';
+  const reserve = simulate(st, createConfig(st), { today: '2026-11-04' });
+  assert.equal(reservePaceSuggestion(reserve, st.savings.goals[0], '2026-11-04').suggested, 50);
+  st.settings.fx_rates.shift();
+  const missing = simulate(st, createConfig(st), { today: '2026-11-04' });
+  assert.ok(missing.warnings.some(w => w.code === 'no_fx_rate'));
+  assert.equal(forecastBeyondPlan(missing, st.savings.goals[0]), null);
+});
+
+test('валютные накопления: новый курс меняет будущие взносы, сохраняя конвертацию зафиксированной выплаты', () => {
+  const periods = ['2026-10-20', '2027-01-20'].map((date, i) => ({ id: `fx${i}`, pay_date: date,
+    year: Number(date.slice(0,4)), window_start: date, window_end: date, calc_mode: 'manual', income_net: i ? 10000 : 8000, locked: i === 0 }));
+  const st = plan({ periods, goals: [goal('usd', { currency_code: 'USD', target_amount: 1000 })],
+    fx: [{ base_code: 'RUB', quote_code: 'USD', rate_date: '2026-10-20', rate: 80 },
+      { base_code: 'RUB', quote_code: 'USD', rate_date: '2026-11-04', rate: 100 }],
+    overrides: [{ period_id: 'fx0', goal_id: 'usd', amount: 8000 }] });
+  const sim = simulate(st, createConfig(st), { today: '2026-11-04' });
+  assert.equal(sim.rows[0].goalBalances.usd, 100);
+  assert.equal(sim.rows[1].goalBalances.usd, 200);
+  st.settings.fx_rates[1].rate = 125;
+  const next = simulate(st, createConfig(st), { today: '2026-11-04' });
+  assert.equal(next.rows[0].goalBalances.usd, 100);
+  assert.equal(next.rows[1].goalBalances.usd, 180);
+});
+
 test('после расчёта: баланс на дату, прогноз карты, темп подушки, перераспределение, фиксация', () => {
   const txs = [{ id: 't', goal_id: 'trip', date: '2027-02-10', amount: 20000, kind: 'spend' }];
   const st = plan({

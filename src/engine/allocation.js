@@ -39,7 +39,8 @@
    только ручные суммы. У зафиксированной нет и автоматических погашений карт.
 
    Все суммы конвейера — в базовой валюте. Суммы целей и карт в другой валюте
-   переводятся по курсу на дату выплаты (fx.js).
+   переводятся по курсу на дату выплаты (fx.js). Для будущих накоплений берётся
+   действующий на сегодня курс; зафиксированные выплаты используют историю курсов.
 --------------------------------------------------------------------- */
 
 import { computeIncome } from './income.js';
@@ -78,7 +79,9 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     if (!warned.has(key)) { warned.add(key); warnings.push({ code, ...extra }); }
   };
 
-  const fx = createFx(state.settings?.fx_rates ?? [], cfg.get('base_currency'));
+  const fxRates = [...(state.settings?.fx_rates ?? []), ...(state.current_fx?.rates ?? [])];
+  const fx = createFx(fxRates, cfg.get('base_currency'));
+  const savingsFx = createFx(fxRates, cfg.get('base_currency'), { asOf: today });
   const family = createFamilyAllocator({ state, income: inc, reference, round });
   const stages = cfg.stages().filter(s => s.enabled || s.code === 'family' && family.posted.size);
   const stage = code => stages.find(s => s.code === code) ?? null;
@@ -124,6 +127,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   const savingsOv = new Map();
   const goalsById = new Map(goals.map(g => [g.id, g]));
   const periodsById = new Map(periods.map(p => [p.id, p]));
+  const goalFx = (p = periodsById.get(curPeriodId)) => p?.locked ? fx : savingsFx;
   for (const o of sv.savings_period_overrides ?? []) {
     const g = goalsById.get(o.goal_id);
     const p = periodsById.get(o.period_id);
@@ -231,7 +235,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     let n = 0;
     for (const q of eligible) {
       const fixed = savingsOv.get(q.id);
-      if (q.pay_date > p.pay_date && fixed?.has(g.id)) fixedFuture += fx.fromBase(fixed.get(g.id), g.currency_code, q.pay_date) ?? 0;
+      if (q.pay_date > p.pay_date && fixed?.has(g.id)) fixedFuture += goalFx(q).fromBase(fixed.get(g.id), g.currency_code, q.pay_date) ?? 0;
       else if (!q.locked && !fixed?.has(g.id)) n++;
     }
     const overdue = Boolean(deadline && deadline < p.pay_date && need > 0);
@@ -254,7 +258,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       const req = requirement(g, p);
       const b = inBase(req, p.pay_date);
       if (!b) continue;
-      const paceBase = fx.toBase(Number(g.pace_amount) || 0, g.currency_code, p.pay_date);
+      const paceBase = goalFx(p).toBase(Number(g.pace_amount) || 0, g.currency_code, p.pay_date);
       if (paceBase === null) continue;
       // Ранний темп подушки можно снизить ради сроков подарков и копилок.
       // Собственный срок подушки не превращает этот взнос в обязательный.
@@ -271,8 +275,8 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   /* Перевод требования в базовую валюту; нет курса — цель пропускается */
   function inBase(req, date) {
     const code = req.g.currency_code;
-    const per = fx.toBase(req.per, code, date);
-    const remaining = fx.toBase(req.maximum ?? req.remaining, code, date);
+    const per = goalFx().toBase(req.per, code, date);
+    const remaining = goalFx().toBase(req.maximum ?? req.remaining, code, date);
     if (per === null || remaining === null) {
       warnOnce('no_fx_rate', { goal_id: req.g.id, currency: code });
       return null;
@@ -282,7 +286,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
 
   function depositBase(gid, amountBase, date, allocations) {
     const g = goals.find(x => x.id === gid);
-    const inGoal = g ? fx.fromBase(amountBase, g.currency_code, date) : null;
+    const inGoal = g ? goalFx().fromBase(amountBase, g.currency_code, date) : null;
     if (inGoal === null) { warnOnce('no_fx_rate', { goal_id: gid, currency: g?.currency_code }); return false; }
     tracker.deposit(gid, inGoal, date, { source: 'plan', period_id: curPeriodId });
     allocations[gid] = (allocations[gid] ?? 0) + amountBase;
@@ -348,7 +352,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       return tracker.milestones(g.id).map((m, i) => {
         if (!m.deadline) return null;
         const r = requirement(g, p, i);
-        return { g, deadline: r.deadline, amount: Math.max(0, (fx.toBase(r.remaining, g.currency_code, p.pay_date) ?? 0) - pending(g)) };
+        return { g, deadline: r.deadline, amount: Math.max(0, (goalFx(p).toBase(r.remaining, g.currency_code, p.pay_date) ?? 0) - pending(g)) };
       }).filter(Boolean);
     }).filter(r => r.deadline && r.amount > 0.0001);
     const currentIndex = reference.rows.findIndex(r => r.period.id === p.id);
@@ -369,7 +373,8 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
           for (const g of enabled) {
             if (fixed.has(g.id)) continue;
             const amount = row.allocations[g.id] ?? 0;
-            const pace = !ids.has(g.id) && paceFirst && stageOfGoal(g) === 'reserves' ? Number(g.pace_amount) || 0 : 0;
+            const pace = !ids.has(g.id) && paceFirst && stageOfGoal(g) === 'reserves'
+              ? goalFx(q).toBase(Number(g.pace_amount) || 0, g.currency_code, q.pay_date) ?? 0 : 0;
             free += Math.max(0, amount - pace);
           }
           available += Math.max(0, free);
@@ -546,6 +551,8 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       cardBefore,
       cardState: Object.fromEntries([...cardState].map(([k, v]) => [k, { ...v }])),
       allocations,
+      goalAllocations: Object.fromEntries(Object.entries(allocations).map(([id, amount]) =>
+        [id, goalFx(p).fromBase(amount, goalsById.get(id)?.currency_code, p.pay_date) ?? 0])),
       byStage: { ...byStage, cascade: cascaded, early_repayment: early, early_installments: earlyInstallments },
       manual,
       unallocated: remaining,
@@ -572,6 +579,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     cardCycles: Object.fromEntries(cardCycles),
     planEnd: periods.length ? periods[periods.length - 1].pay_date : '',
     warnings,
+    savingsFx,
     goals,
     milestonesOf: g => milestonesOf(g, milestones),
   };
@@ -678,10 +686,11 @@ export function reservePaceSuggestion(sim, goal, today) {
   const avgFree = future.length
     ? future.reduce((s, r) => s + Math.max(0, r.unallocated) + (r.allocations[goal.id] ?? 0), 0) / future.length
     : 0;
+  const avgFreeInGoal = sim.savingsFx?.fromBase(avgFree, goal.currency_code, today) ?? (sim.savingsFx ? 0 : avgFree);
   return {
     stage: stageNow, need, payoutsLeft, needPer, avgFree,
-    suggested: Math.min(Math.max(needPer, 0), avgFree),
-    enough: avgFree + 0.5 >= needPer,
+    suggested: Math.min(Math.max(needPer, 0), avgFreeInGoal),
+    enough: avgFreeInGoal + (sim.savingsFx?.fromBase(0.5, goal.currency_code, today) ?? 0.5) >= needPer,
   };
 }
 
@@ -713,10 +722,13 @@ export function forecastBeyondPlan(sim, goal, milestoneIndex = null) {
     // Больничный уже увеличил фактический прогресс. Для продления регулярного
     // темпа убираем его разовую часть из доступного для накопления остатка.
     const regularShare = pool > 0 ? Math.max(0, pool - (r.income.sickPay ?? 0)) / pool : 0;
-    return s + (r.allocations[goal.id] ?? 0) * regularShare;
+    const amount = (r.allocations[goal.id] ?? 0) * regularShare;
+    const converted = r.goalAllocations?.[goal.id] !== undefined ? r.goalAllocations[goal.id] * regularShare
+      : sim.savingsFx?.fromBase(amount, goal.currency_code) ?? (sim.savingsFx ? 0 : amount);
+    return s + converted;
   }, 0);
   const perPayout = tail.length ? got / tail.length : 0;
-  if (perPayout <= 0.5) return null;
+  if (perPayout <= 0.0001) return null;
 
   const payouts = Math.ceil(need / perPayout);
   // средний промежуток между выплатами плана

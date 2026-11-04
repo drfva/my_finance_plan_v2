@@ -11,6 +11,7 @@ import { attachEditing } from './edit.js';
 import { freezePeriods, snapshotGoalCompletion } from '../engine/allocation.js';
 import { classifyIncomePeriods } from '../engine/income.js';
 import { createPlanCache } from './plan-cache.js';
+import { createFxUpdater } from '../core/fx-rates.js';
 import { createSecurity } from '../core/security.js';
 import { tourNeeded, tourPanel, tourHandle } from './tour.js';
 import { lateYears } from './alerts.js';
@@ -94,6 +95,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   let pendingServerRender = false;
   let lateCache;
   const plan = createPlanCache();
+  const fxUpdater = createFxUpdater(store);
   const availableTabs = ctx => ctx.state.account?.plan_kind === 'family' ? FAMILY_TABS : ALL_TABS;
 
   function context() {
@@ -149,6 +151,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   /* Прошедшие выплаты фиксируются: расчёт превращается в факт и больше не меняется */
   function freezePast(ctx) {
     if (!ctx.canEdit) return false;
+    if (ctx.state.current_fx?.loading || ctx.sim.warnings.some(w => w.code === 'no_fx_rate')) return false;
     const ids = ctx.sim.rows.filter(r => !r.period.locked && !r.income.formula?.error && !r.income.formula?.overpaid && !r.income.sick?.pendingTax && !r.income.sickPendingTax
       && (!r.familyContribution?.member_id || r.familyContribution.posted) && r.period.pay_date < ctx.today).map(r => r.period.id);
     if (!ids.length) return false;
@@ -222,6 +225,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
 
   function render() {
     if (syncingSick) return;
+    if (fxUpdater.ensure()) return;
     const ctx = context();
     if (ctx.state.account?.plan_kind !== 'family') {
     if (ctx.canEdit && JSON.stringify(ctx.state.income?.periods ?? []) !== JSON.stringify(ctx.income.preparedPeriods)) {
@@ -405,7 +409,9 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') store.flush();
+      else render();
     });
+    window.addEventListener('focus', () => render());
 
     render();
   }

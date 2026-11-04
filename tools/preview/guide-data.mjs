@@ -13,6 +13,8 @@ export async function seedGuideData({rpc,user,account,today}) {
   fillSample({store},year);
   state.savings.goals.find(g=>g.id==='goal-trip').starting_balance=25000;
   state.savings.goals.find(g=>g.id==='goal-cushion').starting_balance=60000;
+  state.savings.goals.push({id:'guide-usd',title:'Поездка · USD',kind_code:'bucket',currency_code:'USD',
+    priority:4,target_amount:2000,starting_balance:200,pace_amount:0,deadline:`${year}-08-01`,completed:false});
   state.income.income_history=Array.from({length:12},(_,i)=>({year:year-1,month:i+1,amount:230000}));
   state.income.sick_leaves=[{id:'guide-sick',start_date:`${year-1}-11-10`,end_date:`${year-1}-11-16`,note:'Пример больничного',benefit_enabled:true,
     reason:'illness',insurance_years:9,insurance_months:0,earnings1:2100000,earnings2:2400000,

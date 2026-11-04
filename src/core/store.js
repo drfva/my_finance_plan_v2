@@ -455,6 +455,14 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     return () => listeners.delete(fn);
   }
 
+  // Публичные курсы доступны читателю без записи в БД и изменения прав плана.
+  function setCurrentFx(value) {
+    requireState();
+    state.current_fx = value;
+    config = null;
+    emit('change', { domain: null, fromServer: true });
+  }
+
   function enqueueFamily(operation) {
     if (operation.queued) return operation.promise;
     operation.queued = true;
@@ -581,7 +589,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
       return config ?? (config = createConfig(state));
     },
     status,
-    load, reload, switchAccount, update, setSetting, setAccountTitle,
+    load, reload, switchAccount, update, setSetting, setAccountTitle, setCurrentFx,
     save, flush, hasPending, subscribe, beginEditing, endEditing, familyCommand, refreshFamilyForecast, familyHistory,
   };
 }

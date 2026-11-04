@@ -24,7 +24,7 @@ export function render(ctx) {
     const extra = `<div class="grid cols-2" style="margin-top:10px;">
       ${field('Темп за выплату', input({ edit: 'savings|goals|pace_amount', key: { id: g.id }, value: g.pace_amount, type: 'money', disabled: !canEdit }),
         'Сколько подушка забирает с каждой выплаты до того, как остаток пойдёт дальше')}
-      ${field('Предложение', `<div class="num" style="padding-top:8px;">${esc(fmt.money(s.suggested))}</div>`, 'Меньшее из «нужно к сроку» и «в среднем свободно»')}
+      ${field('Предложение', `<div class="num" style="padding-top:8px;">${esc(fmt.money(s.suggested, g.currency_code))}</div>`, 'Меньшее из «нужно к сроку» и «в среднем свободно»')}
     </div>
     <div class="small-note">${hint}</div>`;
     return goalCard(ctx, g, { extraFields: extra });

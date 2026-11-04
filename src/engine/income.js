@@ -203,7 +203,7 @@ export function computeIncome(state, cfg, { round = Math.round, fillIds = null, 
   }
 
   /* 4. Подарки и подработки: в ближайшую выплату не позже даты */
-  const fx = createFx(state.settings?.fx_rates ?? [], cfg.get('base_currency'));
+  const fx = createFx([...(state.settings?.fx_rates ?? []), ...(state.current_fx?.rates ?? [])], cfg.get('base_currency'));
   const extrasByPeriod = new Map();
   for (const e of inc.extra_incomes ?? []) {
     if (!e.counted_in_total || !e.date) continue;

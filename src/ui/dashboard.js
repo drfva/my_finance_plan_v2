@@ -210,7 +210,7 @@ function savedView(ctx) {
   const { state, sim, year } = ctx;
   const rows = sim.rows.filter(r => Number(r.period.year) === year);
   const allocated = new Map();
-  for (const r of rows) for (const [id, v] of Object.entries(r.allocations ?? {})) allocated.set(id, (allocated.get(id) ?? 0) + v);
+  for (const r of rows) for (const [id, v] of Object.entries(r.goalAllocations ?? r.allocations ?? {})) allocated.set(id, (allocated.get(id) ?? 0) + v);
 
   const all = (state.savings?.goals ?? []).slice().sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
   // Глазик дополняет годовой отбор. Архив сам по себе видимость не меняет.

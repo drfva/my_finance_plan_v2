@@ -106,6 +106,12 @@ const server=http.createServer(async(req,res)=>{
       res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
       return res.end(`<!doctype html><html lang="ru"${theme}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Семейный план · предпросмотр</title><link rel="stylesheet" href="/src/ui/styles.css"></head><body><div id="root"></div><div id="login-screen" style="display:none"></div><script>
       window.APP_CONFIG={env:'dev',url:'',key:''};
+      ${process.env.FINANCE_GUIDE_PREVIEW==='1'?`// Вымышленный курс только для локального руководства; без внешних запросов.
+      const originalFetch=window.fetch.bind(window);
+      window.fetch=(url,options)=>String(url)==='https://www.cbr-xml-daily.ru/daily_json.js'
+        ?Promise.resolve(new Response(JSON.stringify({Date:'${today}T11:30:00+03:00',PreviousDate:'${today}T11:30:00+03:00',
+          Valute:{USD:{CharCode:'USD',Nominal:1,Value:100,Previous:100},EUR:{CharCode:'EUR',Nominal:1,Value:110,Previous:110}}}),{status:200}))
+        :originalFetch(url,options);`:''}
       const call=(name,args)=>fetch('/rpc?user=${user}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,args})}).then(r=>r.json());
       window.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{user:{id:'${users[user].id}'}}}}),getUser:async()=>({data:{user:{id:'${users[user].id}',email:'${users[user].email}'}}}),signOut:async()=>{}},
       rpc:(name,args)=>call(name,args),functions:{invoke:(name,options)=>fetch('/refresh?user=${user}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(options?.body||{})}).then(r=>r.json())}})};
