@@ -1,15 +1,16 @@
 /* ---------------------------------------------------------------------
    app.js — оболочка: шапка, вкладки, выбор года и общий расчёт.
 
-   Расчёт делается один раз на отрисовку (allocation.simulate) и передаётся
+   Расчёт обновляется при изменении данных плана и передаётся
    вкладкам. Правка данных идёт через edit.js, поэтому вкладки — это почти
    только разметка.
 --------------------------------------------------------------------- */
 
 import { esc, byId } from './dom.js';
 import { attachEditing } from './edit.js';
-import { simulate, freezePeriods, snapshotGoalCompletion } from '../engine/allocation.js';
-import { computeIncome, classifyIncomePeriods } from '../engine/income.js';
+import { freezePeriods, snapshotGoalCompletion } from '../engine/allocation.js';
+import { classifyIncomePeriods } from '../engine/income.js';
+import { createPlanCache } from './plan-cache.js';
 import { createSecurity } from '../core/security.js';
 import { tourNeeded, tourPanel, tourHandle } from './tour.js';
 import { lateYears } from './alerts.js';
@@ -42,7 +43,7 @@ const TABS = [dashboard, periods, categories, facts, goals, gifts, reserves, cre
 const HIDDEN = [ledger];
 const ALL_TABS = [...TABS, ...HIDDEN];
 
-const STATUS_TEXT = { pending: 'Сохранение…', saving: 'Сохранение…', saved: 'Сохранено', error: 'Ошибка сохранения' };
+const STATUS_TEXT = { pending: 'Есть изменения', saving: 'Сохранение…', saved: 'Сохранено', error: 'Ошибка сохранения' };
 
 export const ROLE_TITLES = {
   owner: 'владелец',
@@ -89,20 +90,17 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   const security = client ? createSecurity(client, () => render()) : null;
   let lastSync = '';
   let syncingSick = false;
-
-  const cfg = () => store.config();
-  const fmt = () => cfg().formatter();
-
-  const years = () => planYears(store.state, fmt().todayISO());
+  let rendered = 0;
+  let pendingServerRender = false;
+  let lateCache;
+  const plan = createPlanCache();
   const availableTabs = ctx => ctx.state.account?.plan_kind === 'family' ? FAMILY_TABS : ALL_TABS;
 
   function context() {
     const state = store.state;
-    const c = cfg();
-    const f = c.formatter();
-    const income = computeIncome(state, c, { round: f.round });
-    const sim = simulate(state, c, { income, round: f.round, today: f.todayISO() });
-    const list = years();
+    const c = store.config();
+    const { fmt: f, income, sim, today } = plan(state, c);
+    const list = planYears(state, today);
     const currentTab = availableTabs({ state }).find(t => t.code === (ui.tab ?? c.get('start_tab')));
     const yearOptions = currentTab?.yearOptions?.({ state, years: list }) ?? list;
     if (!yearOptions.includes(ui.year)) ui.year = yearOptions.includes(Number(f.todayISO().slice(0, 4))) ? Number(f.todayISO().slice(0, 4)) : yearOptions[0];
@@ -130,6 +128,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     });
     if (res.changed) {
       store.update('savings', sv => { sv.goal_milestones = res.goal_milestones; sv.goal_transactions = res.goal_transactions; });
+      return true;
     }
   }
 
@@ -168,7 +167,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
 
   function shell(ctx, body) {
     const tab = availableTabs(ctx).find(t => t.code === ui.tab);
-    const late = lateYears(ctx);
+    if (lateCache?.sim !== ctx.sim) lateCache = { sim: ctx.sim, value: lateYears(ctx) };
+    const late = lateCache.value;
     const lateHere = late[ui.tab] ?? new Set();
     const yearBtn = y => `<button class="${y === ctx.year ? 'active' : ''}" data-year="${y}">${y}${
       lateHere.has(y) ? '<i class="late-dot"></i>' : ''}</button>`;
@@ -249,7 +249,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       return;
     }
     if (ensureGiftsGoal(ctx)) return;  // состояние изменилось — отрисовка придёт событием
-    syncGeneratedRows(ctx);
+    if (syncGeneratedRows(ctx)) return;
     if (freezePast(ctx)) return;      // состояние изменилось — отрисовка придёт событием
     // Старые закрытые цели ещё не содержат снимка: закрепляем доступную историю
     // на сегодня. Первоначальная дата их закрытия в прежней модели не хранилась.
@@ -278,6 +278,9 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       console.error(e);
       body = `<div class="card"><h2>Не получилось показать вкладку</h2><p class="muted">${esc(e.message)}</p></div>`;
     }
+    store.endEditing?.();
+    pendingServerRender = false;
+    rendered++;
     byId('root').innerHTML = shell(ctx, invitationCard(ctx) + body);
     adaptTables(byId('root'));
     syncMobileNavigation(byId('root'),ui);
@@ -346,13 +349,16 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         }
         return;
       }
+      // Фокус, календарь и ввод текста сами по себе не являются командами.
+      if (!ev.target.closest('button') || ev.target.closest('[data-add],[data-del],[data-clear-date]')) return;
       if (tourHandle(ev, context())) { render(); return; }
       if (ev.target.closest('[data-family-action]')) { handleFamily(ev,context()); render(); return; }
 
       const active = availableTabs(context()).find(t => t.code === ui.tab);
       if (!active?.handle) return;
       try {
-        if (active.handle(ev, context())) render();
+        const before = rendered;
+        if (active.handle(ev, context()) && rendered === before) render();
       } catch (e) {
         console.error(e);
         notice('danger', e.message);
@@ -368,7 +374,11 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         const address = new URL(location.href); address.searchParams.set('plan',store.state.account.id);
         window.history.replaceState(null,'',address); render(); return;
       }
-      if (ev.type === 'change') render();
+      if (ev.type === 'change') {
+        const focused = document.activeElement;
+        if (ev.fromServer && root.contains(focused) && focused.matches('input,select,textarea')) pendingServerRender = true;
+        else render();
+      }
       else if (ev.type === 'status') renderStatus(ev.status);
       else if (ev.type === 'conflict') {
         notice('warn', 'Этот раздел только что изменили в другой вкладке или на другом устройстве. '
@@ -377,6 +387,14 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         console.error(ev.error);
         notice('danger', 'Не удалось сохранить: ' + ev.error.message);
       }
+    });
+
+    root.addEventListener('focusout', () => {
+      if (!pendingServerRender) return;
+      queueMicrotask(() => {
+        const focused = document.activeElement;
+        if (pendingServerRender && !(root.contains(focused) && focused.matches('input,select,textarea'))) render();
+      });
     });
 
     window.addEventListener('beforeunload', ev => {

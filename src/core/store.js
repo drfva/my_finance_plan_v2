@@ -62,6 +62,8 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   const inflight = {};       // domain → промис идущего сохранения
   const again = {};          // domain → за время сохранения появились новые правки
   const errors = {};         // domain → последняя ошибка сохранения
+  const deferred = new Set(); // изменения ждут завершения редактирования поля
+  let editingDomain = null;
   const listeners = new Set();
   const familyOperations = [];
   let familyTail = Promise.resolve();
@@ -180,7 +182,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   function status() {
     if (DOMAINS.some(d => errors[d]) || familyOperations.some(o => o.error)) return 'error';
     if (DOMAINS.some(d => inflight[d]) || familyRunning) return 'saving';
-    if (DOMAINS.some(d => timers[d]) || familyNeedsRefresh) return 'pending';
+    if (DOMAINS.some(d => timers[d]) || deferred.size || familyNeedsRefresh) return 'pending';
     return 'saved';
   }
 
@@ -199,6 +201,8 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
         + 'Обычно это значит, что у таблиц включён RLS без политики чтения: выполните 002_api.sql заново.');
     }
     state = data;
+    editingDomain = null;
+    deferred.clear();
     for (const d of DOMAINS) {
       state[d] = state[d] ?? {};
       snapshotDomain(d);
@@ -280,11 +284,19 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
 
   function schedule(domain) {
     if (timers[domain]) clearTimer(timers[domain]);
+    timers[domain] = null;
+    if (editingDomain === domain) {
+      deferred.add(domain);
+      emitStatus();
+      return;
+    }
+    deferred.delete(domain);
     timers[domain] = setTimer(() => { timers[domain] = null; save(domain); }, debounceMs);
     emitStatus();
   }
 
   async function save(domain) {
+    deferred.delete(domain);
     if (timers[domain]) { clearTimer(timers[domain]); timers[domain] = null; }
     if (inflight[domain]) { again[domain] = true; return inflight[domain]; }
 
@@ -296,7 +308,6 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     }
 
     inflight[domain] = (async () => {
-      emitStatus();
       const { data, error, status: http } = await client.rpc('state_save', {
         p_domain: domain,
         p_patch: patch,
@@ -334,6 +345,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
       errors[domain] = toError(error, 'Не удалось сохранить');
       emit('error', { domain, error: errors[domain] });
     })();
+    emitStatus();
 
     try {
       await inflight[domain];
@@ -350,7 +362,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
 
   /* Отправить всё, что ждёт, и дождаться ответа (перед уходом со страницы, перед reload) */
   async function flushDomains() {
-    await Promise.all(DOMAINS.map(d => (timers[d] || inflight[d] || errors[d]) ? save(d) : null));
+    await Promise.all(DOMAINS.map(d => (timers[d] || deferred.has(d) || inflight[d] || errors[d]) ? save(d) : null));
   }
 
   async function flush() {
@@ -361,10 +373,29 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   }
 
   function hasPending() {
-    return DOMAINS.some(d => timers[d] || inflight[d] || errors[d]) || familyOperations.length > 0 || familyNeedsRefresh;
+    return DOMAINS.some(d => timers[d] || inflight[d] || errors[d]) || deferred.size > 0 || familyOperations.length > 0 || familyNeedsRefresh;
   }
 
   /* ------------------------------------------------ изменения */
+
+  function beginEditing(domain) {
+    requireDomain(domain);
+    if (editingDomain === domain) return;
+    endEditing();
+    editingDomain = domain;
+    if (timers[domain]) {
+      clearTimer(timers[domain]);
+      timers[domain] = null;
+      deferred.add(domain);
+    }
+  }
+
+  function endEditing() {
+    const domain = editingDomain;
+    editingDomain = null;
+    if (domain && deferred.has(domain)) schedule(domain);
+    if (familyNeedsRefresh) scheduleFamilyForecast();
+  }
 
   function update(domain, mutate) {
     requireState();
@@ -372,10 +403,13 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     if (domain !== 'settings' && !state.account?.can_edit) {
       throw new Error('У вас доступ только на просмотр этого плана');
     }
+    const before = JSON.stringify(state[domain]);
     mutate(state[domain], state);
+    if (JSON.stringify(state[domain]) === before) return false;
     config = null;
     emit('change', { domain });
     schedule(domain);
+    return true;
   }
 
   /* Настройка по ключу. Область (план или пользователь) берётся из справочника.
@@ -390,6 +424,9 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     const target = def.scope === 'user'
       ? (state.user.settings = state.user.settings ?? {})
       : (state.settings.account_settings = state.settings.account_settings ?? {});
+    if (value === null || value === undefined) {
+      if (!Object.hasOwn(target, key)) return false;
+    } else if (JSON.stringify(target[key]) === JSON.stringify(value)) return false;
     if (value === null || value === undefined) delete target[key];
     else target[key] = value;
     if (def.scope === 'account' && (key === 'base_currency' || key === 'calendar_code')) {
@@ -405,6 +442,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     const t = String(title ?? '').trim();
     if (!t) return;
     if (!state.account?.can_edit) throw new Error('У вас доступ только на просмотр этого плана');
+    if (t === state.account.title) return false;
     state.account.title = t;
     const row = state.accounts?.find(a => a.id === state.account.id);
     if (row) row.title = t;
@@ -456,8 +494,14 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
         const { data, error } = await client.rpc('state_get', { p_account: targetAccount });
         if (error) throw toError(error, 'Изменения отправлены, но не удалось перечитать план. Повторите сохранение');
         if (state.account.id === operation.accountId) {
-          applyLoaded(data);
-          emit(targetAccount !== operation.accountId ? 'loaded' : 'change', { domain: null });
+          // Фоновый прогноз не должен подменять ещё не отправленные правки
+          // или уничтожать текст в поле, которое сейчас редактируют.
+          if (operation.background && (editingDomain || deferred.size || DOMAINS.some(d => timers[d] || inflight[d] || errors[d]))) {
+            familyNeedsRefresh = true;
+          } else {
+            applyLoaded(data);
+            emit(targetAccount !== operation.accountId ? 'loaded' : 'change', { domain: null, fromServer: Boolean(operation.background) });
+          }
         }
         removeOperation();
         return result;
@@ -490,10 +534,10 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     return enqueueFamily(operation);
   }
 
-  function refreshFamilyForecast() {
+  function refreshFamilyForecast({ background = false } = {}) {
     requireState();
     if (pendingForecast) return pendingForecast.promise;
-    const operation = { forecast: true, accountId: state.account.id,
+    const operation = { forecast: true, background, accountId: state.account.id,
       sourceId: state.account.plan_kind==='personal'&&state.family_source_connected?state.account.id:null };
     pendingForecast = operation;
     familyOperations.push(operation);
@@ -501,10 +545,11 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   }
 
   function scheduleFamilyForecast() {
-    if (familyRefreshTimer || pendingForecast || DOMAINS.some(d => errors[d])) return;
+    if (editingDomain || familyRefreshTimer || pendingForecast || DOMAINS.some(d => errors[d])) return;
     familyRefreshTimer = setTimer(() => {
       familyRefreshTimer = null;
-      refreshFamilyForecast().catch(error => emit('error', { domain:'family', error }));
+      if (editingDomain) return;
+      refreshFamilyForecast({ background: true }).catch(error => emit('error', { domain:'family', error }));
     },500);
   }
 
@@ -537,7 +582,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     },
     status,
     load, reload, switchAccount, update, setSetting, setAccountTitle,
-    save, flush, hasPending, subscribe, familyCommand, refreshFamilyForecast, familyHistory,
+    save, flush, hasPending, subscribe, beginEditing, endEditing, familyCommand, refreshFamilyForecast, familyHistory,
   };
 }
 

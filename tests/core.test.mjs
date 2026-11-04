@@ -226,9 +226,44 @@ test('store: правка без изменения данных запрос н
   const timers = manualTimers();
   const store = createStore({ client, ...timers });
   await store.load();
+  const cfg = store.config(), events = [];
+  store.subscribe(ev => events.push(ev.type));
   store.update('income', inc => { inc.periods = [...inc.periods]; });
+  store.setSetting('rounding', 10);
+  store.setAccountTitle('План');
+  assert.equal(timers.size,0);
+  assert.equal(store.status(),'saved');
+  assert.equal(store.config(),cfg);
+  assert.deepEqual(events,[]);
   await timers.tick();
   assert.equal(client.calls.filter(c => c.name === 'state_save').length, 0);
+});
+
+test('store: правки ждут выхода из поля и объединяются; flush сохраняет и при открытом поле', async () => {
+  const client = fakeClient(makeState()), timers = manualTimers();
+  const store = createStore({ client, ...timers });
+  await store.load();
+  store.beginEditing('savings');
+  store.update('savings', d => { d.goal_milestones=[{id:'m',title:'Этап',target:0}]; });
+  assert.equal(timers.size,0);
+  assert.equal(store.status(),'pending');
+  assert.equal(store.hasPending(),true);
+  await timers.tick();
+  assert.equal(client.calls.filter(c=>c.name==='state_save').length,0);
+  store.endEditing();
+  assert.equal(timers.size,1);
+  store.beginEditing('savings');
+  assert.equal(timers.size,0,'переход в следующее поле откладывает тот же запрос');
+  store.update('savings', d => { d.goal_milestones[0].target=5000; });
+  store.endEditing();await timers.tick();
+  assert.equal(client.calls.filter(c=>c.name==='state_save').length,1);
+  assert.equal(client.server.savings.goal_milestones[0].target,5000);
+  store.beginEditing('savings');
+  store.update('savings', d => { d.goal_milestones[0].title='Отпуск'; });
+  await store.flush();
+  assert.equal(client.server.savings.goal_milestones[0].title,'Отпуск');
+  assert.equal(store.status(),'saved');
+  store.endEditing();assert.equal(timers.size,0);
 });
 
 test('store: архив, видимость и отсутствие приоритета сохраняются и загружаются с целью', async () => {

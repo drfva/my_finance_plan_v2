@@ -37,9 +37,13 @@ test('необязательная дата: явный сброс и Safari inp
   listeners.click({target:{closest:()=>button}});
   assert.equal(state.savings.goals[0].deadline,null);
   state.savings.goals[0].deadline='2027-06-01';date.value='';listeners.input({target:date});
+  assert.equal(state.savings.goals[0].deadline,'2027-06-01','input при открытии/работе календаря ещё не сохраняет');
+  listeners.focusout({target:date});
   assert.equal(state.savings.goals[0].deadline,null);assert.equal(writes,2);
   date.validity.badInput=true;listeners.input({target:date});assert.equal(writes,2);
   button.disabled=true;listeners.click({target:{closest:()=>button}});assert.equal(writes,2);
+  date.validity.badInput=false;listeners.input({target:date});listeners.focusout({target:date});
+  assert.equal(writes,2,'повторная пустая дата не вызывает запись');
   assert.match(input({type:'date',clearable:true,value:'2027-01-01',disabled:true}),/data-clear-date[^>]*disabled/);
   assert.doesNotMatch(input({type:'date',value:'2027-01-01'}),/data-clear-date/);
 });

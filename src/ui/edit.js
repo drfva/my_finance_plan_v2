@@ -97,13 +97,29 @@ export function readValue(el, fmt) {
   return raw;
 }
 
-/* Записать значение поля в состояние. Возвращает false, если значение не разобрано. */
+/* true — изменено, null — осталось прежним, false — невалидное поле. */
 export function applyEdit(store, el, fmt) {
+  if (el.disabled || el.validity?.badInput) return false;
   const [domain, table, column] = el.dataset.edit.split('|');
   const key = JSON.parse(el.dataset.key || '{}');
   const defaults = JSON.parse(el.dataset.defaults || '{}');
   const value = readValue(el, fmt);
   if (value === undefined) return false;
+  const existing = findRow(store.state, domain, table, key);
+  const remove = el.dataset.removeWhen !== undefined && String(value) === el.dataset.removeWhen;
+  if (!existing && remove) return null;
+  if (el.dataset.type === 'monthday') {
+    if (!value) return null;
+    const [y, m, day] = String(value).split('-').map(Number);
+    if (existing && Number(existing.day) === day && Number(existing.month) === m
+      && (existing.repeat_kind !== 'once' || Number(existing.base_year) === y)) return null;
+  } else if (existing && !remove) {
+    const previous = readValue({ dataset: el.dataset, value: existing[column] ?? '', checked: Boolean(existing[column]) }, fmt);
+    if (JSON.stringify(previous) === JSON.stringify(value)) return null;
+  } else if (!existing && typeof el.defaultValue === 'string') {
+    const initial = readValue({ dataset: el.dataset, value: el.defaultValue, checked: el.defaultChecked }, fmt);
+    if (JSON.stringify(initial) === JSON.stringify(value)) return null;
+  }
   if (domain === 'expenses' && ['expense_categories', 'expense_items'].includes(table) && column === 'percent_value'
     && (!Number.isFinite(value) || value < 0 || value > 100)) {
     throw new Error('Процент от выплаты должен быть от 0 до 100');
@@ -239,14 +255,23 @@ const SCHEDULE_FIELDS = new Set(['total', 'parts', 'every_n', 'period_unit', 'fi
 export function attachEditing(container, store, getCtx, onError) {
   const run = fn => { try { fn(); } catch (e) { onError(e); } };
   attachDateFields(container,el=>run(()=>applyEdit(store,el,getCtx().fmt)));
+  container.addEventListener('focusin', ev => {
+    const el = ev.target.closest('[data-edit],[data-setting],[data-account-title]');
+    if (el && !el.disabled) store.beginEditing?.(el.dataset.edit?.split('|')[0] ?? 'settings');
+  });
+  container.addEventListener('focusout', ev => {
+    if (ev.target.closest('[data-edit],[data-setting],[data-account-title]')) store.endEditing?.();
+  });
 
   container.addEventListener('change', ev => {
     const el = ev.target.closest('[data-edit]');
     if (!el) return;
     run(() => {
       const ctx = getCtx();
-      if (!applyEdit(store, el, ctx.fmt)) { el.classList.add('bad-value'); return; }
+      const changed = applyEdit(store, el, ctx.fmt);
+      if (changed === false) { el.classList.add('bad-value'); return; }
       el.classList.remove('bad-value');
+      if (changed !== true) return;
       const [domain, table, column] = el.dataset.edit.split('|');
       const key = JSON.parse(el.dataset.key || '{}');
 

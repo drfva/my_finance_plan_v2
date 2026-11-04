@@ -75,21 +75,11 @@ function expensesView(ctx, rows) {
     </tr>${sub.join('')}`;
   }).filter(Boolean);
 
-  const byInstallment = new Map();
-  for (const r of rows) for (const x of r.installments) for (const id of x.installments) {
-    byInstallment.set(id, (byInstallment.get(id) ?? 0) + x.amount / x.installments.length);
-  }
-  const byCard = new Map();
-  for (const r of rows) for (const [id, v] of Object.entries(r.debtPayments ?? {})) byCard.set(id, (byCard.get(id) ?? 0) + v);
-  const instTitles = new Map((state.debts?.installments ?? []).map(i => [i.id, i.title]));
-  const cardTitles = new Map((state.debts?.credit_cards ?? []).map(c => [c.id, c.title]));
   const debtLine = (name, v) => `<tr><td>${esc(name)}</td><td class="num muted">${esc(share(v))}</td><td class="num">${esc(fmt.money(v))}</td></tr>`;
   const debtRows = [
-    ...[...byInstallment.entries()].sort((a, b) => b[1] - a[1])
-      .filter(([, v]) => v > 0.5).map(([id, v]) => debtLine(`${instTitles.get(id) ?? id} · рассрочка`, v)),
-    ...[...byCard.entries()].sort((a, b) => b[1] - a[1])
-      .filter(([, v]) => v > 0.5).map(([id, v]) => debtLine(`${cardTitles.get(id) ?? id} · кредитка`, v)),
-  ];
+    installments > 0.5 ? debtLine('Рассрочки', installments) : '',
+    cards > 0.5 ? debtLine('Кредитки', cards) : '',
+  ].filter(Boolean);
 
   const goalRows = [...spends.entries()].sort((a, b) => b[1] - a[1])
     .map(([id, v]) => `<tr><td>${esc(goalsById.get(id)?.title ?? id)}</td><td class="num muted">${esc(share(v))}</td><td class="num">${esc(fmt.money(v))}</td></tr>`);

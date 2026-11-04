@@ -63,6 +63,32 @@ test('Обзор расходов: статьи и средние за 12 мес
   assert.ok(html.includes(fmt.money(750)));assert.ok(html.includes(fmt.money(250)));assert.ok(html.includes(fmt.money(500)));
 });
 
+test('Обзор расходов: рассрочки и кредитки показаны общими годовыми суммами',()=>{
+  const ctx=goalContext([]);ctx.ui.draft.dashboard.view='expenses';
+  ctx.state.debts={installments:[{id:'i1',title:'Телефон'},{id:'i2',title:'Ноутбук'}],credit_cards:[{id:'c1',title:'Карта А'},{id:'c2',title:'Карта Б'}]};
+  ctx.sim.rows=[{period:{pay_date:'2027-01-20',year:2027},expenses:{categories:[]},categoriesTotal:0,
+    installmentsTotal:3000,debtPayments:{c1:1200,c2:800},installments:[],savings:{},income:{total:10000}}];
+  const html=renderDashboard(ctx);
+  assert.match(html,/Рассрочки/);assert.match(html,/Кредитки/);
+  assert.doesNotMatch(html,/Телефон|Ноутбук|Карта А|Карта Б/);
+  for(const value of [3000,2000,5000])assert.ok(html.includes(fmt.money(value)));
+});
+
+test('повторная правка значения не пишет данные и не закрепляет автоматически созданную строку',()=>{
+  const store=fakeStore({savings:{goals:[{id:'g',deadline:null}],goal_milestones:[{id:'m',target:2000,title:'Отпуск',source:'cycle',user_edited:false}]},
+    income:{periods:[{id:'p',income_net:1000,income_manual:false}]}});
+  assert.equal(applyEdit(store,el({edit:'savings|goals|deadline',key:'{"id":"g"}',type:'date'},''),fmt),null);
+  for(const [column,value,type] of [['target','2 000','money'],['title','Отпуск','text']])
+    assert.equal(applyEdit(store,el({edit:`savings|goal_milestones|${column}`,key:'{"id":"m"}',type},value),fmt),null);
+  assert.equal(applyEdit(store,el({edit:'income|periods|income_net',key:'{"id":"p"}',type:'money'},'1000'),fmt),null);
+  assert.deepEqual(store.updates,[]);
+  assert.equal(store.state.savings.goal_milestones[0].user_edited,false);
+  assert.equal(store.state.income.periods[0].income_manual,false);
+  const suggested={...el({edit:'savings|savings_period_overrides|amount',key:'{"period_id":"p","goal_id":"g"}',type:'money'},'500'),defaultValue:'500'};
+  assert.equal(applyEdit(store,suggested,fmt),null);
+  assert.equal(store.state.savings.savings_period_overrides,undefined);
+});
+
 test('валюта целей: значки вместо списка, выбор и запрет редактирования читателю',()=>{
   const goal={id:'currency-goal',title:'Покупка',kind_code:'bucket',currency_code:'RUB',target_amount:1000,starting_balance:100,completed:false};
   const reserve={...goal,id:'currency-reserve',kind_code:'reserve'};

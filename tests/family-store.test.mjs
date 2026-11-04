@@ -90,6 +90,25 @@ test('семейный прогноз: личные изменения обно�
   assert.equal(f.refreshes,1);
 });
 
+test('фоновый прогноз семьи не заменяет локальную правку во время ввода',async()=>{
+  const f=fixture({personal:true}),queue=new Map();let seq=0,release,started;
+  const ready=new Promise(r=>started=r),hold=new Promise(r=>release=r);
+  f.client.functions.invoke=async()=>{started();await hold;return {data:{processed:1},error:null};};
+  const store=createStore({client:f.client,setTimer(fn){queue.set(++seq,fn);return seq;},clearTimer(id){queue.delete(id);}});
+  await store.load();
+  store.update('income',d=>{d.periods[0].income_net=12345;});await store.save('income');
+  const scheduled=[...queue.values()];queue.clear();scheduled.forEach(fn=>fn());await ready;
+  store.beginEditing('savings');
+  store.update('savings',d=>{d.goals[0].title='Не потерять ввод';});
+  const pending=store.refreshFamilyForecast();release();await pending;
+  assert.equal(store.state.savings.goals[0].title,'Не потерять ввод');
+  assert.equal(store.hasPending(),true);
+  assert.equal(queue.size,0,'фон не перезапускается, пока поле открыто');
+  store.endEditing();await store.flush();
+  assert.equal(f.state.savings.goals[0].title,'Не потерять ввод');
+  assert.equal(store.hasPending(),false);
+});
+
 test('история: страница заменяет записи, обновление снимает закреплённый диапазон',async()=>{
   const f=fixture(),base=f.client.rpc.bind(f.client),historyCalls=[];
   f.state.family.audit_anchor=25;
