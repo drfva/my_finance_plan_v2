@@ -27,6 +27,9 @@
 --------------------------------------------------------------------- */
 
 import { createConfig } from './config.js';
+import { changesBetween, changeLabel, reverseChanges, localPlanData, copy } from './plan-history.js';
+import { comparePlans } from '../engine/plan-compare.js';
+import { todayISO } from './format.js';
 
 export const DOMAINS = ['settings', 'income', 'expenses', 'debts', 'savings', 'gifts', 'facts'];
 
@@ -52,7 +55,7 @@ function isConflict(error, status) {
   return status === 409 || error?.code === 'PT409';
 }
 
-export function createStore({ client, debounceMs = 500, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+export function createStore({ client, debounceMs = 500, setTimer = setTimeout, clearTimer = clearTimeout, historyStorage } = {}) {
   if (!client?.rpc) throw new Error('createStore: нужен клиент Supabase');
 
   let state = null;
@@ -73,6 +76,55 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   let pendingForecast = null;
   let historyRequest = 0;
   let accountRequest = 0;
+  let historyEntries=[], historyKey='', historyMuted=0, pendingHistory=null, undoRunning=false, undoConflict=false, historyPersistent=true;
+
+  function persistHistory(){historyPersistent=localPlanData(state,'history',historyStorage).write(historyEntries);}
+  function finishHistory(){
+    const pending=pendingHistory;pendingHistory=null;
+    if(!pending||pending.account!==state?.account?.id)return;
+    const changes=changesBetween(pending.before,state);
+    if(!changes.length)return;
+    let comparison=null;
+    try{comparison=comparePlans(pending.before,state,todayISO());}catch{/* история доступна даже при неполном плане */}
+    historyEntries.unshift({id:globalThis.crypto.randomUUID(),at:new Date().toISOString(),label:changeLabel(changes),changes,comparison});
+    historyEntries=historyEntries.slice(0,50);persistHistory();emit('history');
+  }
+  function beginHistory(){
+    if(historyMuted||pendingHistory||!state?.account?.can_edit||state.account.plan_kind==='family')return;
+    pendingHistory={before:copy(state),account:state.account.id};queueMicrotask(finishHistory);
+  }
+  function withoutHistory(fn){historyMuted++;try{return fn();}finally{historyMuted--;}}
+  function history(){finishHistory();return copy(historyEntries);}
+  async function undoHistory(id){
+    if(undoRunning)throw new Error('Дождитесь завершения отмены');
+    finishHistory();
+    const entry=historyEntries.find(e=>!e.undone);
+    if(!state.account.can_edit||state.account.plan_kind==='family')throw new Error('Отмена доступна редактору личного плана');
+    if(!entry||entry.id!==id)throw new Error('Сначала отмените более позднее действие');
+    const account=state.account.id,market=state.current_fx;
+    undoRunning=true;undoConflict=false;emit('history');
+    try{
+      endEditing();await flush();
+      if(status()==='error')throw new Error('Сначала устраните ошибку сохранения');
+      const {data,error}=await client.rpc('state_get',{p_account:account});
+      if(error)throw toError(error,'Не удалось проверить свежие данные');
+      if(state.account.id!==account||data?.account?.id!==account)throw new Error('План изменился. Повторите отмену');
+      if(!data.account.can_edit)throw new Error('Доступ на редактирование плана больше недоступен');
+      const reversed=reverseChanges(data,entry);
+      applyLoaded(data);state.current_fx=market;
+      withoutHistory(()=>{
+        for(const domain of reversed.domains)state[domain]=reversed.state[domain];
+        Object.assign(state.account,{title:reversed.state.account.title,base_currency:reversed.state.account.base_currency,calendar_code:reversed.state.account.calendar_code});
+        for(const key of ['base_currency','calendar_code'])state.account[key]=state.settings.account_settings?.[key]??state.ref.setting_defaults.find(d=>d.key===key)?.value??state.account[key];
+        for(const item of state.accounts??[])if(item.id===account)item.title=state.account.title;
+        config=null;for(const domain of reversed.domains)schedule(domain);emit('change',{domain:null});
+      });
+      await flush();
+      if(undoConflict)throw new Error('Во время отмены данные изменились в другой вкладке. Проверьте план и повторите отмену');
+      if(status()==='error')throw new Error('Не удалось сохранить отмену. Проверьте связь и повторите её');
+      entry.undone=true;persistHistory();
+    }finally{undoRunning=false;emit('history');}
+  }
 
   function emit(type, payload = {}) {
     for (const fn of listeners) {
@@ -201,6 +253,8 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
         + 'Обычно это значит, что у таблиц включён RLS без политики чтения: выполните 002_api.sql заново.');
     }
     state = data;
+    const nextHistoryKey=`${state.user?.id??''}:${state.account?.id??''}`;
+    if(nextHistoryKey!==historyKey){historyKey=nextHistoryKey;pendingHistory=null;historyEntries=state.account?localPlanData(state,'history',historyStorage).read():[];}
     editingDomain = null;
     deferred.clear();
     for (const d of DOMAINS) {
@@ -232,6 +286,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
 
   /* Открыть другой план, к которому есть доступ. Несохранённое сначала уходит в базу. */
   async function switchAccount(accountId) {
+    if(undoRunning)throw new Error('Дождитесь завершения отмены');
     if (!accountId) return state;
     const request = ++accountRequest;
     // Нажатие на текущий план отменяет ещё не завершившийся переход в другой.
@@ -329,6 +384,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
       }
 
       if (isConflict(error, http)) {
+        if(undoRunning)undoConflict=true;
         again[domain] = false;
         errors[domain] = null;
         try {
@@ -366,6 +422,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   }
 
   async function flush() {
+    finishHistory();
     await flushDomains();
     if (familyNeedsRefresh && !DOMAINS.some(d => errors[d])) await refreshFamilyForecast();
     await familyTail.catch(() => {});
@@ -397,13 +454,15 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     if (familyNeedsRefresh) scheduleFamilyForecast();
   }
 
-  function update(domain, mutate) {
+  function update(domain, mutate, options = {}) {
     requireState();
     requireDomain(domain);
+    if(undoRunning&&!historyMuted&&options.history!==false)throw new Error('Дождитесь завершения отмены');
     if (domain !== 'settings' && !state.account?.can_edit) {
       throw new Error('У вас доступ только на просмотр этого плана');
     }
     const before = JSON.stringify(state[domain]);
+    if(options.history!==false)beginHistory();
     mutate(state[domain], state);
     if (JSON.stringify(state[domain]) === before) return false;
     config = null;
@@ -415,6 +474,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   /* Настройка по ключу. Область (план или пользователь) берётся из справочника.
      null или undefined — удалить своё значение и вернуться к умолчанию. */
   function setSetting(key, value) {
+    if(undoRunning&&!historyMuted)throw new Error('Дождитесь завершения отмены');
     requireState();
     const def = (state.ref?.setting_defaults ?? []).find(d => d.key === key);
     if (!def) throw new Error(`Неизвестная настройка: ${key}`);
@@ -427,6 +487,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     if (value === null || value === undefined) {
       if (!Object.hasOwn(target, key)) return false;
     } else if (JSON.stringify(target[key]) === JSON.stringify(value)) return false;
+    beginHistory();
     if (value === null || value === undefined) delete target[key];
     else target[key] = value;
     if (def.scope === 'account' && (key === 'base_currency' || key === 'calendar_code')) {
@@ -438,11 +499,13 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   }
 
   function setAccountTitle(title) {
+    if(undoRunning&&!historyMuted)throw new Error('Дождитесь завершения отмены');
     requireState();
     const t = String(title ?? '').trim();
     if (!t) return;
     if (!state.account?.can_edit) throw new Error('У вас доступ только на просмотр этого плана');
     if (t === state.account.title) return false;
+    beginHistory();
     state.account.title = t;
     const row = state.accounts?.find(a => a.id === state.account.id);
     if (row) row.title = t;
@@ -584,6 +647,10 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
 
   return {
     get state() { return state; },
+    get historyBusy(){return undoRunning;},
+    get historyPersistent(){return historyPersistent;},
+    history,undoHistory,withoutHistory,
+    lastHistory(){return historyEntries.find(e=>!e.undone)??null;},
     config() {
       requireState();
       return config ?? (config = createConfig(state));

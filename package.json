@@ -11,6 +11,7 @@
     "test:account-db": "node --test tests/account.database.mjs",
     "test:personal-startup-db": "node --test tests/personal-startup.database.mjs",
     "test:percentage-salary-db": "node --test tests/percentage-salary.database.mjs",
+    "test:planning-db": "node --test tests/planning.database.mjs",
     "test:expense-debts-db": "node --test tests/expense-debts.database.mjs",
     "test:family-budget-db": "node --test tests/family-budget.database.mjs tests/family-access-history.database.mjs"
   }

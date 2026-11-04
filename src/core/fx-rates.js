@@ -63,7 +63,7 @@ export function createFxUpdater(store, { fetcher = globalThis.fetch, day = today
           const index = rows.findIndex(r => r.base_code === rate.base_code && r.quote_code === rate.quote_code && r.rate_date === rate.rate_date);
           if (index < 0) rows.push(rate); else rows[index] = rate;
         }
-      });
+      }, {history:false});
     }).catch(() => {
       if (key !== nextKey || store.state.account.id !== account) return;
       failed = true; payloadPromise = null;

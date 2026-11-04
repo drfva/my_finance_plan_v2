@@ -601,3 +601,17 @@ button.calendar-day{position:relative;min-width:0;min-height:48px;padding:10px 2
 .calendar-day-actions{gap:4px;}
 .calendar-day-actions button{padding:6px 8px;font-size:12px;}
 @media(max-width:450px){.calendar-week,.calendar-grid{gap:4px;}button.calendar-day{min-height:40px;border-radius:8px;}}
+.planning-tabs{gap:8px;margin-bottom:16px;}
+.scenario-editor{margin-top:20px;}
+.scenario-editor>label{display:block;max-width:480px;}
+.scenario-editor label{font-size:12px;color:var(--muted);}
+.scenario-editor label input,.scenario-editor label select{display:block;width:100%;margin-top:6px;}
+.scenario-adjustment{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;align-items:end;padding:16px 0;border-bottom:1px solid var(--line);}
+.scenario-adjustment>button{justify-self:end;}
+.history-entry{padding:18px 0;border-bottom:1px solid var(--line);}
+.history-entry details{margin-top:12px;}
+.history-entry summary{cursor:pointer;}
+.history-entry li{margin:8px 0;overflow-wrap:anywhere;}
+.forecast-explanation{margin-bottom:18px;}
+.forecast-explanation p{margin:8px 0;}
+@media(max-width:500px){.scenario-adjustment{grid-template-columns:1fr 1fr;}.scenario-adjustment label:first-child{grid-column:1/-1;}.history-entry .row{align-items:flex-start;}}

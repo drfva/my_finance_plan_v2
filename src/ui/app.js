@@ -36,10 +36,11 @@ import * as vacations from './vacations.js';
 import * as sick from './sick.js';
 import * as settings from './settings.js';
 import * as ledger from './ledger.js';
+import * as planning from './planning.js';
 import { attachSettings } from './settings.js';
 import { FAMILY_TABS, invitationCard, handle as handleFamily, handleChange as familyChange } from './family.js';
 
-const TABS = [dashboard, periods, categories, facts, goals, gifts, reserves, credits, installments, vacations, sick, settings];
+const TABS = [dashboard, periods, categories, facts, goals, gifts, reserves, credits, installments, vacations, sick, settings, planning];
 /* Вкладки без кнопки в шапке: открываются из других разделов (кнопкой в карточке) */
 const HIDDEN = [ledger];
 const ALL_TABS = [...TABS, ...HIDDEN];
@@ -107,7 +108,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     const yearOptions = currentTab?.yearOptions?.({ state, years: list }) ?? list;
     if (!yearOptions.includes(ui.year)) ui.year = yearOptions.includes(Number(f.todayISO().slice(0, 4))) ? Number(f.todayISO().slice(0, 4)) : yearOptions[0];
     return { store, state, cfg: c, fmt: f, income, sim, ui, year: ui.year, years: list, yearOptions,
-      today: state.account?.plan_kind === 'family' ? familyToday() : f.todayISO(), canEdit: c.canEdit, security, onSignOut, notice };
+      today: state.account?.plan_kind === 'family' ? familyToday() : f.todayISO(), canEdit: c.canEdit&&!store.historyBusy, security, onSignOut, notice };
   }
 
   /* Циклы и праздники разворачиваются в этапы и траты при изменении данных */
@@ -199,7 +200,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         <div class="brand"><h1 style="font-size:19px;">${esc(ctx.state.account?.title || 'Финансы')}</h1>
           <span class="mobile-current-section">${esc(tab?.title(ctx)??'Обзор')}</span>
           ${env === 'dev' ? '<span class="pill danger" style="font-size:11px;">ТЕСТ</span>' : ''}
-          ${ctx.canEdit ? '' : '<span class="pill" style="font-size:11px;">только просмотр</span>'}
+          ${ctx.state.account?.can_edit ? '' : '<span class="pill" style="font-size:11px;">только просмотр</span>'}
           ${ctx.years.length ? `<span class="pill" style="font-size:11px;">${esc(ROLE_TITLES[ctx.state.account?.role] ?? ctx.state.account?.role ?? '')}</span>` : ''}
         </div>
         <div class="topbar-right">
@@ -218,12 +219,17 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         ${ui.notice ? `<div class="info-box row between" style="background:var(--${ui.notice.kind}-soft);color:var(--${ui.notice.kind});">
           <span>${esc(ui.notice.text)}</span><button class="ghost small" id="notice-close">×</button></div>` : ''}
         ${topRow}
+        ${ui.tab!==planning.code?planning.changeExplanation(ctx):''}
         ${body}
       </main>
       ${ctx.state.account?.plan_kind !== 'family' && !ui.draft.familyInvite && tourNeeded(ctx) ? tourPanel(ctx) : ''}`;
   }
 
   function render() {
+    return store.withoutHistory?store.withoutHistory(renderView):renderView();
+  }
+
+  function renderView() {
     if (syncingSick) return;
     if (fxUpdater.ensure()) return;
     const ctx = context();
@@ -318,8 +324,13 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     attachSettings(root, store, context, render);
     attachMobileNavigation(root,ui,render);
 
+    root.addEventListener('input',ev=>{
+      if(ev.target.closest('[data-scenario-name],[data-scenario-field]'))planning.handleChange(ev,context());
+    });
+
     // черновики форм живут в памяти вкладки и не перерисовывают экран
     root.addEventListener('change', ev => {
+      if(planning.handleChange(ev,context())){render();return;}
       const familyChanged=familyChange(ev, context());
       if (familyChanged) { if(familyChanged==='render')render();return; }
       if (ui.tab === categories.code && categories.handleChange(ev, context())) return;
@@ -354,6 +365,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         return;
       }
       // Фокус, календарь и ввод текста сами по себе не являются командами.
+      if(planning.handle(ev,context())){render();return;}
       if (!ev.target.closest('button') || ev.target.closest('[data-add],[data-del],[data-clear-date]')) return;
       if (tourHandle(ev, context())) { render(); return; }
       if (ev.target.closest('[data-family-action]')) { handleFamily(ev,context()); render(); return; }
@@ -383,6 +395,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         if (ev.fromServer && root.contains(focused) && focused.matches('input,select,textarea')) pendingServerRender = true;
         else render();
       }
+      else if(ev.type==='history')render();
       else if (ev.type === 'status') renderStatus(ev.status);
       else if (ev.type === 'conflict') {
         notice('warn', 'Этот раздел только что изменили в другой вкладке или на другом устройстве. '
