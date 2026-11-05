@@ -36,13 +36,15 @@ import * as vacations from './vacations.js';
 import * as sick from './sick.js';
 import * as settings from './settings.js';
 import * as ledger from './ledger.js';
-import * as planning from './planning.js';
+import {createChangeToast,renderChangeToast} from './plan-changes.js';
+import { handleHistory, handleHistoryChange } from './plan-history-view.js';
+import { isGoalTab, mainTabCode, goalTabForKind, goalLateYears, goalNavigation, goalTabFromKey } from './goal-navigation.js';
 import { attachSettings } from './settings.js';
 import { FAMILY_TABS, invitationCard, handle as handleFamily, handleChange as familyChange } from './family.js';
 
-const TABS = [dashboard, periods, categories, facts, goals, gifts, reserves, credits, installments, vacations, sick, settings, planning];
+const TABS = [dashboard, periods, categories, facts, goals, credits, installments, vacations, sick, settings];
 /* Вкладки без кнопки в шапке: открываются из других разделов (кнопкой в карточке) */
-const HIDDEN = [ledger];
+const HIDDEN = [ledger,gifts,reserves];
 const ALL_TABS = [...TABS, ...HIDDEN];
 
 const STATUS_TEXT = { pending: 'Есть изменения', saving: 'Сохранение…', saved: 'Сохранено', error: 'Ошибка сохранения' };
@@ -86,7 +88,7 @@ export function yearWindow(list, current) {
 }
 
 export function createApp({ store, env = 'prod', client = null, onSignOut }) {
-  const ui = { tab: null, year: null, goal: null, open: new Set(), draft: {
+  const ui = { tab: null, year: null, goal: null, goalsTab:'goals', open: new Set(), draft: {
     familyInvite: new URLSearchParams(location.search).get('family_invite') || undefined,
   }, notice: null };
   const security = client ? createSecurity(client, () => render()) : null;
@@ -97,6 +99,10 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   let lateCache;
   const plan = createPlanCache();
   const fxUpdater = createFxUpdater(store);
+  const changeToast=createChangeToast({onChange:entry=>{
+    const host=byId('change-toast-host');
+    if(host)host.innerHTML=entry?renderChangeToast(context(),entry):'';
+  }});
   const availableTabs = ctx => ctx.state.account?.plan_kind === 'family' ? FAMILY_TABS : ALL_TABS;
 
   function context() {
@@ -165,14 +171,16 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
 
   function tabsHtml(ctx, late) {
     const tabs = ctx.state.account?.plan_kind === 'family' ? FAMILY_TABS : TABS;
-    return tabs.map(t => `<button class="${t.code === ui.tab ? 'active' : ''}" data-tab="${t.code}">${esc(t.title(ctx))}${
-      late[t.code]?.size ? '<i class="late-dot" title="Есть сроки, в которые план не укладывается"></i>' : ''}</button>`).join('');
+    return tabs.map(t => `<button class="${t.code === mainTabCode(ui.tab) ? 'active' : ''}" data-tab="${t.code}">${esc(t.code==='goals'?'Цели':t.title(ctx))}${
+      (t.code==='goals'?goalLateYears(late):late[t.code])?.size ? '<i class="late-dot" title="Есть сроки, в которые план не укладывается"></i>' : ''}</button>`).join('');
   }
 
   function shell(ctx, body) {
     const tab = availableTabs(ctx).find(t => t.code === ui.tab);
     if (lateCache?.sim !== ctx.sim) lateCache = { sim: ctx.sim, value: lateYears(ctx) };
     const late = lateCache.value;
+    const goalSection=ctx.state.account?.plan_kind!=='family'&&mainTabCode(ui.tab)==='goals';
+    const selectedGoalTab=ui.tab==='ledger'?goalTabForKind(ctx.state.savings?.goals?.find(g=>g.id===ui.goal)?.kind_code):ui.tab;
     const lateHere = late[ui.tab] ?? new Set();
     const yearBtn = y => `<button class="${y === ctx.year ? 'active' : ''}" data-year="${y}">${y}${
       lateHere.has(y) ? '<i class="late-dot"></i>' : ''}</button>`;
@@ -198,7 +206,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       <div class="topbar"><div class="topbar-inner">
         ${mobileNavigation(tabsHtml(ctx,late),{planTitle:ctx.state.account?.title,role:ROLE_TITLES[ctx.state.account?.role]??''})}
         <div class="brand"><h1 style="font-size:19px;">${esc(ctx.state.account?.title || 'Финансы')}</h1>
-          <span class="mobile-current-section">${esc(tab?.title(ctx)??'Обзор')}</span>
+          <span class="mobile-current-section">${esc(goalSection?'Цели':tab?.title(ctx)??'Обзор')}</span>
           ${env === 'dev' ? '<span class="pill danger" style="font-size:11px;">ТЕСТ</span>' : ''}
           ${ctx.state.account?.can_edit ? '' : '<span class="pill" style="font-size:11px;">только просмотр</span>'}
           ${ctx.years.length ? `<span class="pill" style="font-size:11px;">${esc(ROLE_TITLES[ctx.state.account?.role] ?? ctx.state.account?.role ?? '')}</span>` : ''}
@@ -218,10 +226,11 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       <main>
         ${ui.notice ? `<div class="info-box row between" style="background:var(--${ui.notice.kind}-soft);color:var(--${ui.notice.kind});">
           <span>${esc(ui.notice.text)}</span><button class="ghost small" id="notice-close">×</button></div>` : ''}
+        ${goalSection?goalNavigation(selectedGoalTab,late):''}
         ${topRow}
-        ${ui.tab!==planning.code?planning.changeExplanation(ctx):''}
-        ${body}
+        ${goalSection?`<section id="goal-panel" role="tabpanel" aria-labelledby="goal-tab-${selectedGoalTab}">${body}</section>`:body}
       </main>
+      <div id="change-toast-host">${renderChangeToast(ctx,changeToast.entry)}</div>
       ${ctx.state.account?.plan_kind !== 'family' && !ui.draft.familyInvite && tourNeeded(ctx) ? tourPanel(ctx) : ''}`;
   }
 
@@ -281,6 +290,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       ui.tab = availableTabs(ctx).some(t => t.code === start) ? start : 'dashboard';
     }
     const tab = availableTabs(ctx).find(t => t.code === ui.tab);
+    if(isGoalTab(ui.tab))ui.goalsTab=ui.tab;
     let body;
     try {
       body = tab.render(ctx);
@@ -323,14 +333,18 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     attachEditing(root, store, context, e => notice('danger', e.message));
     attachSettings(root, store, context, render);
     attachMobileNavigation(root,ui,render);
-
-    root.addEventListener('input',ev=>{
-      if(ev.target.closest('[data-scenario-name],[data-scenario-field]'))planning.handleChange(ev,context());
+    root.addEventListener('keydown',ev=>{
+      const tab=ev.target.closest('[data-goal-tab]');
+      if(!tab)return;
+      const next=goalTabFromKey(tab.dataset.goalTab,ev.key);
+      if(!next)return;
+      ev.preventDefault();ui.tab=next;ui.goalsTab=next;ui.open.clear();render();
+      root.querySelector(`[data-goal-tab="${next}"]`)?.focus();
     });
 
     // черновики форм живут в памяти вкладки и не перерисовывают экран
     root.addEventListener('change', ev => {
-      if(planning.handleChange(ev,context())){render();return;}
+      if(handleHistoryChange(ev,context())){render();return;}
       const familyChanged=familyChange(ev, context());
       if (familyChanged) { if(familyChanged==='render')render();return; }
       if (ui.tab === categories.code && categories.handleChange(ev, context())) return;
@@ -345,7 +359,9 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       const theme=ev.target.closest('[data-theme-cycle]');
       if(theme){updateThemeButton(theme,applyTheme(nextTheme(theme.dataset.theme)));return;}
       const tab = ev.target.closest('[data-tab]');
-      if (tab) { ui.tab = tab.dataset.tab; ui.open.clear(); render(); return; }
+      if (tab) { ui.tab = tab.dataset.tab==='goals'?ui.goalsTab:tab.dataset.tab; ui.open.clear(); render(); return; }
+      const goalTab=ev.target.closest('[data-goal-tab]');
+      if(goalTab&&isGoalTab(goalTab.dataset.goalTab)){ui.tab=goalTab.dataset.goalTab;ui.goalsTab=ui.tab;ui.open.clear();render();return;}
       const year = ev.target.closest('[data-year]');
       if (year) { ui.year = Number(year.dataset.year); render(); return; }
       const toggle = ev.target.closest('[data-toggle]');
@@ -365,7 +381,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         return;
       }
       // Фокус, календарь и ввод текста сами по себе не являются командами.
-      if(planning.handle(ev,context())){render();return;}
+      if(ev.target.closest('[data-dismiss-change]')){changeToast.dismiss();return;}
+      if(handleHistory(ev,context())){changeToast.dismiss();render();return;}
       if (!ev.target.closest('button') || ev.target.closest('[data-add],[data-del],[data-clear-date]')) return;
       if (tourHandle(ev, context())) { render(); return; }
       if (ev.target.closest('[data-family-action]')) { handleFamily(ev,context()); render(); return; }
@@ -384,7 +401,8 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     store.subscribe(ev => {
       // открыли другой план: генератор должен пересобрать этапы заново
       if (ev.type === 'loaded') {
-        lastSync = ''; ui.tab = null; ui.year = null; ui.goal = null; ui.open.clear();
+        lastSync = ''; ui.tab = null; ui.year = null; ui.goal = null; ui.goalsTab='goals'; ui.historyYear=null; ui.open.clear();
+        changeToast.dismiss();
         ui.scrollTarget = null;
         ui.draft = { familyInvite: ui.draft.familyInvite };
         const address = new URL(location.href); address.searchParams.set('plan',store.state.account.id);
@@ -395,7 +413,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         if (ev.fromServer && root.contains(focused) && focused.matches('input,select,textarea')) pendingServerRender = true;
         else render();
       }
-      else if(ev.type==='history')render();
+      else if(ev.type==='history'){if(ev.entry)changeToast.show(ev.entry);render();}
       else if (ev.type === 'status') renderStatus(ev.status);
       else if (ev.type === 'conflict') {
         notice('warn', 'Этот раздел только что изменили в другой вкладке или на другом устройстве. '

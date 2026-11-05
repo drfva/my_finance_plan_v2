@@ -32,7 +32,8 @@ test('БД: отмена удаления восстанавливает кат�
   assert.equal(state.expenses.expense_categories[0].monthly_amount,1000);
   assert.equal(state.expenses.expense_items[0].category_id,'life');
   assert.equal(state.facts.expense_facts[0].amount,950);
-  assert.equal(store.history()[0].undone,true);
+  assert.deepEqual(store.history(),[]);
+  await store.load();assert.deepEqual(store.history(),[]);
 });
 
 test('БД: отмена не затирает изменение того же поля другим клиентом',async()=>{

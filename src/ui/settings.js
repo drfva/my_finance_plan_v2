@@ -8,6 +8,7 @@ import { generateYear } from '../engine/income.js';
 import { addMonths, dayOfWeek, daysInMonth, isValid, pad2 } from '../engine/dates.js';
 import { ROLE_TITLES } from './app.js';
 import { personalFamilyCard } from './family.js';
+import { renderHistory } from './plan-history-view.js';
 
 export const code = 'settings';
 export const title = () => 'Настройки';
@@ -382,6 +383,8 @@ export function render(ctx) {
       ${planSwitch(ctx)}` })}
 
     ${section({ key: 'set:opts', title: 'Настройки плана', open: ctx.ui.open.has('set:opts'), body: settingsTable(ctx) })}
+    ${section({key:'set:plan-history',title:'История изменений',open:ctx.ui.open.has('set:plan-history'),
+      body:ctx.ui.open.has('set:plan-history')?renderHistory(ctx,{embedded:true}):''})}
     ${personalFamilyCard(ctx)}
     ${stagesCard(ctx)}
     ${yearsCard(ctx)}

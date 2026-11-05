@@ -87,7 +87,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     let comparison=null;
     try{comparison=comparePlans(pending.before,state,todayISO());}catch{/* история доступна даже при неполном плане */}
     historyEntries.unshift({id:globalThis.crypto.randomUUID(),at:new Date().toISOString(),label:changeLabel(changes),changes,comparison});
-    historyEntries=historyEntries.slice(0,50);persistHistory();emit('history');
+    historyEntries=historyEntries.slice(0,50);persistHistory();emit('history',{entry:historyEntries[0]});
   }
   function beginHistory(){
     if(historyMuted||pendingHistory||!state?.account?.can_edit||state.account.plan_kind==='family')return;
@@ -98,7 +98,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
   async function undoHistory(id){
     if(undoRunning)throw new Error('Дождитесь завершения отмены');
     finishHistory();
-    const entry=historyEntries.find(e=>!e.undone);
+    const entry=historyEntries[0];
     if(!state.account.can_edit||state.account.plan_kind==='family')throw new Error('Отмена доступна редактору личного плана');
     if(!entry||entry.id!==id)throw new Error('Сначала отмените более позднее действие');
     const account=state.account.id,market=state.current_fx;
@@ -122,7 +122,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
       await flush();
       if(undoConflict)throw new Error('Во время отмены данные изменились в другой вкладке. Проверьте план и повторите отмену');
       if(status()==='error')throw new Error('Не удалось сохранить отмену. Проверьте связь и повторите её');
-      entry.undone=true;persistHistory();
+      historyEntries=historyEntries.filter(item=>item.id!==id);persistHistory();
     }finally{undoRunning=false;emit('history');}
   }
 
@@ -254,7 +254,12 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     }
     state = data;
     const nextHistoryKey=`${state.user?.id??''}:${state.account?.id??''}`;
-    if(nextHistoryKey!==historyKey){historyKey=nextHistoryKey;pendingHistory=null;historyEntries=state.account?localPlanData(state,'history',historyStorage).read():[];}
+    if(nextHistoryKey!==historyKey){
+      historyKey=nextHistoryKey;pendingHistory=null;
+      const stored=state.account?localPlanData(state,'history',historyStorage).read():[];
+      historyEntries=stored.filter(entry=>!entry.undone);
+      if(historyEntries.length!==stored.length)persistHistory();
+    }
     editingDomain = null;
     deferred.clear();
     for (const d of DOMAINS) {
@@ -650,7 +655,7 @@ export function createStore({ client, debounceMs = 500, setTimer = setTimeout, c
     get historyBusy(){return undoRunning;},
     get historyPersistent(){return historyPersistent;},
     history,undoHistory,withoutHistory,
-    lastHistory(){return historyEntries.find(e=>!e.undone)??null;},
+    lastHistory(){return historyEntries[0]??null;},
     config() {
       requireState();
       return config ?? (config = createConfig(state));

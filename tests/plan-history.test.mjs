@@ -2,10 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { changesBetween,reverseChanges,localPlanData } from '../src/core/plan-history.js';
-import { applyScenario } from '../src/engine/scenarios.js';
 import { comparePlans,forecastChanges } from '../src/engine/plan-compare.js';
-import { render as renderPlanning, handle as handlePlanning,changeExplanation } from '../src/ui/planning.js';
-import { createConfig } from '../src/core/config.js';
+import {createChangeToast,renderChangeToast} from '../src/ui/plan-changes.js';
+import {createConfig} from '../src/core/config.js';
 import { createStore } from '../src/core/store.js';
 
 function source(){
@@ -19,29 +18,13 @@ function source(){
 }
 const storage=()=>{const values=new Map();return {getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v)};};
 
-test('сценарий: +500 расходов в месяц меняет только копию и объясняет уменьшение подушки',()=>{
-  const state=source(),original=structuredClone(state);
-  const result=applyScenario(state,{adjustments:[{type:'expense',target:'life',amount:500,from:'2027-01-01'}]},'2026-11-04');
-  assert.deepEqual(state,original);
-  const comparison=comparePlans(state,result.state,'2026-11-04'),changes=forecastChanges(comparison,2027);
+test('объяснение правки: +500 расходов в месяц уменьшает накопление в подушку',()=>{
+  const state=source(),after=structuredClone(state);
+  after.expenses.expense_categories[0].monthly_amount+=500;
+  const comparison=comparePlans(state,after,'2026-11-04'),changes=forecastChanges(comparison,2027);
   assert.equal(changes.find(c=>c.title==='Расходы и обязательные платежи').delta,1000);
   assert.equal(changes.find(c=>c.title==='В подушки').delta,-1000);
   assert.ok(!changes.some(c=>c.kind==='date'&&c.title==='Поездка'));
-});
-
-test('сценарий: снижение дохода, покупка и новый курс; закреплённая выплата сохраняется',()=>{
-  const state=source();state.income.periods[0].locked=true;
-  const income=applyScenario(state,{adjustments:[{type:'income',amount:-1000,from:'2027-01-01'}]},'2026-11-04');
-  assert.equal(income.state.income.periods[0].income_net,5000);
-  assert.equal(income.state.income.periods[1].income_net,4000);
-  assert.equal(income.state.income.periods[2].income_net,4500);
-  const purchase=applyScenario(state,{adjustments:[{type:'purchase',amount:2000,from:'2027-02-10'}]},'2026-11-04');
-  assert.equal(purchase.state.expenses.expense_period_overrides[0].period_id,'p2');
-  assert.equal(purchase.state.expenses.expense_period_overrides[0].amount,2000);
-  state.settings.fx_rates=[{base_code:'RUB',quote_code:'USD',rate_date:'2026-11-04',rate:100}];
-  const fx=applyScenario(state,{adjustments:[{type:'fx',target:'USD',amount:10}]},'2026-11-04');
-  assert.ok(Math.abs(fx.state.current_fx.rates[0].rate-110)<1e-9);
-  assert.throws(()=>applyScenario(state,{adjustments:[{type:'fx',target:'USD',amount:-100}]},'2026-11-04'));
 });
 
 test('отмена: восстановление связанных удалений и защита изменённых полей',()=>{
@@ -57,11 +40,11 @@ test('отмена: восстановление связанных удален
   assert.throws(()=>reverseChanges(edited,change),/уже изменены/);
 });
 
-test('локальное хранилище: сценарии разделены по пользователю и плану',()=>{
-  const data=storage(),state=source();localPlanData(state,'scenarios',data).write([{name:'Мой сценарий'}]);
-  assert.equal(localPlanData(state,'scenarios',data).read().length,1);
-  state.account.id='b';assert.deepEqual(localPlanData(state,'scenarios',data).read(),[]);
-  state.account.id='a';state.user.id='other';assert.deepEqual(localPlanData(state,'scenarios',data).read(),[]);
+test('локальное хранилище: история разделена по пользователю и плану',()=>{
+  const data=storage(),state=source();localPlanData(state,'history',data).write([{name:'Моя правка'}]);
+  assert.equal(localPlanData(state,'history',data).read().length,1);
+  state.account.id='b';assert.deepEqual(localPlanData(state,'history',data).read(),[]);
+  state.account.id='a';state.user.id='other';assert.deepEqual(localPlanData(state,'history',data).read(),[]);
 });
 
 test('отмена JSON-полей: порядок ключей после сохранения в jsonb не создаёт ложный конфликт',()=>{
@@ -83,6 +66,7 @@ test('история: перезагрузка, группировка зави�
     return {data:structuredClone(server),error:null};
   }};
   const store=createStore({client,historyStorage:data,setTimer:()=>1,clearTimer(){}});await store.load();
+  const added=[];store.subscribe(event=>{if(event.type==='history'&&event.entry)added.push(event.entry.id);});
   store.update('expenses',d=>{d.expense_categories[0].monthly_amount=1500;});
   store.update('facts',d=>{d.expense_facts=[{ym:'2027-01',category_id:'life',item_key:'',amount:1500}];});
   await store.flush();assert.equal(store.history().length,1);assert.equal(store.history()[0].changes.length,2);
@@ -92,22 +76,30 @@ test('история: перезагрузка, группировка зави�
   assert.equal(server.expenses.expense_categories[0].monthly_amount,1000);
   assert.equal(server.expenses.expense_categories[0].title,'Другая правка');
   assert.equal(server.facts.expense_facts.length,0);
-  assert.equal(store.history()[0].undone,true);
+  assert.deepEqual(store.history(),[]);
+  await store.load();assert.deepEqual(store.history(),[]);
+  assert.equal(added.length,1,'отмена не создаёт новое уведомление о старой правке');
   store.withoutHistory(()=>store.update('income',d=>{d.system_marker=true;}));
-  await Promise.resolve();assert.equal(store.history().length,1);
+  await Promise.resolve();assert.equal(store.history().length,0);
 });
 
-test('интерфейс сценария: безопасный предпросмотр, объяснение и отсутствие доступа к отмене у читателя',()=>{
-  const state=source(),cfg=createConfig(state),ctx={state,cfg,fmt:cfg.formatter(),today:'2026-11-04',year:2027,
-    canEdit:false,ui:{draft:{},open:new Set()},store:{history:()=>[],lastHistory:()=>null}};
-  const ev={target:{closest:s=>s==='[data-scenario-new]'?{}:null}};
-  assert.equal(handlePlanning(ev,ctx),true);
-  const html=renderPlanning(ctx);assert.match(html,/Сравнение за 2027/);assert.match(html,/основной план/i);
-  assert.doesNotMatch(html,/data-history-undo/);
-  assert.equal(changeExplanation(ctx),'');
+test('уведомление: исчезает через 3 секунды, новая правка перезапускает таймер',()=>{
+  let next=0;const timers=new Map(),seen=[];
+  const toast=createChangeToast({setTimer:(fn,delay)=>{assert.equal(delay,3000);timers.set(++next,fn);return next;},clearTimer:id=>timers.delete(id),onChange:e=>seen.push(e)});
+  toast.show({id:'first'});toast.show({id:'second'});
+  assert.equal(timers.has(1),false);assert.equal(toast.entry.id,'second');
+  timers.get(2)();assert.equal(toast.entry,null);assert.equal(seen.at(-1),null);
 });
 
-test('история: конфликт версии во время отмены не помечает действие отменённым',async()=>{
+test('уведомление: показывает изменение и ссылку в историю нужного года',()=>{
+  const state=source(),after=structuredClone(state),cfg=createConfig(state);
+  after.expenses.expense_categories[0].monthly_amount+=500;
+  const html=renderChangeToast({state,year:2027,fmt:cfg.formatter()},{label:'Изменено: Жизнь',comparison:comparePlans(state,after,'2026-11-04')});
+  assert.match(html,/role="status"/);assert.match(html,/data-open-plan-history="2027"/);
+  assert.match(html,/Изменено: Жизнь/);assert.match(html,/Открыть историю изменений/);
+});
+
+test('история: конфликт версии во время отмены сохраняет запись',async()=>{
   let server=source(),conflict=false;
   const client={async rpc(name,args){
     if(name==='state_save'){
@@ -122,4 +114,29 @@ test('история: конфликт версии во время отмены
   await assert.rejects(store.undoHistory(store.history()[0].id),/другой вкладке/);
   assert.equal(store.history()[0].undone,undefined);
   assert.equal(server.expenses.expense_categories[0].monthly_amount,1700);
+});
+
+test('история: ошибка сохранения оставляет запись, успешный повтор удаляет её',async()=>{
+  let server=source(),offline=false;
+  const client={async rpc(name,args){
+    if(name==='state_save'){
+      if(offline)return {error:{message:'offline'}};
+      Object.assign(server[args.p_domain],structuredClone(args.p_patch));return {data:{version:1,tables:structuredClone(args.p_patch)}};
+    }return {data:structuredClone(server)};
+  }};
+  const store=createStore({client,historyStorage:storage(),setTimer:()=>1,clearTimer(){}});await store.load();
+  store.update('expenses',d=>{d.expense_categories[0].monthly_amount=1500;});await store.flush();
+  const id=store.history()[0].id;offline=true;
+  await assert.rejects(store.undoHistory(id),/Не удалось сохранить отмену/);
+  assert.equal(store.history()[0].id,id);assert.equal(server.expenses.expense_categories[0].monthly_amount,1500);
+  offline=false;await store.undoHistory(id);
+  assert.deepEqual(store.history(),[]);assert.equal(server.expenses.expense_categories[0].monthly_amount,1000);
+});
+
+test('история: ранее отменённые записи удаляются и из сохранённого журнала',async()=>{
+  const state=source(),data=storage();
+  localPlanData(state,'history',data).write([{id:'old',undone:true,changes:[]},{id:'active',changes:[]}]);
+  const store=createStore({client:{rpc:async()=>({data:structuredClone(state)})},historyStorage:data});await store.load();
+  assert.deepEqual(store.history().map(e=>e.id),['active']);
+  assert.deepEqual(localPlanData(state,'history',data).read().map(e=>e.id),['active']);
 });
