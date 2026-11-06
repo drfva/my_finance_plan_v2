@@ -23,8 +23,9 @@
      gifts, buckets, reserves — темп для целей своего типа (ref_goal_kinds).
 
    Темп подушки (pace_amount) откладывается раньше копилок: если у подушки задан
-   темп, эта сумма уходит в неё из свободных денег до этапа buckets, но уменьшается,
-   если иначе подарки и копилки не успеют к своим срокам. Старая версия
+   темп, эта сумма уходит в неё из свободных денег до этапа buckets, но уменьшается
+   до посильного общего темпа оставшихся выплат, если иначе подарки и копилки
+   не успеют к своим срокам. Старая версия
    так не делала — для сверки с ней есть опция paceFirst: false.
 
    После этапов — доливка остатка по целям: по одному этапу за раз, у кого срок
@@ -34,9 +35,10 @@
    только при params.early_repayment = true. Проведённые части рассрочек
    сохраняются в installment_snapshot выплаты и уменьшают будущий долг.
 
-   Зафиксированная выплата (locked) или выплата с ручными суммами в копилки
-   (savings_period_overrides) автоматически в цели не распределяется: в цели идут
-   только ручные суммы. У зафиксированной нет и автоматических погашений карт.
+   Зафиксированная выплата (locked) автоматически в цели не распределяется:
+   в цели идут только ручные суммы, нет автоматических погашений карт.
+   Ручная сумма отдельной цели (savings_period_overrides) закрепляет только её;
+   остальные цели получают автоматическое распределение.
 
    Все суммы конвейера — в базовой валюте. Суммы целей и карт в другой валюте
    переводятся по курсу на дату выплаты (fx.js). Для будущих накоплений берётся
@@ -53,6 +55,20 @@ import { createFamilyAllocator } from './family.js';
 
 const SAVINGS_STAGES = ['gifts', 'buckets', 'reserves'];
 
+/* Одинаковый посильный темп: выплаты с меньшим остатком отдают доступную часть,
+   остальные делят бюджет поровну. Это не резервирует полный желаемый темп
+   в будущем за счёт пропуска взноса сегодня. */
+function paceWithinBudget(capacities, budget, requested) {
+  const caps = capacities.map(x => Math.max(0, x)).sort((a, b) => a - b);
+  let left = Math.max(0, budget);
+  for (let i = 0; i < caps.length; i++) {
+    const share = left / (caps.length - i);
+    if (share <= caps[i]) return Math.min(requested, share);
+    left -= caps[i];
+  }
+  return requested;
+}
+
 /* Сначала строим план, затем проверяем доступность будущих выплат. Если позднее
    денег мало, переносим нужное накопление вперёд за счёт менее срочных целей. */
 export function simulate(state, cfg, options = {}) {
@@ -61,6 +77,7 @@ export function simulate(state, cfg, options = {}) {
   for (let i = 0; i < 4; i++) {
     const next = simulatePlan(state, cfg, { ...options, income, reference: result });
     const same = next.rows.every((r, n) => JSON.stringify(r.allocations) === JSON.stringify(result.rows[n].allocations)
+      && JSON.stringify(r.reservePaces) === JSON.stringify(result.rows[n].reservePaces)
       && JSON.stringify(r.installmentDetails) === JSON.stringify(result.rows[n].installmentDetails)
       && r.familyContribution?.amount === result.rows[n].familyContribution?.amount);
     result = next;
@@ -203,7 +220,11 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     // этапы без срока впереди не прячут срок следующего: цель спешит к ближайшему сроку
     let look = through ?? (idx < list.length ? idx : list.findIndex(m => m.deadline && m.deadline > p.pay_date));
     if (look < 0) return { g, reserve, remaining: 0, per: 0, deadline: '' };
-    let need = list.slice(idx, look + 1).reduce((s, m) => s + m.target, 0) - saved + Math.max(0, -tracker.balance(g.id));
+    // При проверке отдельных сроков долг текущего этапа не относится к уже
+    // завершённым. Их будущие траты всё равно учитываются ниже: они ещё могут
+    // открыть накопленный заранее этап, чей срок впереди.
+    const debt = through !== null && look < idx ? 0 : Math.max(0, -tracker.balance(g.id));
+    let need = list.slice(idx, look + 1).reduce((s, m) => s + m.target, 0) - saved + debt;
     let deadline = list[look]?.deadline || '';
     while (!deadline && look + 1 < list.length) {
       look++;
@@ -259,9 +280,10 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   function reservePaceStep(p, allocations, fixedGoals, remaining, deposit, given) {
     let spent = 0;
     const list = activeGoals('reserves')
-      .filter(g => !fixedGoals.has(g.id) && (Number(g.pace_amount) || 0) > 0)
+      .filter(g => (Number(g.pace_amount) || 0) > 0)
       .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
-    for (const g of list) {
+    for (const [index, g] of list.entries()) {
+      if (fixedGoals.has(g.id)) continue;
       const left = remaining - spent;
       if (left <= 0.5) break;
       const req = requirement(g, p);
@@ -271,8 +293,9 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       if (paceBase === null) continue;
       // Ранний темп подушки можно снизить ради сроков подарков и копилок.
       // Собственный срок подушки не превращает этот взнос в обязательный.
-      const limits = fundingLimits({ ...req, deadline: '', reservePace: true }, p, fixedGoals, allocations);
-      const give = Math.min(paceBase, Math.max(0, left - limits.protect), b.remainingBase);
+      const limits = fundingLimits({ ...req, deadline: '', reservePace: true,
+        paceBefore: new Set(list.slice(0, index).map(x => x.id)), paceBase }, p, fixedGoals, allocations, left);
+      const give = Math.min(paceBase, limits.paceLimit, Math.max(0, left - limits.protect), b.remainingBase);
       if (give > 0.0001 && deposit(g.id, give, p.pay_date, allocations)) {
         spent += give;
         given.set(g.id, (given.get(g.id) ?? 0) + give);
@@ -349,13 +372,14 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
 
   /* Более поздний этап конвейера тоже может иметь ближайший срок. Оставляем
      ему минимум сейчас, если из будущих выплат он уже не успеет накопиться. */
-  function fundingLimits(req, p, fixedGoals, allocations) {
+  function fundingLimits(req, p, fixedGoals, allocations, availableNow = 0) {
     const pending = g => Math.max(0, (fixedGoals.get(g.id) ?? 0) - (allocations[g.id] ?? 0));
     const enabled = goals.filter(g => stage(stageOfGoal(g)));
     const manual = enabled.reduce((s, g) => s + pending(g), 0);
     let protect = manual;
     let minimum = 0;
-    if (!reference) return { protect, minimum };
+    let paceLimit = Infinity;
+    if (!reference) return { protect, minimum, paceLimit };
     const needs = enabled.filter(g => !g.completed && !g.archived
       && (!req.reservePace || stageOfGoal(g) !== 'reserves')).flatMap(g => {
       return tracker.milestones(g.id).map((m, i) => {
@@ -372,6 +396,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       const ids = new Set(group.map(r => r.g.id));
       const need = group.reduce((s, r) => s + r.amount, 0);
       let capacity = 0;
+      const paceCapacities = [Math.max(0, availableNow - manual)];
       for (const [index, row] of reference.rows.entries()) {
         const q = row.period;
         if (index <= currentIndex || q.pay_date > deadline) continue;
@@ -382,19 +407,28 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
           for (const g of enabled) {
             if (fixed.has(g.id)) continue;
             const amount = row.allocations[g.id] ?? 0;
-            const pace = !ids.has(g.id) && paceFirst && stageOfGoal(g) === 'reserves'
-              ? goalFx(q).toBase(Number(g.pace_amount) || 0, g.currency_code, q.pay_date) ?? 0 : 0;
+            const keepPace = !ids.has(g.id) && paceFirst && stageOfGoal(g) === 'reserves'
+              && (!req.reservePace || req.paceBefore.has(g.id));
+            const pace = keepPace ? row.reservePaces[g.id] ?? 0 : 0;
             free += Math.max(0, amount - pace);
           }
           available += Math.max(0, free);
+          if (req.reservePace && !fixed.has(req.g.id)) paceCapacities.push(Math.max(0, free));
         }
         capacity += available;
       }
-      const now = Math.max(0, need - capacity);
+      // Ручная сумма не допускает дополнительного взноса в эту цель сейчас.
+      // Учитываем её будущую потребность вместе с остальными сроками, но не
+      // удерживаем больше, чем цели группы вообще могут получить сегодня.
+      const actionable = group.reduce((sum, r) => sum + (fixedGoals.has(r.g.id) ? 0 : r.amount), 0);
+      const effectiveNeed = Math.min(need, capacity + actionable);
+      const now = Math.max(0, effectiveNeed - capacity);
+      if (req.reservePace) paceLimit = Math.min(paceLimit,
+        paceWithinBudget(paceCapacities, availableNow - manual + capacity - effectiveNeed, req.paceBase));
       if (req.deadline && req.deadline <= deadline) minimum = Math.max(minimum, now);
       else protect = Math.max(protect, manual + now);
     }
-    return { protect, minimum };
+    return { protect, minimum, paceLimit };
   }
 
   /* ---------------------------------------------------------- проход по выплатам */
@@ -469,7 +503,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
           // темп подушки идёт раньше копилок с защитой их сроков
           const familyBeforeReserve = stage('family') && stage('reserves')
             && stages.indexOf(stage('family')) < stages.indexOf(stage('reserves'));
-          if (paceFirst && !paceDone && s.code !== 'reserves' && (!familyBeforeReserve || familyContribution)) {
+          if (paceFirst && !paceDone && (!familyBeforeReserve || familyContribution)) {
             paceSpent = reservePaceStep(p, allocations, fixedGoals, remaining, depositBase, paceGiven);
             remaining -= paceSpent;
             paceDone = true;
@@ -560,6 +594,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       cardBefore,
       cardState: Object.fromEntries([...cardState].map(([k, v]) => [k, { ...v }])),
       allocations,
+      reservePaces: Object.fromEntries(paceGiven),
       goalAllocations: Object.fromEntries(Object.entries(allocations).map(([id, amount]) =>
         [id, goalFx(p).fromBase(amount, goalsById.get(id)?.currency_code, p.pay_date) ?? 0])),
       byStage: { ...byStage, cascade: cascaded, early_repayment: early, early_installments: earlyInstallments },

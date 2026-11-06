@@ -365,6 +365,8 @@ function plan({ periods = payouts([1, 2, 3, 4, 5, 6]), goals = [], milestones = 
 }
 const run = st => simulate(st, createConfig(st));
 const goal = (id, extra = {}) => ({ id, title: id, kind_code: 'bucket', currency_code: 'RUB', priority: 1, target_amount: 0, deadline: null, starting_balance: 0, pace_amount: 0, completed: false, ...extra });
+const unevenPayouts = amounts => amounts.map((income_net, i) => ({ id: `u${i}`, year: 2028,
+  pay_date: `2028-${String(i + 1).padStart(2, '0')}-15`, calc_mode: 'manual', income_net, locked: false }));
 
 test('разовая выплата: проценты от начисленного считаются от её суммы, независимо от оклада', () => {
   const st = plan({
@@ -849,6 +851,128 @@ test('рост расходов на 500 в месяц уменьшает тем
     assert.ok(Math.abs(allocated(before, 'cushion') - allocated(after, 'cushion') - 1000) < 0.01);
     assert.ok(after.rows.every(r => r.unallocated >= -0.01));
   }
+});
+
+test('подушка: темп 5000 сохраняет посильные 3000 в каждой выплате, а не пропускает первую', () => {
+  const periods = unevenPayouts([17000, 16000, 7000]);
+  for (const pace_amount of [3000, 5000]) {
+    const sim = run(plan({ periods, goals: [
+      goal('trip', { target_amount: 31000, deadline: periods.at(-1).pay_date }),
+      goal('cushion', { kind_code: 'reserve', target_amount: 100000, pace_amount }),
+    ] }));
+    assert.deepEqual(sim.rows.map(r => r.allocations.cushion), [3000, 3000, 3000]);
+    assert.equal(sim.milestoneDates.trip[0], periods.at(-1).pay_date);
+    assert.ok(sim.rows.every(r => Math.abs(r.unallocated) < .01));
+  }
+});
+
+test('подушка: меньшая выплата отдаёт доступную часть темпа, остаток делится между следующими', () => {
+  const periods = unevenPayouts([1000, 8000, 19000]);
+  const sim = run(plan({ periods, goals: [
+    goal('trip', { target_amount: 23000, deadline: periods.at(-1).pay_date }),
+    goal('cushion', { kind_code: 'reserve', target_amount: 100000, pace_amount: 5000 }),
+  ] }));
+  assert.deepEqual(sim.rows.map(r => r.allocations.cushion), [1000, 2000, 2000]);
+  assert.equal(sim.milestoneDates.trip[0], periods.at(-1).pay_date);
+});
+
+test('подушки: посильный темп сохраняет приоритет нескольких подушек и сроки нескольких целей', () => {
+  const periods = unevenPayouts([10000, 10000, 10000]);
+  const sim = run(plan({ periods, goals: [
+    goal('gift', { kind_code: 'gifts', target_amount: 6000, deadline: periods[0].pay_date }),
+    goal('trip', { target_amount: 18000, deadline: periods.at(-1).pay_date }),
+    goal('first', { kind_code: 'reserve', target_amount: 100000, pace_amount: 5000 }),
+    goal('second', { kind_code: 'reserve', priority: 2, target_amount: 100000, pace_amount: 5000 }),
+  ] }));
+  assert.deepEqual(sim.rows.map(r => r.allocations.first), [2000, 2000, 2000]);
+  assert.ok(sim.rows.every(r => !(r.allocations.second > .01)));
+  assert.equal(sim.milestoneDates.gift[0], periods[0].pay_date);
+  assert.equal(sim.milestoneDates.trip[0], periods.at(-1).pay_date);
+});
+
+test('валютная подушка: посильный темп рассчитывается в базовой валюте без лишнего пропуска', () => {
+  const periods = unevenPayouts([17000, 16000, 7000]);
+  const sim = run(plan({ periods, goals: [
+    goal('trip', { target_amount: 31000, deadline: periods.at(-1).pay_date }),
+    goal('cushion', { kind_code: 'reserve', currency_code: 'USD', target_amount: 1000, pace_amount: 50 }),
+  ], fx: [{ base_code: 'RUB', quote_code: 'USD', rate: 100, rate_date: '2026-01-01' }] }));
+  assert.deepEqual(sim.rows.map(r => r.allocations.cushion), [3000, 3000, 3000]);
+  assert.deepEqual(sim.rows.map(r => r.goalAllocations.cushion), [30, 30, 30]);
+});
+
+test('свободные 16000 не удерживаются ради ручного нуля другой цели, а уходят в подушку', () => {
+  const periods = unevenPayouts([16000]);
+  const sim = run(plan({ periods, goals: [
+    goal('trip', { target_amount: 16000, deadline: periods[0].pay_date }),
+    goal('cushion', { kind_code: 'reserve', target_amount: 100000, pace_amount: 5000 }),
+  ], overrides: [{ period_id: periods[0].id, goal_id: 'trip', amount: 0 }] }));
+  assert.equal(sim.rows[0].allocations.trip, undefined, 'ручная сумма сохранена');
+  assert.equal(sim.rows[0].allocations.cushion, 16000);
+  assert.equal(sim.rows[0].unallocated, 0);
+});
+
+test('ручной ноль самой подушки и фиксация выплаты оставляют остаток свободным', () => {
+  for (const locked of [false, true]) {
+    const periods = unevenPayouts([16000]);periods[0].locked = locked;
+    const sim = run(plan({ periods, goals: [goal('cushion', { kind_code: 'reserve', target_amount: 100000, pace_amount: 5000 })],
+      overrides: locked ? [] : [{ period_id: periods[0].id, goal_id: 'cushion', amount: 0 }] }));
+    assert.equal(sim.rows[0].allocations.cushion, undefined);
+    assert.equal(sim.rows[0].unallocated, 16000);
+  }
+});
+
+test('после темпа 5000 оставшиеся 18000 закрывают долг копилки, а не блокируются старым этапом', () => {
+  const periods = [
+    { id: 'march', year: 2028, pay_date: '2028-03-20', calc_mode: 'manual', income_net: 31000 },
+    { id: 'may', year: 2028, pay_date: '2028-05-20', calc_mode: 'manual', income_net: 60000 },
+  ];
+  const sim = run(plan({ periods, goals: [
+    goal('gifts', { kind_code: 'gifts', target_amount: 8000, deadline: '2028-03-20' }),
+    goal('trip'),
+    goal('cushion', { kind_code: 'reserve', target_amount: 100000, pace_amount: 5000 }),
+  ], milestones: [
+    { id: 'past', goal_id: 'trip', target: 18000, deadline: '2028-03-01' },
+    { id: 'next', goal_id: 'trip', target: 20000, deadline: '2028-06-01' },
+  ], txs: [{ id: 'tickets', goal_id: 'trip', date: '2028-03-01', kind: 'spend', purpose: 'goal', milestone_id: 'past', amount: 18000 }] }));
+  assert.equal(sim.rows[0].allocations.cushion, 5000);
+  assert.equal(sim.rows[0].allocations.gifts, 8000);
+  assert.equal(sim.rows[0].allocations.trip, 18000);
+  assert.equal(sim.rows[0].unallocated, 0);
+  assert.equal(sim.rows[0].goalBalances.trip, 0, 'отрицательный баланс погашен');
+  assert.equal(sim.rows[0].phase.trip.idx, 1, 'оплаченный прошлый этап не открывается снова');
+  assert.equal(sim.milestoneDates.trip[1], '2028-05-20');
+});
+
+test('накопленный заранее этап со сроком впереди всё ещё учитывает будущую обычную трату', () => {
+  const g = goal('trip', { target_amount: 10000, starting_balance: 10000, deadline: '2028-04-01' });
+  const st = plan({ periods: [{ id: 'february', year: 2028, pay_date: '2028-02-20', calc_mode: 'manual', income_net: 23000 }],
+    goals: [g, goal('cushion', { kind_code: 'reserve', target_amount: 100000, pace_amount: 5000 })],
+    txs: [{ id: 'other', goal_id: 'trip', kind: 'spend', amount: 5000, date: '2028-03-01', purpose: 'other' }] });
+  const sim = run(st);
+  assert.equal(sim.rows[0].allocations.trip, 5000);
+  assert.equal(sim.rows[0].allocations.cushion, 18000);
+  assert.equal(goalBalanceAt(sim, g, st.savings.goal_transactions, '2028-04-01'), 10000);
+  assert.equal(sim.rows[0].unallocated, 0);
+});
+
+test('посильный темп не срывает два срока при разных суммах четырёх выплат', () => {
+  for (const a of [1000, 3000, 6000]) for (const b of [1000, 3000, 6000])
+    for (const c of [1000, 3000, 6000]) for (const d of [1000, 3000, 6000]) {
+      if (a + b + c + d < 8000) continue;
+      const periods = unevenPayouts([a, b, c, d]);
+      const sim = run(plan({ periods, goals: [
+        goal('soon', { target_amount: 2000, deadline: periods[1].pay_date }),
+        goal('later', { target_amount: 6000, deadline: periods[3].pay_date }),
+        goal('cushion', { kind_code: 'reserve', target_amount: 100000, pace_amount: 5000 }),
+      ] }));
+      const label = [a, b, c, d].join('/');
+      assert.ok(sim.milestoneDates.soon[0] <= periods[1].pay_date && sim.milestoneDates.soon[0], label);
+      assert.ok(sim.milestoneDates.later[0] <= periods[3].pay_date && sim.milestoneDates.later[0], label);
+      for (const row of sim.rows) {
+        assert.ok(Math.abs(row.unallocated) < .01, `нет зависшего остатка: ${label}`);
+        assert.ok(Math.abs(row.totalIncome - Object.values(row.allocations).reduce((s, v) => s + v, 0)) < .01, `сохранение денег: ${label}`);
+      }
+    }
 });
 
 test('копилки: ручная сумма фиксируется, остальные считаются автоматически', () => {

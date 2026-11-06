@@ -23,7 +23,7 @@ export function render(ctx) {
       : 'У текущего этапа нет срока — подушка копится своим темпом.';
     const extra = `<div class="grid cols-2" style="margin-top:10px;">
       ${field('Темп за выплату', input({ edit: 'savings|goals|pace_amount', key: { id: g.id }, value: g.pace_amount, type: 'money', disabled: !canEdit }),
-        'Сколько подушка забирает с каждой выплаты до того, как остаток пойдёт дальше')}
+        'Желаемый взнос с выплаты. Если полного темпа не хватает, план уменьшает его с учётом сроков других целей. Свободный остаток может добавить больше.')}
       ${field('Предложение', `<div class="num" style="padding-top:8px;">${esc(fmt.money(s.suggested, g.currency_code))}</div>`, 'Меньшее из «нужно к сроку» и «в среднем свободно»')}
     </div>
     <div class="small-note">${hint}</div>`;
