@@ -1,6 +1,7 @@
 import {esc,input,button,delButton,pill,field} from './dom.js';
 import {goalTotal} from '../engine/savings.js';
 import {goalBalanceAt,goalProgressAt,goalMilestoneAt} from '../engine/allocation.js';
+import {goalTimeline,stageTimelineDate} from './goal-timeline.js';
 
 export const GOAL_VIEWS=[['stages','Этапы'],['movements','Движения'],['parameters','Параметры'],['repeats','Повторения']];
 export function goalView(ctx,id){return ctx.ui.goalViews?.[id]??((ctx.state.savings?.goal_milestones??[]).some(m=>m.goal_id===id)?'stages':'parameters');}
@@ -38,16 +39,17 @@ export function renderGoalCard(ctx,g,options,helpers){
     ${canEdit?delButton({domain:'savings',table:'goal_milestones',key:{id:m.id},confirm:'Удалить этап? Покупки, привязанные к этапу, сначала нужно перенести.',cls:'ghost small goal-stage-delete'}):''}</div>
     ${generated?`<p class="small-note">${m.source==='gift'?'Из праздника':'Из повторения'}${m.user_edited?' · своя правка':''}${canEdit&&m.user_edited?button({action:'edit-generated',value:`back:${m.id}`,label:'Вернуть к шаблону',cls:'ghost small'}):''}</p>`:''}</div>`:''}</section>`;
  }
- const movements=`<p class="small-note">На счету сейчас: <b>${esc(fmt.money(balance,g.currency_code))}</b></p>${txs.map(t=>{
+ const movements=`<p class="small-note">На счету сейчас: <b>${esc(fmt.money(balance,g.currency_code))}</b></p>${goalTimeline(ctx,{key:`tx-hist:${g.id}`,items:txs,dateOf:t=>t.date,label:`Движения копилки ${g.title}`,pastLabel:'прошедшие движения',emptyNote:'Операций пока нет.',render:t=>{
    const other=state.savings.goals.find(x=>x.id===t.counterparty_id),stage=own.find(m=>m.id===t.milestone_id);
    const kind=t.kind==='deposit'?'Пополнение':t.kind==='transfer_out'?`Перевод в «${other?.title??'—'}»`:t.kind==='transfer_in'?`Перевод из «${other?.title??'—'}»`:t.purpose==='goal'?`На цель${stage?' · '+stage.title:''}`:'На другое';
    return `<div class="goal-movement${ui.lastGoalTransaction===t.id?' goal-movement-new':''}" data-scroll-row="${esc(t.id)}"><div><b>${esc(t.title||'Операция')}</b><p class="small-note">${esc(fmt.date(t.date))} · ${esc(kind)}${t.date>ctx.today?' · по плану':''}</p></div><span class="num">${t.kind==='spend'||t.kind==='transfer_out'?'−':'+'}${esc(fmt.money(t.amount,g.currency_code))}</span>${canEdit?`<div class="row">${button({action:'goal-op-edit',value:t.id,label:'Изменить',cls:'ghost small'})}${delButton({domain:'savings',table:'goal_transactions',key:{id:t.id},confirm:t.kind.startsWith('transfer')?'Удалить перевод в обеих копилках?':'Удалить операцию?',cls:'ghost small'})}</div>`:''}</div>`;
- }).join('')||'<p class="small-note">Операций пока нет.</p>'}${canEdit?`<div class="goal-card-actions">${button({action:'goal-op-open',value:g.id,label:'+ Добавить операцию',cls:'primary small'})}</div>`:''}`;
+ }})}${canEdit?`<div class="goal-card-actions">${button({action:'goal-op-open',value:g.id,label:'+ Добавить операцию',cls:'primary small'})}</div>`:''}`;
  const quote=g.currency_code!==ctx.cfg.get('base_currency')?sim.savingsFx?.quoteOn(g.currency_code,ctx.today):null;
  const parameters=`<div class="grid cols-2 goal-parameters">${field('Валюта',helpers.currencyPicker(ctx,g))}${field('Начальный остаток',input({edit:'savings|goals|starting_balance',key:{id:g.id},value:g.starting_balance,type:'money',ariaLabel:'Начальный остаток',disabled:!canEdit}))}
   ${!own.length?`${field('Сколько накопить',input({edit:'savings|goals|target_amount',key:{id:g.id},value:g.target_amount,type:'money',ariaLabel:'Сумма копилки',disabled:!canEdit}))}${field('Срок',input({edit:'savings|goals|deadline',key:{id:g.id},value:g.deadline,type:'date',clearable:true,ariaLabel:'Срок копилки',disabled:!canEdit}))}`:''}</div>
   ${g.currency_code!==ctx.cfg.get('base_currency')?`<p class="small-note">${quote?`Курс для прогноза: 1 ${esc(g.currency_code)} = ${esc(fmt.number(quote.rate,4))} ${esc(ctx.cfg.get('base_currency'))} на ${esc(fmt.date(quote.date))}.`:'Нет курса валюты: автоматическое накопление и прогноз недоступны.'}${state.current_fx?.error?' Не удалось обновить курс; показаны сохранённые данные.':''}</p>`:''}${extraFields}`;
- const stageBody=`${own.length?all.map(stageRow).join(''):'<p class="small-note">Общая сумма и срок задаются в Параметрах.</p>'}${canEdit?`<div class="goal-card-actions">${button({action:'goal-stage-add',value:g.id,label:'+ Добавить этап',cls:'ghost small'})}</div>`:''}`;
+ const stageDates=new Map(all.map(m=>[m.id,stageTimelineDate(m,helpers.milestoneStatus(ctx,g,m))]));
+ const stageBody=`${own.length?goalTimeline(ctx,{key:`ms-hist:${g.id}`,items:all,dateOf:m=>stageDates.get(m.id),render:stageRow,label:`Этапы копилки ${g.title}`,pastLabel:'пройденные этапы',emptyNote:'Этапов пока нет.'}):'<p class="small-note">Общая сумма и срок задаются в Параметрах.</p>'}${canEdit?`<div class="goal-card-actions">${button({action:'goal-stage-add',value:g.id,label:'+ Добавить этап',cls:'ghost small'})}</div>`:''}`;
  const repeatBody=showCycles?`${helpers.cyclesBlock(ctx,g)}${canEdit&&!own.length?button({action:'make-cycle',value:`goal:${g.id}`,label:'Сделать периодической',cls:'ghost small'}):''}`:'';
  return `<article class="card goal-card goal-card-compact${summary.late?' goal-late':''}" data-goal-card="${esc(g.id)}">
   <div class="goal-card-header"><input class="goal-title" data-edit="savings|goals|title" data-key='${esc(JSON.stringify({id:g.id}))}' value="${esc(g.title)}" placeholder="Название" aria-label="Название копилки ${esc(g.title)}"${canEdit?'':' disabled'}>

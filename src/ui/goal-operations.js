@@ -3,6 +3,7 @@ import {uid} from './edit.js';
 import {isValid} from '../engine/dates.js';
 import {simulate,goalBalanceAt,goalMilestoneAt} from '../engine/allocation.js';
 import {setGoalView} from './goal-card.js';
+import {revealAddedRow} from './navigation.js';
 
 const ownStages=(ctx,id)=>(ctx.state.savings.goal_milestones??[]).filter(m=>m.goal_id===id).sort((a,b)=>(a.deadline||'9999').localeCompare(b.deadline||'9999'));
 const val=(name,label,value,type='text')=>`<label>${esc(label)}<input data-goal-modal-field="${name}" type="${type}"${name==='amount'?' inputmode="decimal"':''} value="${esc(value??'')}"></label>`;
@@ -68,7 +69,7 @@ export function saveGoalModal(ctx){
  const modal=ctx.ui.goalModal;if(!modal)return;
  const d=modal.draft,gid=modal.goal_id;
  if(modal.kind==='operation'){
-  const result=goalOperationRows(ctx,d);ctx.ui.goalModal=null;setGoalView(ctx,gid,'movements');ctx.ui.lastGoalTransaction=result.rows[0].id;ctx.ui.scrollTarget={row:result.rows[0].id};
+  const result=goalOperationRows(ctx,d);ctx.ui.goalModal=null;ctx.ui.lastGoalTransaction=result.rows[0].id;revealAddedRow(ctx,'savings','goal_transactions',result.rows[0]);
   ctx.store.update('savings',s=>{
    s.goal_transactions=(s.goal_transactions??[]).filter(t=>!result.remove.has(t.id));s.goal_transactions.push(...result.rows);
    if(result.existing?.source!=='manual'&&result.existing?.milestone_id){const m=s.goal_milestones.find(m=>m.id===result.existing.milestone_id);if(m)m.user_edited=true;}
@@ -78,7 +79,7 @@ export function saveGoalModal(ctx){
  if(d.date&&!isValid(d.date))throw new Error('Проверьте дату');
  if(modal.kind==='stage'){
   const row={id:uid('ms'),goal_id:gid,title:d.title,target:amount,deadline:d.date||null,sort_order:ownStages(ctx,gid).length+1,source:'manual',user_edited:false};
-  ctx.ui.goalModal=null;setGoalView(ctx,gid,'stages');ctx.ui.open.add(`goal-stage:${row.id}`);ctx.ui.scrollTarget={row:row.id};
+  ctx.ui.goalModal=null;revealAddedRow(ctx,'savings','goal_milestones',row);
   ctx.store.update('savings',s=>{
    const first=!(s.goal_milestones??[]).some(m=>m.goal_id===gid);(s.goal_milestones??=[]).push(row);
    if(first)for(const t of s.goal_transactions??[])if(t.goal_id===gid&&t.purpose==='goal'&&!t.milestone_id)t.milestone_id=row.id;

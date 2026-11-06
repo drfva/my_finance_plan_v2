@@ -12,6 +12,14 @@ export async function seedGuideData({rpc,user,account,today}) {
   state.savings.goals=[{id:'goal-gifts',title:'Подарки',kind_code:'gifts',currency_code:'RUB',priority:1,target_amount:0,starting_balance:18500,pace_amount:0,completed:false}];
   fillSample({store},year);
   state.savings.goals.find(g=>g.id==='goal-trip').starting_balance=25000;
+  state.savings.goal_milestones.push(
+    {id:'guide-past-stage',goal_id:'goal-trip',title:'Осень прошлого года',target:10000,deadline:`${year-1}-10-01`,source:'manual',sort_order:0},
+    {id:'guide-next-stage',goal_id:'goal-trip',title:'Следующая весна',target:100000,deadline:`${year+1}-04-01`,source:'manual',sort_order:3},
+    {id:'guide-undated-stage',goal_id:'goal-trip',title:'Большое путешествие',target:60000,deadline:null,source:'manual',sort_order:4});
+  state.savings.goal_transactions.push(
+    {id:'guide-old-trip',goal_id:'goal-trip',title:'Осенняя поездка',date:`${year-1}-10-05`,amount:10000,kind:'spend',purpose:'goal',milestone_id:'guide-past-stage',source:'manual'},
+    {id:'guide-trip-next',goal_id:'goal-trip',title:'Билеты на следующую весну',date:`${year+1}-02-01`,amount:20000,kind:'spend',purpose:'goal',milestone_id:'guide-next-stage',source:'manual'},
+    {id:'guide-trip-hotel',goal_id:'goal-trip',title:'Отель на следующую весну',date:`${year+1}-03-01`,amount:30000,kind:'spend',purpose:'goal',milestone_id:'guide-next-stage',source:'manual'});
   state.savings.goals.find(g=>g.id==='goal-cushion').starting_balance=60000;
   state.savings.goals.push({id:'guide-usd',title:'Поездка · USD',kind_code:'bucket',currency_code:'USD',
     priority:4,target_amount:2000,starting_balance:200,pace_amount:0,deadline:`${year}-08-01`,completed:false});

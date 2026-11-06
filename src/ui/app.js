@@ -23,6 +23,7 @@ import { scrollToPending } from './navigation.js';
 import {mobileNavigation,syncMobileNavigation,attachMobileNavigation} from './mobile-navigation.js';
 import {adaptTables} from './responsive-tables.js';
 import {renderGoalDialog,syncGoalDialog,attachGoalDialogs} from './goal-operations.js';
+import {syncGoalTimelines,attachGoalTimelines} from './goal-timeline.js';
 
 import * as dashboard from './dashboard.js';
 import * as periods from './periods.js';
@@ -306,6 +307,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     adaptTables(byId('root'));
     syncMobileNavigation(byId('root'),ui);
     syncGoalDialog(byId('root'),ctx);
+    syncGoalTimelines(byId('root'),ui);
     const deletion=byId('root').querySelector('.account-delete-dialog');
     (deletion?.querySelector('[data-account-delete-word]')??deletion?.querySelector('select:not(:disabled)')??deletion?.querySelector('button:not(:disabled)'))?.focus({preventScroll:true});
     byId('sign-out').addEventListener('click', async () => { await store.flush(); onSignOut(); });
@@ -336,6 +338,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     attachSettings(root, store, context, render);
     attachMobileNavigation(root,ui,render);
     attachGoalDialogs(root,context,render);
+    attachGoalTimelines(root,context);
     root.addEventListener('keydown',ev=>{
       const tab=ev.target.closest('[data-goal-tab]');
       if(!tab)return;
@@ -370,11 +373,11 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       const toggle = ev.target.closest('[data-toggle]');
       if (toggle) {
         const key = toggle.dataset.toggle;
-        const keepCategoryFocus = toggle.classList.contains('category-head') && document.activeElement === toggle;
+        const keepToggleFocus = (toggle.classList.contains('category-head') || toggle.hasAttribute('data-goal-history')) && document.activeElement === toggle;
         const revealPast = key === 'past' && !ui.open.has(key);
         if (ui.open.has(key)) ui.open.delete(key); else ui.open.add(key);
         render();
-        if (keepCategoryFocus) [...root.querySelectorAll('.category-head')]
+        if (keepToggleFocus) [...root.querySelectorAll('.category-head,[data-goal-history]')]
           .find(el => el.dataset.toggle === key)?.focus({ preventScroll: true });
         if (revealPast) {
           const anchor = root.querySelector('[data-past-anchor]');
@@ -405,7 +408,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       // открыли другой план: генератор должен пересобрать этапы заново
       if (ev.type === 'loaded') {
         lastSync = ''; ui.tab = null; ui.year = null; ui.goal = null; ui.goalsTab='goals'; ui.historyYear=null; ui.open.clear();
-        changeToast.dismiss();ui.goalModal=null;ui.goalViews={};ui.lastGoalTransaction=null;
+        changeToast.dismiss();ui.goalModal=null;ui.goalViews={};ui.lastGoalTransaction=null;ui.goalTimelineScroll={};
         ui.scrollTarget = null;
         ui.draft = { familyInvite: ui.draft.familyInvite };
         const address = new URL(location.href); address.searchParams.set('plan',store.state.account.id);

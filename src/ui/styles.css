@@ -495,8 +495,11 @@ nav.tabs button.active .late-dot,.month-tabs button.active .late-dot{background:
 /* Этапы и движения по годам: год-подпись и прокрутка для длинных списков */
 .year-group + .year-group{margin-top:10px;}
 .year-cap{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;
-  padding:6px 0 2px;position:sticky;top:0;background:inherit;}
-.timeline-scroll{max-height:340px;overflow-y:auto;padding-right:4px;}
+  padding:6px 0 2px;}
+.goal-timeline.timeline-scroll{max-height:360px;overflow-y:auto;padding-right:8px;scrollbar-gutter:stable;overscroll-behavior-y:contain;}
+.goal-timeline:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px;}
+.goal-history-toggle{margin:10px 0 6px;}
+.goal-scroll-hint{margin:8px 0;}
 
 /* минус в истории баланса копилки */
 .num .neg{color:var(--danger);}
