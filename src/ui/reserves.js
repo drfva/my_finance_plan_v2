@@ -23,7 +23,7 @@ export function render(ctx) {
       : 'У текущего этапа нет срока — подушка копится своим темпом.';
     const extra = `<div class="grid cols-2" style="margin-top:10px;">
       ${field('Темп за выплату', input({ edit: 'savings|goals|pace_amount', key: { id: g.id }, value: g.pace_amount, type: 'money', disabled: !canEdit }),
-        'Желаемый взнос с выплаты. Если полного темпа не хватает, план уменьшает его с учётом сроков других целей. Свободный остаток может добавить больше.')}
+        'Желаемый взнос с выплаты на месте Подушек в очереди. Сначала взносы предыдущих этапов, затем доступный темп. Свободный остаток может добавить больше.')}
       ${field('Предложение', `<div class="num" style="padding-top:8px;">${esc(fmt.money(s.suggested, g.currency_code))}</div>`, 'Меньшее из «нужно к сроку» и «в среднем свободно»')}
     </div>
     <div class="small-note">${hint}</div>`;
@@ -32,7 +32,7 @@ export function render(ctx) {
 
   return `
     <div class="row between wrap" style="gap:8px;">
-      ${pill('Подушка получает свой темп за выплату и, если есть, свободный остаток')}
+      ${pill('Подушки получают доступный темп и остаток согласно порядку распределения')}
       ${canEdit ? addButton({ domain: 'savings', table: 'goals', cls: 'primary small', label: '+ подушка', row: { id: uid('goal'), title: 'Новая подушка', kind_code: 'reserve', currency_code: ctx.cfg.get('base_currency'), priority: goals.filter(g => !g.completed && !g.archived).length + 1, target_amount: 0, starting_balance: 0, pace_amount: 0, completed: false } }) : ''}
     </div>
     ${goalList(ctx, goals, renderCard, 'reserve')}`;

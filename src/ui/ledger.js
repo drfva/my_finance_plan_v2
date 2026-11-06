@@ -60,13 +60,14 @@ export function ledgerTable(ctx, g) {
       cell(`${head}${note ? `<div class="small-note" style="margin:0;">${note}</div>` : ''}`),
       num(`<span class="${e.delta < 0 ? 'neg' : ''}">${e.note?.source === 'start' ? '' : (e.delta > 0 ? '+' : '−')}${esc(fmt.money(Math.abs(e.delta), g.currency_code))}</span>`),
       num(`<b>${esc(fmt.money(e.balance, g.currency_code))}</b>`),
-      cell(`${marks}${cur ? `<span class="small-note" style="margin:0;display:block;">${esc(msName(e.phase.idx))}: ${esc(fmt.money(e.phase.saved+(e.phase.paid?.[e.phase.idx]??0), g.currency_code))} из ${esc(fmt.money(cur.target, g.currency_code))}</span>`
+      cell(`${marks}${cur ? `<span class="small-note" style="margin:0;display:block;">${esc(msName(e.phase.idx))}: ${esc(fmt.money(e.phase.saved+(e.phase.paid?.[e.phase.idx]??0)-(e.phase.purchaseDebt?.[e.phase.idx]??0), g.currency_code))} из ${esc(fmt.money(cur.target, g.currency_code))}</span>`
         : '<span class="small-note" style="margin:0;display:block;">все этапы закрыты</span>'}`),
     ]);
   });
 
   return `<div class="small-note" style="margin-top:0;">Каждая строка — состояние копилки после движения. Отчисления плана считаются в дату выплаты,
-    траты и переводы — в свою дату; этап закрыт, если на его срок денег хватало.</div>
+    траты и переводы — в свою дату. Покупка для цели засчитывается в её стоимость; если денег на неё не хватило,
+    этап остаётся открытым до покрытия недобора.</div>
     ${table({ head: ['Дата', 'Движение', { title: 'Сумма', cls: 'num' }, { title: 'В копилке', cls: 'num' }, 'Этапы'], rows })}`;
 }
 

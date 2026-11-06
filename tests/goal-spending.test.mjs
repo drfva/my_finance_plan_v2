@@ -7,6 +7,7 @@ import {simulate,goalBalanceAt,goalProgressAt,goalMilestoneAt,snapshotGoalComple
 import {goalOperationRows,saveGoalModal} from '../src/ui/goal-operations.js';
 import {render as renderGoals,milestoneStatus} from '../src/ui/goals.js';
 import {deleteRow} from '../src/ui/edit.js';
+import {ledgerTable} from '../src/ui/ledger.js';
 
 function context({stages=false,txs=[],periods=[],starting=20000,target=100000,deadline='2027-04-01',today='2026-12-30'}={}){
  const state=JSON.parse(fs.readFileSync(new URL('../tools/preview/state.json',import.meta.url),'utf8'));
@@ -22,6 +23,70 @@ const payouts=amount=>[1,2,3,4,5,6].map(m=>({id:'p'+m,year:2027,pay_date:`2027-$
 test('покупка для цели: 20 000 − 10 000 на билеты, осталось накопить 80 000',()=>{const c=context({txs:[tx()]});const g=c.state.savings.goals[0];assert.equal(goalBalanceAt(c.sim,g,c.state.savings.goal_transactions,c.today),10000);assert.equal(goalProgressAt(c.sim,g,c.today),20000);assert.deepEqual(goalMilestoneAt(c.sim,g,0,c.today),{balance:10000,paid:10000,need:80000});});
 test('трата на другое: из 20 000 осталось 10 000, накопить надо 90 000',()=>{const c=context({txs:[tx('other')]});assert.deepEqual(goalMilestoneAt(c.sim,c.state.savings.goals[0],0,c.today),{balance:10000,paid:0,need:90000});});
 test('старая трата без назначения сохраняет поведение',()=>{const c=context({txs:[tx(undefined,{purpose:undefined})]});assert.equal(goalMilestoneAt(c.sim,c.state.savings.goals[0],0,c.today).need,90000);});
+test('покупка всей стоимости при недоборе 8454 не закрывает этап ни до, ни в день, ни после срока',()=>{
+ for(const date of ['2028-09-10','2028-09-21','2028-09-26']){
+  const g={id:'g',starting_balance:291546},ms=[{id:'japan',goal_id:'g',title:'Поездка',target:300000,deadline:'2028-09-21'}],t=createTracker({goals:[g],milestones:ms,today:'2026-11-06'});
+  t.apply({id:'purchase',goal_id:'g',kind:'spend',purpose:'goal',milestone_id:'japan',amount:300000,date});
+  assert.equal(t.balance('g'),-8454,date);
+  assert.equal(t.milestoneDates().g[0],null,date);
+  assert.equal(t.phase('g').idx,0,date);
+  assert.equal(progressOf(ms,t.phase('g')),291546,date);
+  t.deposit('g',8454,'2028-10-20');
+  assert.equal(t.balance('g'),0);
+  assert.equal(t.milestoneDates().g[0],'2028-10-20');
+  assert.equal(progressOf(ms,t.phase('g')),300000);
+ }
+});
+test('до и после срока покупка для ненакопленного этапа сохраняет недобор, трата на другое увеличивает его',()=>{
+ for(const date of ['2028-09-10','2028-09-26'])for(const purpose of ['goal','other']){
+  const c=context({starting:20000,target:100000,deadline:'2028-09-21',today:'2028-10-01',txs:[tx(purpose,{date})]}),g=c.state.savings.goals[0];
+  assert.equal(goalBalanceAt(c.sim,g,c.state.savings.goal_transactions,c.today),10000);
+  assert.equal(goalMilestoneAt(c.sim,g,0,c.today).need,purpose==='goal'?80000:90000);
+  assert.equal(c.sim.milestoneDates.trip[0],null);
+ }
+});
+test('прогноз и остаток этапа учитывают долг покупки и закрывают его только в дату пополнения',()=>{
+ const periods=[{id:'last',year:2028,pay_date:'2028-09-20',calc_mode:'manual',income_net:291546,taxable:false},{id:'repay',year:2028,pay_date:'2028-10-20',calc_mode:'manual',income_net:8454,taxable:false}];
+ const c=context({starting:0,target:300000,deadline:'2028-09-21',today:'2026-11-06',periods,txs:[tx('goal',{date:'2028-09-26',amount:300000})]}),g=c.state.savings.goals[0];
+ assert.equal(c.sim.milestoneDates.trip[0],'2028-10-20');
+ assert.equal(goalMilestoneAt(c.sim,g,0,'2028-09-26').need,8454);
+ assert.equal(goalProgressAt(c.sim,g,'2028-09-26'),291546);
+ assert.equal(goalMilestoneAt(c.sim,g,0,'2028-10-20').need,0);
+ assert.equal(c.sim.byId.get('repay').allocations.trip,8454);
+});
+test('частичное погашение покупки уменьшает недобор; прошлые строки истории неизменны',()=>{
+ const g={id:'g',starting_balance:20000},ms=[{id:'a',goal_id:'g',target:30000,deadline:'2028-09-21'}],t=createTracker({goals:[g],milestones:ms});
+ t.apply({goal_id:'g',kind:'spend',purpose:'goal',milestone_id:'a',amount:30000,date:'2028-09-26'});
+ const history=structuredClone(t.ledger('g'));
+ t.deposit('g',4000,'2028-10-01');
+ assert.equal(t.phase('g').purchaseDebt[0],6000);assert.equal(progressOf(ms,t.phase('g')),24000);assert.equal(t.milestoneDates().g[0],null);
+ assert.deepEqual(t.ledger('g').slice(0,history.length),history);
+ t.apply({goal_id:'g',kind:'transfer_in',amount:6000,date:'2028-10-20'});
+ assert.equal(t.milestoneDates().g[0],'2028-10-20');assert.equal(progressOf(ms,t.phase('g')),30000);
+ assert.equal(t.ledger('g').reduce((sum,e)=>sum+e.delta,0),t.balance('g'));
+});
+test('необеспеченная покупка позднего этапа не закрывает его и не скрывает недобор раннего',()=>{
+ const g={id:'g',starting_balance:50},ms=[{id:'a',goal_id:'g',target:100,deadline:'2028-04-01'},{id:'b',goal_id:'g',target:120,deadline:'2028-09-21'}],t=createTracker({goals:[g],milestones:ms});
+ t.apply({goal_id:'g',kind:'spend',purpose:'goal',milestone_id:'b',amount:120,date:'2028-02-01'});
+ assert.deepEqual(t.milestoneDates().g,[null,null]);assert.equal(t.phase('g').purchaseDebt[1],70);assert.equal(progressOf(ms,t.phase('g')),50);
+ t.deposit('g',70,'2028-03-01');
+ assert.deepEqual(t.milestoneDates().g,[null,'2028-03-01']);assert.equal(progressOf(ms,t.phase('g')),120);
+ t.deposit('g',100,'2028-03-20');assert.deepEqual(t.milestoneDates().g,['2028-03-20','2028-03-01']);
+});
+test('покупка после срока накопленного этапа сохраняет его выполнение и деньги следующего этапа',()=>{
+ const c=context({stages:true,starting:220000,today:'2027-04-03',txs:[tx('goal',{milestone_id:'y2027',date:'2027-04-02'})]}),g=c.state.savings.goals[0];
+ assert.equal(goalMilestoneAt(c.sim,g,0,c.today).balance,90000);assert.equal(goalMilestoneAt(c.sim,g,1,c.today).balance,120000);
+ assert.equal(goalProgressAt(c.sim,g,c.today),220000);assert.equal(c.sim.milestoneDates.trip[0],'pre');
+});
+test('история и ручное закрытие сохраняют недобор покупки вместо ложного завершения этапа',()=>{
+ const c=context({starting:291546,target:300000,deadline:'2028-09-21',today:'2028-09-26',txs:[tx('goal',{date:'2028-09-26',amount:300000})]}),g=c.state.savings.goals[0];
+ const html=ledgerTable(c,g),snapshot=snapshotGoalCompletion(c.sim,g,c.today);
+ assert.ok(html.includes(c.fmt.money(291546)));assert.ok(html.includes(c.fmt.money(-8454)));
+ assert.doesNotMatch(html,/все этапы закрыты|закрыт 1\./);
+ assert.equal(snapshot.progress,291546);assert.equal(snapshot.phase.purchaseDebt[0],8454);assert.equal(snapshot.milestones[0].date,null);
+ g.completed=true;g.completion_snapshot=snapshot;c.sim=simulate(c.state,c.cfg,{today:c.today});
+ assert.equal(goalProgressAt(c.sim,g,'2028-10-20'),291546);
+});
 test('покупка привязана только к своему этапу, ближайший теряет заимствованные деньги',()=>{const c=context({stages:true,txs:[tx('goal',{milestone_id:'y2028'})]});const g=c.state.savings.goals[0];assert.equal(goalMilestoneAt(c.sim,g,0,c.today).need,90000);assert.equal(goalMilestoneAt(c.sim,g,1,c.today).paid,10000);assert.equal(goalMilestoneAt(c.sim,g,1,c.today).need,110000);});
 test('будущая покупка не меняет сегодняшние деньги и прогресс',()=>{const c=context({txs:[tx('goal',{date:'2027-02-01'})],periods:payouts(30000)}),g=c.state.savings.goals[0];assert.equal(goalProgressAt(c.sim,g,c.today),20000);assert.equal(goalBalanceAt(c.sim,g,c.state.savings.goal_transactions,c.today),20000);assert.equal(goalMilestoneAt(c.sim,g,0,'2027-02-01').paid,10000);});
 test('покупка до срока не требует второй копии денег и сохраняет срок',()=>{const base=context({periods:payouts(30000)}),c=context({periods:payouts(30000),txs:[tx('goal',{date:'2027-02-01'})]});assert.equal(c.sim.milestoneDates.trip[0],base.sim.milestoneDates.trip[0]);assert.ok(c.sim.milestoneDates.trip[0]<='2027-04-01');});

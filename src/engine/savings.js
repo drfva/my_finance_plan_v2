@@ -88,7 +88,7 @@ function createCashTracker({ goals, milestones, today = '' }) {
 
   function advance(gid, date) {
     const list = ms.get(gid);
-    while (idx.get(gid) < list.length && phaseSaved.get(gid) >= list[idx.get(gid)].target - 1e-9) {
+    while (idx.get(gid) < list.length && balance.get(gid) >= -1e-9 && phaseSaved.get(gid) >= list[idx.get(gid)].target - 1e-9) {
       phaseSaved.set(gid, phaseSaved.get(gid) - list[idx.get(gid)].target);
       close(gid, idx.get(gid), date);
       idx.set(gid, idx.get(gid) + 1);
@@ -225,13 +225,34 @@ function createCashTracker({ goals, milestones, today = '' }) {
     else deposit(tx.goal_id, amount, tx.date, note);
   }
 
+  /* Стоимость меняется в дату покупки, без пересчёта прошлых движений. */
+  function purchase(tx, credit) {
+    const gid = tx.goal_id, list = ms.get(gid);
+    const index = list?.findIndex(m => m.id === (tx.milestone_id || '_main')) ?? -1;
+    if (index < 0) return apply(tx);
+    const before = [...dates.get(gid)];
+    apply(tx);
+    const raw = log.pop();
+    list[index].target = Math.max(0, list[index].target - credit);
+    const reserve = pool.get(gid).find(c => c.idx === index);
+    if (reserve) {
+      // Если трата затронула другой этап, освобождённая стоимость выбранного
+      // этапа возвращает деньги в текущий прогресс.
+      const released = Math.max(0, reserve.left - list[index].target);
+      reserve.left -= released;
+      phaseSaved.set(gid, phaseSaved.get(gid) + released);
+    }
+    advance(gid, tx.date);
+    log.push(entry(gid, tx.date, raw.delta, before, raw.note));
+  }
+
   return {
     milestones: gid => ms.get(gid) ?? [],
     phase,
     /* Все движения по копилке по порядку: пополнения плана, траты и переводы */
     ledger: gid => log.filter(e => e.goal_id === gid),
     balance: gid => balance.get(gid) ?? 0,
-    reserves: gid => (pool.get(gid) ?? []).map(c => ({ ...c })),
+    reserves: gid => (pool.get(gid) ?? []).map(c => ({ ...c })), purchase,
     deposit, withdraw, apply,
     snapshot(date = '9999-12-31') {
       const out = { balances: {}, phase: {} };
@@ -268,7 +289,7 @@ export function progressOf(list, phase) {
   let sum = 0;
   for (let i = 0; i < phase.idx && i < list.length; i++) sum += list[i].target;
   if (phase.idx < list.length) sum += phase.saved;
-  for(let i=phase.idx;i<list.length;i++)sum+=Math.min(list[i].target,phase.paid?.[i]??0);
+  for(let i=phase.idx;i<list.length;i++)sum+=Math.max(0,Math.min(list[i].target,phase.paid?.[i]??0)-(phase.purchaseDebt?.[i]??0));
   return sum;
 }
 

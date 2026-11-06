@@ -601,7 +601,7 @@ test('закрытая цель без этапов: накопленная су
 
 test('конвейер: сохраняет доход и обязательные расходы старого плана, распределение учитывает будущие траты', () => {
   const fx = JSON.parse(fs.readFileSync(new URL('./fixtures/legacy-2027.json', import.meta.url), 'utf8'));
-  // старая версия не откладывала темп подушки раньше копилок — для сверки выключаем
+  // Для сверки со старым расчётом выключаем адаптивный темп подушек.
   const sim = simulate(fx.state, createConfig(fx.state), { paceFirst: false });
   assert.equal(sim.rows.length, fx.expected.length);
   const near = (a, b, what) => assert.ok(Math.abs((a ?? 0) - (b ?? 0)) < 0.01, `${what}: ${a} ≠ ${b}`);
@@ -814,7 +814,7 @@ test('прогноз: цели, которой ничего не достаёт�
   assert.equal(forecastBeyondPlan(sim, st.savings.goals[1]), null);
 });
 
-test('подушка: заданный темп откладывается раньше копилок', () => {
+test('подушка: темп берётся после взносов копилок, а цель без срока получает доливку', () => {
   const goals = [
     goal('trip', { target_amount: 500000, priority: 1 }),
     goal('cushion', { kind_code: 'reserve', target_amount: 300000, pace_amount: 8000, priority: 1 }),
@@ -822,7 +822,7 @@ test('подушка: заданный темп откладывается ра�
   const st = plan({ periods: payouts([1]), goals,
     categories: [{ id: 'life', mode: 'fixed_month', monthly_amount: 100000, split_mode: 'even' }] });
   const first = run(st).rows[0];
-  assert.equal(first.allocations.cushion, 8000);          // темп ушёл раньше копилки
+  assert.equal(first.allocations.cushion, 8000);          // у копилки без срока обязательный взнос нулевой
   assert.equal(first.allocations.trip, 42000);            // копилке — остаток выплаты
   // без темпа подушка снова получает только то, что осталось после копилок
   goals[1].pace_amount = 0;
@@ -830,6 +830,43 @@ test('подушка: заданный темп откладывается ра�
     categories: [{ id: 'life', mode: 'fixed_month', monthly_amount: 100000, split_mode: 'even' }] })).rows[0];
   assert.equal(without.allocations.cushion, undefined);
   assert.equal(without.allocations.trip, 50000);
+});
+
+test('темп подушки не перескакивает через расходы между копилками и подушками', () => {
+  const sim = run(plan({ periods: unevenPayouts([10000]), goals: [
+    goal('trip', { target_amount: 2000, deadline: '2028-01-15' }),
+    goal('cushion', { kind_code: 'reserve', target_amount: 100000, pace_amount: 5000 }),
+  ], categories: [{ id: 'life', mode: 'fixed_month', monthly_amount: 8000, split_mode: 'even' }], rules: [
+    { stage_code: 'buckets', priority: 0, enabled: true, params: {} },
+    { stage_code: 'gifts', priority: 2, enabled: false, params: {} },
+  ] }));
+  assert.equal(sim.rows[0].allocations.trip, 2000);
+  assert.equal(sim.rows[0].categoriesTotal, 8000);
+  assert.equal(sim.rows[0].allocations.cushion, undefined);
+  assert.equal(sim.rows[0].unallocated, 0);
+});
+
+test('срок подушки ниже в очереди не отнимает нужные к сроку взносы копилки', () => {
+  const periods = unevenPayouts([10000, 10000]);
+  const sim = run(plan({ periods, goals: [
+    goal('trip', { target_amount: 12000, deadline: periods[1].pay_date }),
+    goal('cushion', { kind_code: 'reserve', target_amount: 100000, pace_amount: 5000, deadline: periods[0].pay_date }),
+  ] }));
+  assert.deepEqual(sim.rows.map(r => r.allocations.trip), [6000, 6000]);
+  assert.ok(sim.milestoneDates.trip[0] <= periods[1].pay_date);
+  assert.equal(sim.rows.reduce((s, r) => s + (r.allocations.cushion ?? 0), 0), 8000);
+  assert.ok(sim.rows.every(r => Math.abs(r.unallocated) < .01));
+});
+
+test('доливка следует порядку этапов: Подарки после Подушек не объединяются с Копилками выше', () => {
+  const periods = unevenPayouts([23000, 23000]);
+  const sim = run(plan({ periods, goals: [
+    goal('gifts', { kind_code: 'gifts', target_amount: 20000, deadline: periods[1].pay_date }),
+    goal('cushion', { kind_code: 'reserve', target_amount: 100000, pace_amount: 5000 }),
+  ], rules: [{ stage_code: 'gifts', priority: 8, enabled: true, params: {} }] }));
+  assert.deepEqual(sim.rows.map(r => r.allocations.gifts), [10000, 10000]);
+  assert.deepEqual(sim.rows.map(r => r.allocations.cushion), [13000, 13000]);
+  assert.ok(sim.rows.every(r => Math.abs(r.unallocated) < .01));
 });
 
 test('рост расходов на 500 в месяц уменьшает темп подушки, сохраняя сроки подарков и копилок', () => {
@@ -866,13 +903,14 @@ test('подушка: темп 5000 сохраняет посильные 3000 �
   }
 });
 
-test('подушка: меньшая выплата отдаёт доступную часть темпа, остаток делится между следующими', () => {
+test('подушка: маленькие выплаты сначала обеспечивают взносы копилки выше в очереди', () => {
   const periods = unevenPayouts([1000, 8000, 19000]);
   const sim = run(plan({ periods, goals: [
     goal('trip', { target_amount: 23000, deadline: periods.at(-1).pay_date }),
     goal('cushion', { kind_code: 'reserve', target_amount: 100000, pace_amount: 5000 }),
   ] }));
-  assert.deepEqual(sim.rows.map(r => r.allocations.cushion), [1000, 2000, 2000]);
+  assert.deepEqual(sim.rows.map(r => r.allocations.cushion ?? 0), [0, 0, 5000]);
+  assert.deepEqual(sim.rows.map(r => r.allocations.trip), [1000, 8000, 14000]);
   assert.equal(sim.milestoneDates.trip[0], periods.at(-1).pay_date);
 });
 
@@ -884,7 +922,7 @@ test('подушки: посильный темп сохраняет приор�
     goal('first', { kind_code: 'reserve', target_amount: 100000, pace_amount: 5000 }),
     goal('second', { kind_code: 'reserve', priority: 2, target_amount: 100000, pace_amount: 5000 }),
   ] }));
-  assert.deepEqual(sim.rows.map(r => r.allocations.first), [2000, 2000, 2000]);
+  assert.deepEqual(sim.rows.map(r => r.allocations.first ?? 0), [0, 3000, 3000]);
   assert.ok(sim.rows.every(r => !(r.allocations.second > .01)));
   assert.equal(sim.milestoneDates.gift[0], periods[0].pay_date);
   assert.equal(sim.milestoneDates.trip[0], periods.at(-1).pay_date);
@@ -921,7 +959,7 @@ test('ручной ноль самой подушки и фиксация вып
   }
 });
 
-test('после темпа 5000 оставшиеся 18000 закрывают долг копилки, а не блокируются старым этапом', () => {
+test('копилка выше подушки получает нужный взнос с погашением долга, старый этап не блокирует остаток', () => {
   const periods = [
     { id: 'march', year: 2028, pay_date: '2028-03-20', calc_mode: 'manual', income_net: 31000 },
     { id: 'may', year: 2028, pay_date: '2028-05-20', calc_mode: 'manual', income_net: 60000 },

@@ -22,15 +22,15 @@
                     успеть до конца льготного периода с учётом будущих выплат;
      gifts, buckets, reserves — темп для целей своего типа (ref_goal_kinds).
 
-   Темп подушки (pace_amount) откладывается раньше копилок: если у подушки задан
-   темп, эта сумма уходит в неё из свободных денег до этапа buckets, но уменьшается
-   до посильного общего темпа оставшихся выплат, если иначе подарки и копилки
-   не успеют к своим срокам. Старая версия
-   так не делала — для сверки с ней есть опция paceFirst: false.
+   Темп подушки (pace_amount) откладывается только на этапе reserves, на его
+   месте в заданной очереди. Более ранние этапы сначала получают нужные взносы,
+   затем из оставшихся денег рассчитывается посильный темп подушек. Цели могут
+   копиться параллельно; полностью заполнять все копилки до подушек не требуется.
+   Опция paceFirst: false отключает адаптивный темп для сверки со старым расчётом.
 
    После этапов — доливка остатка по целям: по одному этапу за раз, у кого срок
-   ближе; цели без срока — по приоритету; подушки — отдельной группой на своём
-   месте в порядке этапов. Затем свободный остаток идёт в досрочные погашения
+   ближе; цели без срока — по приоритету. Группы подарков, копилок и подушек
+   следуют порядку этапов. Затем свободный остаток идёт в досрочные погашения
    по очереди этапов долгов: credits включён по умолчанию, installments —
    только при params.early_repayment = true. Проведённые части рассрочек
    сохраняются в installment_snapshot выплаты и уменьшают будущий долг.
@@ -272,11 +272,11 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     const paced = Math.max(0, need - fixedFuture);
     const even = deadline ? ((overdue || n <= 0) ? paced : paced / n) : 0;
     const per = Math.min(remaining, Math.max(even, reserve ? Number(g.pace_amount) || 0 : 0));
-    return { g, reserve, remaining, maximum: paced, per, deadline };
+    return { g, reserve, remaining, maximum: paced, per, requiredPer: Math.min(remaining, even), deadline };
   }
 
-  /* Темп подушки откладывается раньше копилок в пределах денег, которые
-     можно выделить без срыва их сроков. Возвращает, сколько ушло из выплаты. */
+  /* Посильный темп подушек на их этапе, после взносов предшествующих этапов.
+     Возвращает, сколько ушло из оставшихся денег выплаты. */
   function reservePaceStep(p, allocations, fixedGoals, remaining, deposit, given) {
     let spent = 0;
     const list = activeGoals('reserves')
@@ -291,7 +291,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       if (!b) continue;
       const paceBase = goalFx(p).toBase(Number(g.pace_amount) || 0, g.currency_code, p.pay_date);
       if (paceBase === null) continue;
-      // Ранний темп подушки можно снизить ради сроков подарков и копилок.
+      // Темп подушки можно снизить ради сроков подарков и копилок.
       // Собственный срок подушки не превращает этот взнос в обязательный.
       const limits = fundingLimits({ ...req, deadline: '', reservePace: true,
         paceBefore: new Set(list.slice(0, index).map(x => x.id)), paceBase }, p, fixedGoals, allocations, left);
@@ -308,12 +308,13 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   function inBase(req, date) {
     const code = req.g.currency_code;
     const per = goalFx().toBase(req.per, code, date);
+    const required = goalFx().toBase(req.requiredPer ?? 0, code, date);
     const remaining = goalFx().toBase(req.maximum ?? req.remaining, code, date);
     if (per === null || remaining === null) {
       warnOnce('no_fx_rate', { goal_id: req.g.id, currency: code });
       return null;
     }
-    return { ...req, perBase: per, remainingBase: remaining };
+    return { ...req, perBase: per, requiredBase: required ?? 0, remainingBase: remaining };
   }
 
   function depositBase(gid, amountBase, date, allocations) {
@@ -344,12 +345,9 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     });
   }
 
-  /* Группа доливки: подарки и копилки доливаются вместе (по сроку), подушки —
-     своей группой. Место группы — по приоритету её этапов */
-  const tierOf = code => {
-    if (code === 'reserves') return stage('reserves')?.priority ?? Infinity;
-    return Math.min(stage('gifts')?.priority ?? Infinity, stage('buckets')?.priority ?? Infinity);
-  };
+  /* Доливка следует той же очереди этапов, что и обязательные взносы. */
+  const stageRanks = new Map(stages.map((s, index) => [s.code, index]));
+  const tierOf = code => stageRanks.get(code) ?? Infinity;
 
   function cascadeOrder(list) {
     return [...list].sort((a, b) => {
@@ -381,7 +379,10 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     let paceLimit = Infinity;
     if (!reference) return { protect, minimum, paceLimit };
     const needs = enabled.filter(g => !g.completed && !g.archived
-      && (!req.reservePace || stageOfGoal(g) !== 'reserves')).flatMap(g => {
+      && (!req.reservePace || stageOfGoal(g) !== 'reserves')
+      // Срок подушки ниже в очереди не перехватывает деньги более ранней цели.
+      && !(stageOfGoal(g) === 'reserves' && stageOfGoal(req.g) !== 'reserves'
+        && tierOf('reserves') > tierOf(stageOfGoal(req.g)))).flatMap(g => {
       return tracker.milestones(g.id).map((m, i) => {
         if (!m.deadline) return null;
         const r = requirement(g, p, i);
@@ -408,7 +409,8 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
             if (fixed.has(g.id)) continue;
             const amount = row.allocations[g.id] ?? 0;
             const keepPace = !ids.has(g.id) && paceFirst && stageOfGoal(g) === 'reserves'
-              && (!req.reservePace || req.paceBefore.has(g.id));
+              && (req.reservePace ? req.paceBefore.has(g.id)
+                : stageOfGoal(req.g) === 'reserves' || tierOf('reserves') < tierOf(stageOfGoal(req.g)));
             const pace = keepPace ? row.reservePaces[g.id] ?? 0 : 0;
             free += Math.max(0, amount - pace);
           }
@@ -463,12 +465,10 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       return ka < kb ? -1 : ka > kb ? 1 : 0;
     });
 
-    let paceDone = false;
     const paceGiven = new Map();   // темп подушки, уже отложенный в этой выплате
     let familyContribution = null;
     for (const s of stages) {
       const before = remaining;
-      let paceSpent = 0;
 
       if (s.code === 'family') {
         familyContribution = family.step(p, remaining, { enabled: s.enabled });
@@ -500,21 +500,18 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
           if (amt > 0.0001 && depositBase(g.id, amt, p.pay_date, allocations)) remaining -= amt;
         }
         if (!manual && remaining > 0) {
-          // темп подушки идёт раньше копилок с защитой их сроков
-          const familyBeforeReserve = stage('family') && stage('reserves')
-            && stages.indexOf(stage('family')) < stages.indexOf(stage('reserves'));
-          if (paceFirst && !paceDone && (!familyBeforeReserve || familyContribution)) {
-            paceSpent = reservePaceStep(p, allocations, fixedGoals, remaining, depositBase, paceGiven);
-            remaining -= paceSpent;
-            paceDone = true;
+          // Темп не перескакивает через предшествующие этапы конвейера.
+          if (paceFirst && s.code === 'reserves') {
+            remaining -= reservePaceStep(p, allocations, fixedGoals, remaining, depositBase, paceGiven);
           }
           const reqs = paceOrder(activeGoals(s.code).filter(g => !fixedGoals.has(g.id)).map(g => requirement(g, p)), s.code);
           for (const req of reqs) {
             if (remaining <= 0) break;
             const b = inBase(req, p.pay_date);
             if (!b) continue;
-            // темп, уже отложенный до копилок, второй раз не берём
-            const per = b.perBase - (paceGiven.get(req.g.id) ?? 0);
+            // Посильный темп уже отложен: не добираем его до полного желаемого
+            // повторно. Дополнительный обязательный взнос возможен ради срока.
+            const per = (req.reserve && paceFirst ? b.requiredBase : b.perBase) - (paceGiven.get(req.g.id) ?? 0);
             const limits = fundingLimits(req, p, fixedGoals, allocations);
             const available = Math.max(0, remaining - limits.protect);
             const give = Math.min(Math.max(per, limits.minimum), available, b.remainingBase);
@@ -522,9 +519,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
           }
         }
       }
-      // темп подушки, отложенный внутри чужого этапа, считается этапом подушек
-      byStage[s.code] = (byStage[s.code] ?? 0) + (before - remaining - paceSpent);
-      if (paceSpent) byStage.reserves = (byStage.reserves ?? 0) + paceSpent;
+      byStage[s.code] = (byStage[s.code] ?? 0) + (before - remaining);
     }
 
     /* доливка остатка: по одному этапу за раз, очередь строится заново */
@@ -671,11 +666,14 @@ export function goalMilestoneAt(sim,goal,index,date){
   if(!m)return {balance:0,paid:0,need:0};
   const paid=phase.paid?.[index]??0;
   const txs=sim.ledgerOf?.(goal.id)??[];
-  let cash=Math.max(0,txs.filter(e=>!e.date||e.date<=date).at(-1)?.balance??(Number(goal.starting_balance)||0));
+  const entry=txs.filter(e=>!e.date||e.date<=date).at(-1),accountBalance=entry?.balance??(Number(goal.starting_balance)||0);
+  let cash=Math.max(0,accountBalance);
   for(let i=0;i<index;i++)cash-=Math.min(Math.max(0,cash),Math.max(0,list[i].target-(phase.paid?.[i]??0)));
   const balance=Math.min(Math.max(0,cash),Math.max(0,m.target-paid));
-  const actual=txs.filter(e=>!e.date||e.date<=date).at(-1)?.stageBalances?.[index]??balance;
-  return {balance:actual,paid,need:phase.idx>index?0:Math.max(0,m.target-paid-actual)};
+  const actual=entry?.stageBalances?.[index]??balance;
+  const purchaseDebt=phase.purchaseDebt?.[index]??0;
+  const unassignedDebt=Math.max(0,-accountBalance-(phase.purchaseDebt??[]).slice(phase.idx).reduce((s,x)=>s+x,0));
+  return {balance:actual,paid,need:phase.idx>index?0:Math.max(0,m.target-paid+purchaseDebt-actual)+(index===phase.idx?unassignedDebt:0)};
 }
 
 /* Фиксируем только уже случившиеся движения: прогноз будущих выплат не засчитывается.
@@ -706,7 +704,9 @@ export function goalNeedAt(sim, goal, txs, date) {
   const progress=progressOf(list,phase);
   const next = list.slice(phase.idx).find(m => m.deadline);
   const total = list.reduce((s, m) => s + m.target, 0);
-  return { need: Math.max(0, total - progress), deadline: next?.deadline ?? '' };
+  const purchaseDebt=(phase.purchaseDebt??[]).slice(phase.idx).reduce((s,x)=>s+x,0);
+  const extraDebt=Math.max(0,-goalBalanceAt(sim,goal,txs,date)-purchaseDebt);
+  return { need: Math.max(0, total - progress)+extraDebt, deadline: next?.deadline ?? '' };
 }
 
 /* Долг по карте на дату: после последней выплаты + операции после неё */
@@ -734,7 +734,8 @@ export function reservePaceSuggestion(sim, goal, today) {
   const row = lastRowAtOrBefore(sim, today);
   const phase = goalPhaseAt(sim,goal,today);
   const stageNow = phase.idx < list.length ? list[phase.idx] : null;
-  const need = stageNow ? Math.max(0, stageNow.target - phase.saved-(phase.paid?.[phase.idx]??0)) : 0;
+  const balance=sim.ledgerOf(goal.id).filter(e=>!e.date||e.date<=today).at(-1)?.balance??(Number(goal.starting_balance)||0);
+  const need = stageNow ? Math.max(0, stageNow.target - phase.saved-(phase.paid?.[phase.idx]??0))+Math.max(0,-balance) : 0;
   const payoutsLeft = stageNow?.deadline
     ? future.filter(r => r.period.pay_date <= stageNow.deadline).length
     : future.length;
@@ -767,6 +768,7 @@ export function forecastBeyondPlan(sim, goal, milestoneIndex = null) {
 
   // сколько ещё нужно: остаток текущего этапа плюс все этапы до нужного
   let need = Math.max(0, (list[phase.idx]?.target ?? 0) - phase.saved-(phase.paid?.[phase.idx]??0));
+  need += Math.max(0,-(last.goalBalances[goal.id]??0));
   for (let i = phase.idx + 1; i <= target && i < list.length; i++) need += Math.max(0,(Number(list[i].target)||0)-(phase.paid?.[i]??0));
   if (need <= 0.5) return null;
 

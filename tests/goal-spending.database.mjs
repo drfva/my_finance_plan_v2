@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {createStore} from '../src/core/store.js';
+import {createTracker,progressOf} from '../src/engine/savings.js';
 const entry=process.env.FINANCE_PGLITE_MODULE?pathToFileURL(process.env.FINANCE_PGLITE_MODULE).href:'@electric-sql/pglite';
 const {PGlite}=await import(entry),{pgcrypto}=await import(process.env.FINANCE_PGLITE_MODULE?new URL('contrib/pgcrypto.js',entry).href:'@electric-sql/pglite/contrib/pgcrypto');
 const db=new PGlite({extensions:{pgcrypto}});
@@ -51,5 +52,13 @@ test('БД: миграция повторяема, функции не обхо�
  const security=(await db.query("select p.prosecdef,c.relrowsecurity from pg_proc p cross join pg_class c where p.proname='check_goal_purchase_stage' and c.oid='public.goal_transactions'::regclass")).rows[0];
  assert.equal(security.prosecdef,false);assert.equal(security.relrowsecurity,true);
  await db.exec('set role authenticated');assert.equal((await get()).savings.goal_transactions[0].purpose,'goal');
+});
+test('БД: ручной снимок закрытия сохраняет необеспеченную часть покупки без новой миграции',async()=>{
+ const operation={...purchase,amount:100000,milestone_id:null};
+ const tracker=createTracker({goals:[goals[0]],milestones:[]});tracker.apply(operation);
+ const phase=tracker.phase('trip'),snapshot={date:operation.date,phase,progress:progressOf([{target:100000}],phase),milestones:[{id:'_main',date:tracker.milestoneDates().trip[0]}]};
+ await save({goals:[{...goals[0],completed:true,completion_snapshot:snapshot},goals[1]],goal_transactions:[operation]});
+ const stored=(await get()).savings.goals.find(g=>g.id==='trip').completion_snapshot;
+ assert.equal(stored.progress,20000);assert.deepEqual(stored.phase.purchaseDebt,[80000]);assert.equal(stored.milestones[0].date,null);
 });
 test.after(async()=>db.close());
