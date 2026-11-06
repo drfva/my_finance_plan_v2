@@ -17,7 +17,7 @@ const LABELS={expense_categories:'Категории',expense_items:'Стать�
   goals:'Цели',goal_milestones:'Этапы целей',goal_transactions:'Движения по целям',gift_events:'Подарки',
   vacations:'Отпуск',sick_leaves:'Больничный',installments:'Рассрочки',credit_cards:'Кредитные карты',account:'Название плана'};
 const FIELDS={monthly_amount:'Сумма в месяц',amount:'Сумма',target_amount:'Сколько накопить',target:'Сумма этапа',
-  pace_amount:'Темп за выплату',income_net:'Доход на руки',title:'Название',deadline:'Срок',percent_value:'Процент',starting_balance:'Начальный остаток'};
+  pace_amount:'Темп за выплату',income_net:'Доход на руки',title:'Название',deadline:'Срок',percent_value:'Процент',starting_balance:'Начальный остаток',purpose:'Назначение траты',milestone_id:'Этап покупки'};
 
 export function changesBetween(before,after){
   const changes=[];

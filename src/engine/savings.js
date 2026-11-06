@@ -33,6 +33,7 @@
 --------------------------------------------------------------------- */
 
 import { addDays, addMonths, parts, clampDay, daysInclusive } from './dates.js';
+import {purposeTracker} from './goal-purpose.js';
 
 const byDeadline = (a, b) => {
   const ka = a.deadline || '9999-99-99';
@@ -65,7 +66,11 @@ const isOutflow = kind => kind === 'spend' || kind === 'transfer_out';
 
 /* ------------------------------------------------------------------ учёт этапов */
 
-export function createTracker({ goals, milestones, today = '' }) {
+export function createTracker({ goals, milestones=[], today = '' }) {
+  return purposeTracker({goals,milestones,today},createCashTracker,new Map(goals.map(g=>[g.id,milestonesOf(g,milestones)])));
+}
+
+function createCashTracker({ goals, milestones, today = '' }) {
   const completions = new Map(goals.filter(g => g.completed && g.completion_snapshot)
     .map(g => [g.id, g.completion_snapshot]));
   const ms = new Map();
@@ -188,6 +193,11 @@ export function createTracker({ goals, milestones, today = '' }) {
       const prev = list[prevIdx];
       const at = closed.findLastIndex(c => c.idx === prevIdx);
       const funded = at >= 0 ? closed[at].left : 0;
+      // Уже оплаченная покупка может обнулить денежную потребность этапа.
+      // Пропускаем такой пустой резерв, чтобы проверить деньги предыдущего.
+      if(prev.target<=.0001&&!passed(prev.deadline,date)){
+        idx.set(gid,prevIdx);dates.get(gid)[prevIdx]=null;if(at>=0)closed.splice(at,1);continue;
+      }
       if (funded <= 0.0001) break;      // резерв этапа уже израсходован
       if (passed(prev.deadline, date)) break;
       // срок ещё впереди: на его дату денег не хватит — открываем этап заново
@@ -210,7 +220,7 @@ export function createTracker({ goals, milestones, today = '' }) {
   function apply(tx) {
     const amount = Math.abs(Number(tx.amount) || 0);
     const note = { source: 'tx', kind: tx.kind, title: tx.title || '', id: tx.id,
-      counterparty_id: tx.counterparty_id || null, milestone_id: tx.milestone_id || null };
+      counterparty_id: tx.counterparty_id || null, milestone_id: tx.milestone_id || null, purpose:tx.purpose||'other' };
     if (isOutflow(tx.kind)) withdraw(tx.goal_id, amount, tx.date, note);
     else deposit(tx.goal_id, amount, tx.date, note);
   }
@@ -258,6 +268,7 @@ export function progressOf(list, phase) {
   let sum = 0;
   for (let i = 0; i < phase.idx && i < list.length; i++) sum += list[i].target;
   if (phase.idx < list.length) sum += phase.saved;
+  for(let i=phase.idx;i<list.length;i++)sum+=Math.min(list[i].target,phase.paid?.[i]??0);
   return sum;
 }
 
@@ -324,7 +335,7 @@ export function syncGenerated({ savings = {}, gifts = {}, until, years = [], tod
         wantTx.push({
           id: `${msId}:spend`, goal_id: c.goal_id, date, amount: Number(c.amount) || 0, kind: 'spend',
           title: c.title || goal.title, counterparty_id: null, milestone_id: msId,
-          source: 'cycle', occurrence_key: date, user_edited: false,
+          source: 'cycle', occurrence_key: date, user_edited: false, purpose:'other',
         });
       }
     }
@@ -349,7 +360,7 @@ export function syncGenerated({ savings = {}, gifts = {}, until, years = [], tod
       });
       wantTx.push({
         id: `${msId}:spend`, goal_id: goalId, date, amount, kind: 'spend', title, counterparty_id: null,
-        milestone_id: msId, source: 'gift', occurrence_key: String(y), user_edited: false,
+        milestone_id: msId, source: 'gift', occurrence_key: String(y), user_edited: false, purpose:'other',
       });
     }
   }

@@ -10,6 +10,8 @@ export function revealAddedRow(ctx, domain, table, row) {
   }
   if (domain !== 'savings' || !['goal_milestones', 'goal_transactions'].includes(table)) return;
   const milestone = table === 'goal_milestones';
+  (ctx.ui.goalViews??={})[row.goal_id]=milestone?'stages':'movements';
+  if(milestone)ctx.ui.open.add(`goal-stage:${row.id}`);
   ctx.ui.open.add(`${milestone ? 'goal' : 'goal-tx'}:${row.goal_id}`);
   const date = milestone ? row.deadline : row.date;
   if (date && date < ctx.today) ctx.ui.open.add(`${milestone ? 'ms-hist' : 'tx-hist'}:${row.goal_id}`);

@@ -192,6 +192,11 @@ export function syncTransfer(store, tx) {
 export function deleteRow(store, domain, table, key) {
   const state = store.state;
   const row = findRow(state, domain, table, key);
+  if(domain==='savings'&&['goal_milestones','goal_cycles'].includes(table)){
+    const ids=new Set(table==='goal_milestones'?[row?.id]:(state.savings.goal_milestones??[]).filter(m=>m.source_ref===row?.id).map(m=>m.id));
+    if((state.savings.goal_transactions??[]).some(t=>t.purpose==='goal'&&ids.has(t.milestone_id)))
+      throw new Error('К этапу привязаны покупки. Сначала перенесите их на другой этап или измените назначение траты.');
+  }
   if (domain === 'income' && table === 'sick_leaves') {
     if (!row) return;
     const ids = new Set((state.income?.periods ?? []).filter(p => p.sick_leave_id === row?.id).map(p => p.id));

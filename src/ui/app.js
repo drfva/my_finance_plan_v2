@@ -22,6 +22,7 @@ import { themeButton, updateThemeButton } from './theme-switch.js';
 import { scrollToPending } from './navigation.js';
 import {mobileNavigation,syncMobileNavigation,attachMobileNavigation} from './mobile-navigation.js';
 import {adaptTables} from './responsive-tables.js';
+import {renderGoalDialog,syncGoalDialog,attachGoalDialogs} from './goal-operations.js';
 
 import * as dashboard from './dashboard.js';
 import * as periods from './periods.js';
@@ -122,7 +123,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     if (!ctx.canEdit) return;
     // горизонт плана — часть ключа: создали выплаты нового года, и циклы должны
     // развернуться дальше, даже если сами циклы не менялись
-    const until = (ctx.state.income?.periods ?? []).reduce((m, p) => (p.pay_date > m ? p.pay_date : m), '');
+    const until = (ctx.state.income?.periods ?? []).reduce((m, p) => (p.pay_date > m ? p.pay_date : m), ctx.years.length?`${Math.max(...ctx.years)}-12-31`:'');
     const key = JSON.stringify([ctx.state.savings?.goal_cycles, ctx.state.savings?.goal_cycle_skips, ctx.state.gifts, ctx.years, until]);
     if (key === lastSync) return;
     lastSync = key;
@@ -230,7 +231,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
         ${topRow}
         ${goalSection?`<section id="goal-panel" role="tabpanel" aria-labelledby="goal-tab-${selectedGoalTab}">${body}</section>`:body}
       </main>
-      <div id="change-toast-host">${renderChangeToast(ctx,changeToast.entry)}</div>
+      <div id="change-toast-host">${renderChangeToast(ctx,changeToast.entry)}</div>${renderGoalDialog(ctx)}
       ${ctx.state.account?.plan_kind !== 'family' && !ui.draft.familyInvite && tourNeeded(ctx) ? tourPanel(ctx) : ''}`;
   }
 
@@ -304,6 +305,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     byId('root').innerHTML = shell(ctx, invitationCard(ctx) + body);
     adaptTables(byId('root'));
     syncMobileNavigation(byId('root'),ui);
+    syncGoalDialog(byId('root'),ctx);
     const deletion=byId('root').querySelector('.account-delete-dialog');
     (deletion?.querySelector('[data-account-delete-word]')??deletion?.querySelector('select:not(:disabled)')??deletion?.querySelector('button:not(:disabled)'))?.focus({preventScroll:true});
     byId('sign-out').addEventListener('click', async () => { await store.flush(); onSignOut(); });
@@ -333,6 +335,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     attachEditing(root, store, context, e => notice('danger', e.message));
     attachSettings(root, store, context, render);
     attachMobileNavigation(root,ui,render);
+    attachGoalDialogs(root,context,render);
     root.addEventListener('keydown',ev=>{
       const tab=ev.target.closest('[data-goal-tab]');
       if(!tab)return;
@@ -402,7 +405,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       // открыли другой план: генератор должен пересобрать этапы заново
       if (ev.type === 'loaded') {
         lastSync = ''; ui.tab = null; ui.year = null; ui.goal = null; ui.goalsTab='goals'; ui.historyYear=null; ui.open.clear();
-        changeToast.dismiss();
+        changeToast.dismiss();ui.goalModal=null;ui.goalViews={};ui.lastGoalTransaction=null;
         ui.scrollTarget = null;
         ui.draft = { familyInvite: ui.draft.familyInvite };
         const address = new URL(location.href); address.searchParams.set('plan',store.state.account.id);

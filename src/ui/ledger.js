@@ -42,7 +42,7 @@ export function ledgerTable(ctx, g) {
     const title = (n.title ? esc(n.title) : '') + forMs;
     if (n.kind === 'transfer_out') return [`Перевод в «${esc(goalTitle(n.counterparty_id))}»`, title];
     if (n.kind === 'transfer_in') return [`Перевод из «${esc(goalTitle(n.counterparty_id))}»`, title];
-    return [n.kind === 'spend' ? 'Трата' : 'Пополнение', title];
+    return [n.kind === 'spend' ? (n.purpose==='goal'?'Покупка для цели':'Трата на другое') : 'Пополнение', title];
   };
 
   const rows = entries.map((e, n) => {
@@ -60,7 +60,7 @@ export function ledgerTable(ctx, g) {
       cell(`${head}${note ? `<div class="small-note" style="margin:0;">${note}</div>` : ''}`),
       num(`<span class="${e.delta < 0 ? 'neg' : ''}">${e.note?.source === 'start' ? '' : (e.delta > 0 ? '+' : '−')}${esc(fmt.money(Math.abs(e.delta), g.currency_code))}</span>`),
       num(`<b>${esc(fmt.money(e.balance, g.currency_code))}</b>`),
-      cell(`${marks}${cur ? `<span class="small-note" style="margin:0;display:block;">${esc(msName(e.phase.idx))}: ${esc(fmt.money(e.phase.saved, g.currency_code))} из ${esc(fmt.money(cur.target, g.currency_code))}</span>`
+      cell(`${marks}${cur ? `<span class="small-note" style="margin:0;display:block;">${esc(msName(e.phase.idx))}: ${esc(fmt.money(e.phase.saved+(e.phase.paid?.[e.phase.idx]??0), g.currency_code))} из ${esc(fmt.money(cur.target, g.currency_code))}</span>`
         : '<span class="small-note" style="margin:0;display:block;">все этапы закрыты</span>'}`),
     ]);
   });
@@ -78,7 +78,7 @@ export function render(ctx) {
   const txs = state.savings?.goal_transactions ?? [];
   const balance = goalBalanceAt(ctx.sim, g, txs, ctx.today);
   const total = goalTotal(g, state.savings?.goal_milestones ?? []);
-  const progress = goalProgressAt(ctx.sim, g, g.completed ? ctx.today : ctx.sim.planEnd || ctx.today);
+  const progress = goalProgressAt(ctx.sim, g, ctx.today);
 
   return card({
     title: `История баланса: ${g.title}`,

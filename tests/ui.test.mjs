@@ -178,14 +178,15 @@ test('отпуска и больничные: прошедшие скрыты, �
   assert.equal(JSON.stringify(ctx.state), before);
 });
 
-test('подушка: глазик переключает видимость с перечёркиванием, читателю недоступен', () => {
+test('подушка: действие в меню переключает видимость, читателю недоступно', () => {
   const goal = { id: 'r', title: 'Резерв', kind_code: 'reserve', currency_code: 'RUB', target_amount: 1000, priority: 1 };
   const ctx = goalContext([goal]);
-  assert.match(renderReserves(ctx), /title="Скрыть с Обзора"/);
+  assert.doesNotMatch(renderReserves(ctx), /data-goal-toggle-overview/);
+  ctx.ui.open.add('goal-menu:r');
+  assert.match(renderReserves(ctx), /data-goal-toggle-overview="r"[^>]*>Скрыть с Обзора/);
   handleGoals(click('goal-toggle-overview', 'r'), ctx);
   const html = renderReserves(ctx);
-  assert.match(html, /title="Вернуть в Обзор"/);
-  assert.match(html, /<path d="m3 3 18 18"\/>/);
+  assert.match(html, /data-goal-toggle-overview="r"[^>]*>Вернуть в Обзор/);
   assert.doesNotMatch(renderDashboard(ctx), /<h3>Резерв<\/h3>/);
   const viewer = { ...ctx, canEdit: false };
   assert.doesNotMatch(renderReserves(viewer), /data-goal-toggle-overview/);
@@ -346,6 +347,7 @@ test('архив: скрывает только список своего раз
     assert.doesNotMatch(render(ctx), /value="Архивная цель"/);
     assert.match(renderDashboard(ctx), /Архивная цель/, 'архив остаётся в Обзоре');
     ctx.ui.open.add(`goal-archive:${kind}`);
+    ctx.ui.open.add('goal-menu:g');
     const html = render(ctx);
     assert.match(html, /value="Архивная цель"/);
     assert.match(html, /Вернуть из архива/);
@@ -371,6 +373,7 @@ test('Обзор: глазик скрывает только выбранную 
   const ctx = goalContext(goals);
   assert.doesNotMatch(renderDashboard(ctx), /data-goal-hide-overview/);
   ctx.ui.open.add('goal-archive:bucket');
+  ctx.ui.open.add('goal-menu:a');
   assert.match(renderGoals(ctx), /data-goal-toggle-overview="a"/);
   assert.equal(handleGoals(click('goal-toggle-overview', 'a'), ctx), true);
   const html = renderDashboard(ctx);
@@ -483,8 +486,8 @@ test('сводка цели: ближайшая будущая дата, пре�
   assert.equal(goalSummary(ctx, goal).next.m.id, 'next', 'прошлые даты пропущены, ближайший срок раньше прогноза');
   const html = goalCard(ctx, goal);
   assert.match(html, /goal-late/);
-  assert.match(html, /Есть этапы позже срока/);
-  assert.match(html, /Ближайший: позже срока/);
+  assert.match(html, /value="Ближайший"/);
+  assert.match(html, /позже срока \(к 01.08.2027\)/);
   assert.doesNotMatch(html, /потрачено/);
   assert.doesNotMatch(milestoneStatus(ctx, goal, ms[0]).label, /потрачено/);
   ctx.sim.milestoneDates.g[1] = '2027-03-05';

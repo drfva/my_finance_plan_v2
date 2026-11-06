@@ -213,6 +213,8 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     // Трата до срока может съесть текущий прогресс или открыть будущий этап.
     // Резервы уже прошедших этапов оплачивают такие траты первыми.
     const pools = tracker.reserves(g.id);
+    const plannedPaid=tracker.paid(g.id);
+    const original=milestonesOf(g,milestones);
     // При проверке нескольких этапов считаем также резервы, которые предстоит
     // накопить к промежуточным срокам: их штатная трата не требует второй копии суммы.
     for (let i = idx; i < look; i++) pools.push({ deadline: list[i].deadline || '', left: list[i].target });
@@ -220,6 +222,13 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       if (t.goal_id !== g.id || t.date <= p.pay_date || !deadline || t.date >= deadline) continue;
       let amount = Math.abs(Number(t.amount) || 0);
       if (t.kind !== 'spend' && t.kind !== 'transfer_out') { need -= amount; continue; }
+      if(t.kind==='spend'&&t.purpose==='goal'){
+        const index=original.findIndex(m=>m.id===(t.milestone_id||'_main'));
+        if(index>=0&&index<=look){
+          const credit=Math.min(amount,Math.max(0,original[index].target-(plannedPaid[index]??0)));
+          plannedPaid[index]=(plannedPaid[index]??0)+credit;amount-=credit;
+        }
+      }
       for (const c of pools) {
         if (!c.deadline || !(c.deadline <= t.date || (today && c.deadline < today))) continue;
         const take = Math.min(amount, c.left);
@@ -611,9 +620,27 @@ export function goalProgressAt(sim, goal, date) {
   if (goal.completed && goal.completion_snapshot && date >= goal.completion_snapshot.date) {
     return goal.completion_snapshot.progress;
   }
-  const row = lastRowAtOrBefore(sim, date);
-  const phase = (row ? row.phase : sim.initialPhase.phase)[goal.id] ?? { idx: 0, saved: 0 };
+  const phase=goalPhaseAt(sim,goal,date);
   return progressOf(sim.milestonesOf(goal), phase);
+}
+
+export function goalPhaseAt(sim,goal,date){
+  const entry=sim.ledgerOf?.(goal.id)?.filter(e=>!e.date||e.date<=date).at(-1);
+  if(entry)return entry.phase;
+  const row=lastRowAtOrBefore(sim,date);
+  return (row?row.phase:sim.initialPhase.phase)[goal.id]??{idx:0,saved:0};
+}
+
+export function goalMilestoneAt(sim,goal,index,date){
+  const list=sim.milestonesOf(goal),phase=goalPhaseAt(sim,goal,date),m=list[index];
+  if(!m)return {balance:0,paid:0,need:0};
+  const paid=phase.paid?.[index]??0;
+  const txs=sim.ledgerOf?.(goal.id)??[];
+  let cash=Math.max(0,txs.filter(e=>!e.date||e.date<=date).at(-1)?.balance??(Number(goal.starting_balance)||0));
+  for(let i=0;i<index;i++)cash-=Math.min(Math.max(0,cash),Math.max(0,list[i].target-(phase.paid?.[i]??0)));
+  const balance=Math.min(Math.max(0,cash),Math.max(0,m.target-paid));
+  const actual=txs.filter(e=>!e.date||e.date<=date).at(-1)?.stageBalances?.[index]??balance;
+  return {balance:actual,paid,need:phase.idx>index?0:Math.max(0,m.target-paid-actual)};
 }
 
 /* Фиксируем только уже случившиеся движения: прогноз будущих выплат не засчитывается.
@@ -624,7 +651,8 @@ export function snapshotGoalCompletion(sim, goal, date) {
   const tracker = createTracker({ goals: [{ ...goal, completed: false }], milestones, today: date });
   for (const e of sim.ledgerOf(goal.id)) {
     if (!e.date || e.date > date) continue;
-    if (e.delta >= 0) tracker.deposit(goal.id, e.delta, e.date);
+    if(e.note?.source==='tx')tracker.apply({id:e.note.id,goal_id:goal.id,date:e.date,amount:Math.abs(e.delta),kind:e.note.kind,title:e.note.title,milestone_id:e.note.milestone_id,purpose:e.note.purpose});
+    else if (e.delta >= 0) tracker.deposit(goal.id, e.delta, e.date);
     else tracker.withdraw(goal.id, -e.delta, e.date);
   }
   const phase = tracker.phase(goal.id);
@@ -639,15 +667,8 @@ export function snapshotGoalCompletion(sim, goal, date) {
 export function goalNeedAt(sim, goal, txs, date) {
   if (goal.completed || goal.archived) return { need: 0, deadline: '' };
   const list = sim.milestonesOf(goal);
-  const row = lastRowAtOrBefore(sim, date);
-  const phase = (row ? row.phase : sim.initialPhase.phase)[goal.id] ?? { idx: 0, saved: 0 };
-  let progress = progressOf(list, phase);
-  const after = row ? row.period.pay_date : '';
-  for (const t of txs) {
-    if (t.goal_id === goal.id && t.date > after && t.date <= date && (t.kind === 'deposit' || t.kind === 'transfer_in')) {
-      progress += Math.abs(Number(t.amount) || 0);
-    }
-  }
+  const phase=goalPhaseAt(sim,goal,date);
+  const progress=progressOf(list,phase);
   const next = list.slice(phase.idx).find(m => m.deadline);
   const total = list.reduce((s, m) => s + m.target, 0);
   return { need: Math.max(0, total - progress), deadline: next?.deadline ?? '' };
@@ -676,9 +697,9 @@ export function reservePaceSuggestion(sim, goal, today) {
   const future = sim.rows.filter(r => r.period.pay_date >= today);
   const list = sim.milestonesOf(goal);
   const row = lastRowAtOrBefore(sim, today);
-  const phase = (row ? row.phase : sim.initialPhase.phase)[goal.id] ?? { idx: 0, saved: 0 };
+  const phase = goalPhaseAt(sim,goal,today);
   const stageNow = phase.idx < list.length ? list[phase.idx] : null;
-  const need = stageNow ? Math.max(0, stageNow.target - phase.saved) : 0;
+  const need = stageNow ? Math.max(0, stageNow.target - phase.saved-(phase.paid?.[phase.idx]??0)) : 0;
   const payoutsLeft = stageNow?.deadline
     ? future.filter(r => r.period.pay_date <= stageNow.deadline).length
     : future.length;
@@ -710,8 +731,8 @@ export function forecastBeyondPlan(sim, goal, milestoneIndex = null) {
   if (target >= list.length) return null;
 
   // сколько ещё нужно: остаток текущего этапа плюс все этапы до нужного
-  let need = Math.max(0, (list[phase.idx]?.target ?? 0) - phase.saved);
-  for (let i = phase.idx + 1; i <= target && i < list.length; i++) need += Number(list[i].target) || 0;
+  let need = Math.max(0, (list[phase.idx]?.target ?? 0) - phase.saved-(phase.paid?.[phase.idx]??0));
+  for (let i = phase.idx + 1; i <= target && i < list.length; i++) need += Math.max(0,(Number(list[i].target)||0)-(phase.paid?.[i]??0));
   if (need <= 0.5) return null;
 
   // темп: среднее пополнение за последние выплаты, где цель вообще получала деньги
