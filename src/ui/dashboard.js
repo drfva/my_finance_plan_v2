@@ -12,7 +12,7 @@ import { giftPlanTable } from './gifts.js';
 import { renderIncomeReport } from './income-report.js';
 import { buildIncomeReport } from '../engine/income-report.js';
 import {categoryItemAmounts} from '../engine/expenses.js';
-import { baseExpenseFacts, trackedFacts } from './expense-tracking.js';
+import { expenseFactRows } from './expense-tracking.js';
 
 export const code = 'dashboard';
 export const title = () => 'Обзор';
@@ -27,10 +27,10 @@ function expensesView(ctx, rows) {
   const { fmt, state, year } = ctx;
   const cats = state.expenses?.expense_categories ?? [];
   const yearFilter = f => String(f.ym).startsWith(String(year));
-  const manual = state.facts?.expense_facts ?? [];
-  const facts = trackedFacts(ctx,manual).filter(yearFilter);
-  const overrides = new Set((ctx.tracking?.fact_overrides ?? []).filter(f=>f.month.startsWith(String(year))).map(f=>f.category_id));
-  const detailFacts = overrides.size ? baseExpenseFacts(ctx,manual).filter(yearFilter) : facts;
+  const {totals,details} = expenseFactRows(ctx,state.facts?.expense_facts);
+  const facts = totals.filter(yearFilter);
+  const detailFacts = details.filter(yearFilter);
+  const overrides = new Set((ctx.tracking?.fact_overrides ?? []).filter(f=>!f.item_id && f.month.startsWith(String(year))).map(f=>f.category_id));
 
   const plan = new Map();
   for (const r of rows) for (const c of r.expenses.categories) plan.set(c.category_id, (plan.get(c.category_id) ?? 0) + c.amount);

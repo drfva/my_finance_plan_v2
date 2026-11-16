@@ -28,28 +28,47 @@ export function baseExpenseFacts(ctx, manual, family = false) {
   return [...rows.values()];
 }
 
-export function trackedFacts(ctx, manual, family = false) {
+export function expenseFactRows(ctx, manual, family = false) {
   const facts = baseExpenseFacts(ctx,manual ?? [],family);
   const overrides = ctx.tracking?.fact_overrides ?? [];
-  if (!overrides.length) return facts;
+  if (!overrides.length) return {details:facts, totals:facts};
   const monthKey = family ? 'month' : 'ym';
+  const key = f => JSON.stringify([f[monthKey],f.category_id,f.item_key || '']);
+  const detailRows = new Map(facts.map(f=>[key(f),f]));
+  const categoryTotals = new Map();
   const parents = family ? new Map((ctx.tracking.purchases ?? []).filter(p=>p.item_id).map(p=>[p.item_id,p.category_id])) : null;
-  if (parents) for (const c of ctx.state.family.categories) if (c.parent_id) parents.set(c.id,c.parent_id);
-  const keys = new Set(overrides.map(f=>JSON.stringify([f.month,f.category_id])));
-  return [...facts.filter(f=>!keys.has(JSON.stringify([f[monthKey],parents?.get(f.category_id) || f.category_id]))),
-    ...overrides.map(f=>({[monthKey]:f.month,category_id:f.category_id,category_title:f.category_title,amount:f.amount}))];
+  if (parents) for (const c of ctx.state?.family?.categories ?? []) if (c.parent_id) parents.set(c.id,c.parent_id);
+  for (const f of overrides) {
+    const row = {[monthKey]:f.month,category_id:f.category_id,category_title:f.category_title,amount:f.amount};
+    if (!f.item_id) {
+      categoryTotals.set(JSON.stringify([f.month,f.category_id]),row);
+      continue;
+    }
+    if (parents) {
+      row.category_id = f.item_id;
+      parents.set(f.item_id,f.category_id);
+    } else Object.assign(row,{item_key:f.item_id,item_title:f.item_title});
+    detailRows.set(key(row),row);
+  }
+  const details = [...detailRows.values()];
+  const totals = details.filter(f=>!categoryTotals.has(JSON.stringify([f[monthKey],parents?.get(f.category_id) || f.category_id])));
+  return {details,totals:totals.concat([...categoryTotals.values()])};
 }
 
-export function manualCategoryFact(ctx, month, category) {
-  return ctx.tracking?.fact_overrides?.find(f=>f.month===month && f.category_id===category);
+export function trackedFacts(ctx, manual, family = false) {
+  return expenseFactRows(ctx,manual,family).totals;
 }
 
-export function categoryFactCell(ctx, month, category, amount) {
-  const manual = manualCategoryFact(ctx,month,category.id);
-  const title = `Факт · ${category.title}`;
+export function manualCategoryFact(ctx, month, category, item = '') {
+  return ctx.tracking?.fact_overrides?.find(f=>f.month===month && f.category_id===category && (f.item_id || '')===item);
+}
+
+export function categoryFactCell(ctx, month, category, amount, item) {
+  const manual = manualCategoryFact(ctx,month,category.id,item?.id);
+  const title = `Факт · ${item ? `${category.title} / ${item.title}` : category.title}`;
   if (!ctx.canEdit) return `<span${manual?' title="Итог задан вручную"':''}>${esc(ctx.fmt.money(amount))}</span>`;
   return `<div class="tracking-fact-cell"><input type="text" inputmode="decimal" class="tracking-fact-amount${manual?' own':''}"
-    data-fact-editor data-id="${esc(category.id)}" data-month="${esc(month)}" value="${esc(manual?.amount ?? '')}"
+    data-fact-editor data-id="${esc(category.id)}" data-item="${esc(item?.id ?? '')}" data-month="${esc(month)}" value="${esc(manual?.amount ?? '')}"
     placeholder="${esc(manual?'':ctx.fmt.money(amount))}" aria-label="${esc(title)}" title="${manual?'Введено вручную. Очистите поле, чтобы вернуть расчёт.':'Введите итог вручную'}">
     <small class="danger-text" data-fact-error role="alert" hidden></small></div>`;
 }
@@ -71,6 +90,7 @@ export function createExpenseTracking(client) {
       const next = data ?? { unavailable: true };
       const changed = current?.plan !== plan || current?.data.enabled !== next.enabled
         || current?.data.unavailable !== next.unavailable || current?.data.settings?.revision !== next.settings?.revision
+        || current?.data.fact_items_supported !== next.fact_items_supported
         || JSON.stringify(current?.data.fact_overrides) !== JSON.stringify(next.fact_overrides);
       current = { plan, data: next };
       return changed;
@@ -88,6 +108,7 @@ export function createExpenseTracking(client) {
         } else if (action === 'category_fact') {
           rpc = 'expense_tracking_set_category_fact';
           args = { p_plan:plan, p_month:payload.month, p_category:payload.category, p_amount:payload.amount, p_previous:payload.previous };
+          if (payload.item) args.p_item = payload.item;
         }
         const { data, error } = await client.rpc(rpc,args);
         if (error) {
@@ -398,7 +419,7 @@ export function attachExpenseTracking(root, getCtx, render, api, renderReport = 
     try { renderReport(); } finally { redrawingFacts = false; }
     if (factFocused) {
       const next = [...root.querySelectorAll('[data-fact-editor]')]
-        .find(input=>input.dataset.id===active.dataset.id && input.dataset.month===active.dataset.month);
+        .find(input=>input.dataset.id===active.dataset.id && input.dataset.item===active.dataset.item && input.dataset.month===active.dataset.month);
       if (next) {
         if (draft !== null) next.value = draft;
         next.focus({preventScroll:true});
@@ -429,7 +450,7 @@ export function attachExpenseTracking(root, getCtx, render, api, renderReport = 
       factError(input,'Введите неотрицательную сумму');
       return;
     }
-    const {id:category,month} = input.dataset;
+    const {id:category,item,month} = input.dataset;
     const previous = input.defaultValue === '' ? null : Number(input.defaultValue);
     factError(input);
     if (amount === previous) { input.value = input.defaultValue; return; }
@@ -443,7 +464,7 @@ export function attachExpenseTracking(root, getCtx, render, api, renderReport = 
           await ctx.store.flush();
           if (ctx.store.status() === 'error') throw new Error('Сначала сохраните изменения плана');
         }
-        await api.command(plan,'category_fact',{category,month,amount,previous});
+        await api.command(plan,'category_fact',{category,item,month,amount,previous});
         if (root.contains(input)) {
           input.defaultValue = input.value = amount ?? '';
           input.classList.toggle('own',amount !== null);
@@ -452,7 +473,7 @@ export function attachExpenseTracking(root, getCtx, render, api, renderReport = 
       } catch (error) {
         if (!root.contains(input)) return;
         if (error.code === 'PT409') {
-          const current = manualCategoryFact(getCtx(),month,category);
+          const current = manualCategoryFact(getCtx(),month,category,item);
           input.defaultValue = current?.amount ?? '';
           input.classList.toggle('own',Boolean(current));
         }

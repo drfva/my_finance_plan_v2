@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { baseExpenseFacts, trackedFacts } from '../src/ui/expense-tracking.js';
+import { baseExpenseFacts, expenseFactRows, trackedFacts } from '../src/ui/expense-tracking.js';
 import { postIncomeForPlan } from '../src/core/income-deposit-worker.js';
 
 const entry = process.env.FINANCE_PGLITE_MODULE ? pathToFileURL(process.env.FINANCE_PGLITE_MODULE).href : '@electric-sql/pglite';
@@ -29,8 +29,8 @@ const previous = (await db.query("select to_char(date_trunc('month',now() at tim
 const plan = (await rpc('bootstrap_user',{p_title:'Тестовый план'})).account.id;
 const get = () => rpc('expense_tracking_get',{p_plan:plan});
 const command = (p_action,p_payload,p_revision = null) => rpc('expense_tracking_command',{p_plan:plan,p_action,p_payload,p_revision});
-const override = (p_plan,p_month,p_category,p_amount,p_previous=null) => rpc('expense_tracking_set_category_fact',{
-  p_plan,p_month,p_category,p_amount,p_previous,
+const override = (p_plan,p_month,p_category,p_amount,p_previous=null,p_item) => rpc('expense_tracking_set_category_fact',{
+  p_plan,p_month,p_category,p_amount,p_previous,...(p_item ? {p_item} : {}),
 });
 const card = crypto.randomUUID(), cash = crypto.randomUUID(), purchase = crypto.randomUUID();
 const fact = [{ym:previous.slice(0,7),category_id:'food',item_key:'',amount:8000,category_title:'Еда'}];
@@ -44,9 +44,9 @@ const buy = { id:purchase,date:today,category_id:'food',amount:3000,tags:['До�
 const balance = id => state.accounts.find(a => a.id === id).balance;
 
 test('запуск, атомарная покупка и фильтрация по частям оплаты',async()=>{
-  assert.deepEqual(await get(),{enabled:false,fact_overrides:[]});
+  assert.deepEqual(await get(),{enabled:false,fact_items_supported:true,fact_overrides:[]});
   await assert.rejects(command('enable',{id:card,title:'',amount:40000,date:today,fact_mode:'reset'}));
-  assert.deepEqual(await get(),{enabled:false,fact_overrides:[]});
+  assert.deepEqual(await get(),{enabled:false,fact_items_supported:true,fact_overrides:[]});
   state = await command('enable',{id:card,title:'Карта',amount:40000,date:today,fact_mode:'reset'});
   assert.equal(state.settings.deposit_account,card);
   state = await command('account_add',{id:cash,title:'Наличные',amount:500,date:today},state.settings.revision);
@@ -115,7 +115,35 @@ test('семья включает свой журнал отдельно и до
   assert.deepEqual(trackedFacts(ctx,report.expense_facts,true).map(f=>[f.category_id,f.amount]),[['food',7000]]);
   assert.equal(baseExpenseFacts(ctx,report.expense_facts,true).find(f=>f.category_id==='fruit').amount,1000);
   assert.deepEqual(fixed.accounts,next.accounts);
+  const itemOverride = await override(family,today.slice(0,7),'food',2000,null,'fruit');
+  const edited = expenseFactRows({...ctx,tracking:itemOverride},report.expense_facts,true);
+  assert.equal(edited.details.find(f=>f.category_id==='fruit').amount,2000);
+  assert.deepEqual(edited.totals.map(f=>[f.category_id,f.amount]),[['food',7000]]);
+  const restored = await override(family,today.slice(0,7),'food',null,7000);
+  assert.equal(trackedFacts({...ctx,tracking:restored},report.expense_facts,true).reduce((n,f)=>n+f.amount,0),12000);
   assert.equal((await get()).purchases.length,0);
+});
+
+test('итоги подкатегорий складываются, ручной итог категории имеет приоритет',async()=>{
+  const month = today.slice(0,7);
+  await rpc('state_save',{p_account:plan,p_domain:'expenses',p_patch:{expense_items:[
+    {id:'bread',category_id:'food',title:'Хлеб'}, {id:'fruit',category_id:'food',title:'Фрукты'},
+  ]}});
+  const prior = await get();
+  await command('purchase_save',{...buy,item_id:'bread'},prior.settings.revision);
+  await assert.rejects(override(plan,month,'food',1000,null,'missing'),/подкатегория плана не найдена/);
+  await override(plan,month,'food',3500,null,'bread');
+  const withChildren = await override(plan,month,'food',500,null,'fruit');
+  const monthly = tracking => trackedFacts({tracking},fact).filter(f=>f.ym===month).reduce((sum,f)=>sum+f.amount,0);
+  assert.equal(monthly(withChildren),4000);
+  const withParent = await override(plan,month,'food',4200);
+  assert.equal(monthly(withParent),4200);
+  assert.equal(expenseFactRows({tracking:withParent},fact).details.find(f=>f.item_key==='bread').amount,3500);
+  const withoutParent = await override(plan,month,'food',null,4200);
+  assert.equal(monthly(withoutParent),4000);
+  const withoutBread = await override(plan,month,'food',null,3500,'bread');
+  assert.equal(monthly(withoutBread),3500);
+  assert.deepEqual(withoutBread.purchases,withChildren.purchases);
 });
 
 test('корректировка начального остатка меняет баланс с текущей даты и сохраняет движения',async()=>{

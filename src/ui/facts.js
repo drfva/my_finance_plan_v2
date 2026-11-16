@@ -2,7 +2,7 @@
 
 import { esc, card, table, input, pill } from './dom.js';
 import { inSeasonMonth, expenseAppliesInMonth, categoryItemAmounts } from '../engine/expenses.js';
-import { baseExpenseFacts, categoryFactCell, expenseFactActions, expenseTrackingPanel, manualCategoryFact, trackedFacts } from './expense-tracking.js';
+import { categoryFactCell, expenseFactActions, expenseFactRows, expenseTrackingPanel, manualCategoryFact } from './expense-tracking.js';
 
 export const code = 'facts';
 export const title = () => 'Расходы';
@@ -27,10 +27,9 @@ export function render(ctx) {
     : `${year}-${ctx.today.slice(5, 7)}`;
   const cats = (state.expenses?.expense_categories ?? []).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   const items = state.expenses?.expense_items ?? [];
-  const manual = state.facts?.expense_facts ?? [];
-  const facts = trackedFacts(ctx,manual);
-  const detailFacts = ctx.tracking?.fact_overrides?.length ? baseExpenseFacts(ctx,manual) : facts;
+  const {totals:facts,details:detailFacts} = expenseFactRows(ctx,state.facts?.expense_facts);
   const canOverride = Array.isArray(ctx.tracking?.fact_overrides);
+  const canOverrideItems = ctx.tracking?.fact_items_supported;
   const plan = planByMonth(ctx, month);
   const tolerance = Number(ctx.cfg.get('fact_tolerance_pct')) || 0;
 
@@ -58,12 +57,12 @@ export function render(ctx) {
   const planTotal = [...plan.values()].reduce((s, n) => s + n, 0);
   const factTotal = facts.filter(f => f.ym === month).reduce((s, f) => s + (Number(f.amount) || 0), 0);
   for (const c of cats) {
-    const hasFact = manualCategoryFact(ctx,month,c.id) || journalEnabled && facts.some(f => f.ym === month && f.category_id === c.id);
+    const hasFact = manualCategoryFact(ctx,month,c.id) || (journalEnabled || canOverrideItems) && facts.some(f => f.ym === month && f.category_id === c.id);
     if (!inSeasonMonth(month, c.season_from, c.season_to) && !hasFact) continue;
     const percent = c.mode === 'percent_income';
     const allItems = items.filter(i => i.category_id === c.id);
     if (!percent && !allItems.length && !expenseAppliesInMonth(c, month, 'monthly_amount') && !hasFact) continue;
-    const own = allItems.filter(i => journalEnabled && factOf(c.id,i.id)
+    const own = allItems.filter(i => (journalEnabled || canOverrideItems) && factOf(c.id,i.id)
       || (percent ? inSeasonMonth(month, i.season_from, i.season_to) : expenseAppliesInMonth(i, month)));
     if (allItems.length && !own.length && !hasFact) continue;
     const catPlan = plan.get(c.id) ?? 0;
@@ -91,7 +90,8 @@ export function render(ctx) {
       rows.push(`<tr class="fact-item">
         <td>${esc(i.title)}</td>
         <td class="num muted">${esc(fmt.money(itemPlan))}</td>
-        <td class="num">${journalEnabled ? esc(fmt.money(factOf(c.id,i.id)?.amount ?? 0)) : input({
+        <td class="num">${canOverrideItems ? categoryFactCell(ctx,month,c,factOf(c.id,i.id)?.amount ?? 0,i)
+          : journalEnabled ? esc(fmt.money(factOf(c.id,i.id)?.amount ?? 0)) : input({
           edit: 'facts|expense_facts|amount', key: { ym: month, category_id: c.id, item_key: i.id },
           defaults: { category_title: c.title, item_title: i.title },
           value: factOf(c.id, i.id)?.amount ?? '', type: 'money', removeWhen: '0', disabled: !editFact, cls: factOf(c.id,i.id) ? 'own' : '', style: 'max-width:130px;text-align:right;' })}</td>
@@ -99,10 +99,10 @@ export function render(ctx) {
       </tr>`);
     }
     // Старый факт категории и факты отсутствующих подкатегорий остаются доступны.
-    if (percent) for (const f of detailFacts.filter(f => f.ym === month && f.category_id === c.id
+    if (percent || canOverrideItems) for (const f of detailFacts.filter(f => f.ym === month && f.category_id === c.id
       && (f.item_key ? !allItems.some(i => i.id === f.item_key) : own.length > 0))) {
       rows.push(`<tr class="fact-item">
-        <td>${esc(f.item_key ? f.item_title || f.item_key : 'Без подкатегории')} <span class="small-note">${f.item_key ? 'ранее внесено по статье' : 'ранее внесено по категории'}</span></td>
+        <td>${esc(f.item_key ? f.item_title || f.item_key : 'Без подкатегории')}${f.item_key || !canOverrideItems ? ` <span class="small-note">${f.item_key ? 'ранее внесено по статье' : 'ранее внесено по категории'}</span>` : ''}</td>
         <td class="num muted">—</td><td class="num">${journalEnabled ? esc(fmt.money(f.amount)) : input({
           edit: 'facts|expense_facts|amount', key: { ym: month, category_id: c.id, item_key: f.item_key ?? '' },
           value: f.amount, type: 'money', removeWhen: '0', disabled: !editFact, cls: 'own', style: 'max-width:130px;text-align:right;',

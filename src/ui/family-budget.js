@@ -4,7 +4,7 @@ import { familyBudget, familyYearBudget } from '../engine/family.js';
 import { inSeason, inSeasonMonth } from '../engine/expenses.js';
 import { expenseAmountOn } from '../engine/expense-seasons.js';
 import { amountSeasons, amountSeasonHandle, amountSeasonChange } from './expense-seasons.js';
-import { baseExpenseFacts, categoryFactCell, expenseFactActions, expenseTrackingPanel, trackedFacts } from './expense-tracking.js';
+import { categoryFactCell, expenseFactActions, expenseFactRows, expenseTrackingPanel, trackedFacts } from './expense-tracking.js';
 
 const activeCategories = ctx => ctx.state.family.categories.filter(c => !c.archived);
 const yearMonth = ctx => `${ctx.year}-${ctx.today.slice(5,7)}`;
@@ -143,8 +143,8 @@ export function familyFacts(ctx) {
   for(const t of b.targets??[])plans.set(t.category_id,Math.max(plans.get(t.category_id)||0,Number(t.target)));
   const journal = ctx.tracking?.enabled;
   const canOverride = Array.isArray(ctx.tracking?.fact_overrides);
-  const projected = trackedFacts(ctx, f.expense_facts, true);
-  const details = ctx.tracking?.fact_overrides?.length ? baseExpenseFacts(ctx,f.expense_facts,true) : projected;
+  const canOverrideItems = ctx.tracking?.fact_items_supported;
+  const {totals:projected,details} = expenseFactRows(ctx,f.expense_facts,true);
   const fact=(id,rows=projected)=>rows.find(r=>r.category_id===id&&r.month===month)?.amount;
   const actual=journal || canOverride ? projected.filter(r=>r.month===month).reduce((sum,r)=>sum+Number(r.amount),0) : b.actual;
   const monthTabs=`<div class="month-tabs">${Array.from({length:12},(_,i)=>`${ctx.year}-${String(i+1).padStart(2,'0')}`).map(m=>`<button class="${m===month?'active':''}" data-family-budget-action="fact-month" data-id="${m}">${esc(ctx.fmt.month(m,{withYear:false}))}</button>`).join('')}</div>`;
@@ -152,11 +152,12 @@ export function familyFacts(ctx) {
   for(const c of f.categories)if(visible.has(c.id)&&c.parent_id)visible.add(c.parent_id);
   const categories=f.categories.filter(c=>!c.archived||visible.has(c.id));
   const rows=[];
-  const leaf=(c,label=c.title,direct=false)=>{
-    const value=fact(c.id,c.parent_id||direct?details:projected);
-    const cell=canOverride&&!c.parent_id&&!direct ? categoryFactCell(ctx,month,c,value??0)
+  const leaf=(c,parent=null,direct=false)=>{
+    const value=fact(c.id,parent||direct?details:projected);
+    const cell=canOverrideItems&&parent ? categoryFactCell(ctx,month,parent,value??0,c)
+      : canOverride&&!parent&&!direct ? categoryFactCell(ctx,month,c,value??0)
       : journal ? money(value??0) : control(c,'fact',value,{disabled:!ctx.canEdit,label:`Факт за ${month}`});
-    return `<tr${c.parent_id||direct?' class="fact-item"':''}><td>${esc(label)}</td><td class="num muted">${money(plans.get(c.id)||0)}</td>
+    return `<tr${parent||direct?' class="fact-item"':''}><td>${esc(direct?'Без подкатегории':c.title)}</td><td class="num muted">${money(plans.get(c.id)||0)}</td>
       <td class="num">${cell}</td><td class="num">${value==null?'':money(Number(value)-(plans.get(c.id)||0))}</td></tr>`;
   };
   for(const c of categories.filter(c=>!c.parent_id)){
@@ -165,8 +166,8 @@ export function familyFacts(ctx) {
     if(!items.length)rows.push(leaf(c));else{
       const group=[c,...items],plan=group.reduce((s,i)=>s+(plans.get(i.id)||0),0),actual=group.reduce((s,i)=>s+Number(fact(i.id)||0),0);
       rows.push(`<tr><td><b>${esc(c.title)}</b></td><td class="num">${money(plan)}</td><td class="num">${canOverride?categoryFactCell(ctx,month,c,actual):money(actual)}</td><td class="num">${money(actual-plan)}</td></tr>`);
-      if((plans.get(c.id)||0)>0||fact(c.id,details)!=null)rows.push(leaf(c,'Без подкатегории',true));
-      rows.push(...items.map(i=>leaf(i)));
+      if((plans.get(c.id)||0)>0||fact(c.id,details)!=null)rows.push(leaf(c,null,true));
+      rows.push(...items.map(i=>leaf(i,c)));
     }
   }
   return `${monthTabs}${expenseTrackingPanel(ctx,month)}${card({title:`Факт за ${ctx.fmt.month(month)}`,actions:expenseFactActions(ctx),body:table({head:['Категория / подкатегория','План','Факт','Отклонение'],rows:rows.length?rows:['<tr><td colspan="4" class="muted">Категорий нет.</td></tr>'],
