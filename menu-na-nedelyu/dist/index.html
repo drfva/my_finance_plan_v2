@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Меню на неделю на одного человека с КБЖУ, тремя готовками и списком покупок до 5000 рублей.">
+<meta name="theme-color" content="#183b32">
+<title>Меню на неделю · 7 дней, 3 готовки</title>
+<style>
+:root{--paper:#f7f5ec;--card:#fffdf7;--ink:#17372e;--soft:#52675c;--line:#dedfd2;--forest:#183b32;--lime:#dff078;--moss:#e8edda;--ochre:#a1472f;--white:#fffdf2;--radius:22px;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--paper);line-height:1.45}
+*{box-sizing:border-box}
+body{margin:0}
+button,input{font:inherit;color:inherit}
+button,a,input{touch-action:manipulation}
+a{color:inherit;text-underline-offset:4px}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #b55232;outline-offset:4px}
+[hidden]{display:none!important}
+.wrap{width:min(1200px,calc(100% - 64px));margin-inline:auto}
+.top{border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;justify-content:space-between;align-items:center;gap:18px;min-height:69px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;text-decoration:none}
+.logo-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--lime)}
+.logo svg{width:22px}
+nav{display:flex;gap:25px;color:var(--soft);font-size:.9rem;font-weight:650}
+nav a{text-decoration:none}
+nav a:hover{text-decoration:underline}
+main{padding:28px 0 52px}
+.hero{display:grid;grid-template-columns:1.38fr .78fr;gap:16px}
+.cover,.budget{min-width:0;border-radius:26px;padding:clamp(24px,4vw,46px);position:relative;overflow:hidden}
+.cover{background:var(--forest);color:var(--white);isolation:isolate}
+.cover svg.art{position:absolute;z-index:-1;right:-36px;bottom:-63px;width:clamp(170px,35%,380px);height:auto;color:#cde477;opacity:.42}
+.eyebrow{font-weight:800;letter-spacing:.13em;font-size:.71rem;text-transform:uppercase;margin:0 0 10px}
+.cover .eyebrow{color:var(--lime)}
+h1,h2,h3,p{margin-top:0}
+h1,h2{font-family:Georgia,"Times New Roman",serif;letter-spacing:-.045em}
+h1{font-size:clamp(2.8rem,5.5vw,5rem);line-height:.99;margin:17px 0 16px}
+h2{font-size:clamp(2rem,4vw,3.2rem);line-height:1.02;margin:0}
+h3{line-height:1.22}
+.cover p:last-child{margin:0;color:#e4eadc;max-width:400px}
+.budget{background:var(--lime);display:flex;flex-direction:column;justify-content:center}
+.price{font-size:clamp(2.35rem,4.4vw,4.15rem);font-weight:800;line-height:1;letter-spacing:-.07em;font-variant-numeric:tabular-nums;white-space:nowrap;margin:4px 0 7px}
+.budget small{color:#3b4c28;font-size:.89rem}
+.meter{background:#becd67;border-radius:10px;height:6px;overflow:hidden;margin:20px 0 10px}
+.meter i{display:block;background:var(--forest);height:100%;border-radius:10px}
+.meter i.over{background:var(--ochre)}
+.budget a{font-weight:750;margin-top:11px;align-self:flex-start;font-size:.9rem}
+section{scroll-margin-top:16px}
+.section{margin-top:44px}
+.section-head{display:flex;gap:16px;justify-content:space-between;align-items:flex-end;margin-bottom:17px;flex-wrap:wrap}
+.section-head .eyebrow{color:var(--ochre);margin-bottom:7px}
+.section-head p:last-child{margin:5px 0 0;color:var(--soft)}
+button.pill{border:1px solid #a8b3a4;background:var(--card);border-radius:999px;padding:9px 15px;font-weight:700;font-size:.87rem}
+button.pill:hover{background:var(--moss)}
+.days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.day{border:1px solid var(--line);background:var(--card);text-align:left;border-radius:13px;padding:10px 12px;min-width:0;font-weight:750}
+.day span{display:block;font-size:.69rem;color:var(--soft);font-weight:600}
+.day[aria-pressed=true]{background:var(--forest);border-color:var(--forest);color:var(--white)}
+.day[aria-pressed=true] span{color:#dce8bb}
+.day:hover:not([aria-pressed=true]){background:var(--moss)}
+.day-title{margin:0;font-size:clamp(1.2rem,3vw,1.6rem);letter-spacing:-.035em}
+.day-caption{margin:4px 0 0;color:var(--soft);font-size:.85rem}
+.day-summary{display:grid;grid-template-columns:1fr 1.65fr;gap:14px;align-items:center;padding:16px 18px;border:1px solid var(--line);border-radius:17px;background:var(--moss);margin-bottom:12px}
+.macros{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;gap:4px}
+.macros strong{display:block;font-size:clamp(1.08rem,2.6vw,1.55rem);letter-spacing:-.035em;line-height:1.2}
+.macros span{color:var(--soft);font-size:.72rem}
+.macros div+div{border-left:1px solid #cfd7c0}
+.meals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}
+.meal{border:1px solid var(--line);border-radius:17px;background:var(--card);min-width:0;overflow:hidden}
+.meal summary{cursor:pointer;list-style:none;padding:16px;position:relative}
+.meal summary::-webkit-details-marker{display:none}
+.meal summary::after{content:"+";position:absolute;right:14px;top:12px;font-size:1.25rem;color:var(--soft)}
+.meal[open] summary::after{content:"−"}
+.meal summary:hover{background:#f1f2e7}
+.meal-label{display:block;color:var(--soft);font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding-right:18px}
+.meal-name{display:block;font-size:1.1rem;font-weight:760;line-height:1.22;margin:8px 0;min-height:2.44em}
+.meal-stat{display:block;font-size:.81rem;color:var(--soft)}
+.extras{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.extras .meal{background:#f4eadc}
+.extras .meal-name{min-height:0}
+.recipe{border-top:1px solid var(--line);padding:13px 16px 16px;font-size:.87rem}
+.recipe table{border-collapse:collapse;width:100%;margin-bottom:10px}
+.recipe th,.recipe td{padding:4px 3px;text-align:left;vertical-align:top}
+.recipe thead th{font-size:.72rem;color:var(--soft);border-bottom:1px solid var(--line)}
+.recipe th:first-child{width:56%}
+.recipe th:not(:first-child),.recipe td:not(:first-child){text-align:right;white-space:nowrap}
+.recipe p:last-child{margin-bottom:0}
+.week-overview{overflow:auto;margin-top:14px}
+.week-overview table{width:100%;min-width:650px;border-collapse:collapse;font-size:.85rem;background:var(--card)}
+.week-overview caption{text-align:left;font-weight:700;padding:0 0 8px}
+.week-overview th,.week-overview td{text-align:left;vertical-align:top;padding:9px 10px;border-bottom:1px solid var(--line)}
+.cook-grid,.stores{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}
+.cook{padding:18px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+.badge{display:inline-block;background:var(--moss);padding:4px 8px;border-radius:6px;font-size:.72rem;font-weight:800;margin-bottom:8px}
+.cook h3{margin-bottom:8px}
+.cook p,.cook ul{font-size:.88rem}
+.cook ul{margin:0;padding-left:1.2em}
+.cook li+li{margin-top:4px}
+.tip{border-left:3px solid #9cad57;padding:10px 12px;background:var(--moss);border-radius:0 10px 10px 0;color:#3d5245;margin:12px 0 0;font-size:.88rem}
+.store{border:1px solid var(--line);background:var(--card);border-radius:var(--radius);overflow:hidden}
+.store-head{background:var(--forest);color:var(--white);padding:14px 15px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.store-head h3{margin:0;font-size:1.13rem}
+.store-head a:hover{color:var(--lime)}
+.shop-list{margin:0;padding:0 13px;list-style:none}
+.shop-item{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px;padding:8px 0;min-height:53px}
+.shop-item+.shop-item{border-top:1px solid var(--line)}
+.shop-item label{display:flex;align-items:center;gap:7px;font-size:.85rem;font-weight:650;cursor:pointer}
+.shop-item input[type=checkbox]{width:17px;height:17px;accent-color:var(--forest);margin:0;flex:none;cursor:pointer}
+.shop-item small{display:block;color:var(--soft);font-weight:400;font-size:.72rem}
+.shop-item label:has(:checked) .product{text-decoration:line-through;color:var(--soft)}
+.shop-item .source{font-size:.72rem;font-weight:500}
+.amount{display:flex;align-items:center;gap:3px;font-size:.8rem;color:var(--soft);white-space:nowrap}
+.amount input{width:3.7rem;padding:5px 3px;border:1px solid #bbc5b5;border-radius:5px;background:var(--paper);text-align:right;appearance:textfield}
+.amount input::-webkit-inner-spin-button{appearance:none}
+.shop-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:13px}
+#shop-status{margin-right:auto;font-size:.87rem;font-weight:700}
+.info{color:var(--soft);font-size:.83rem}
+.info summary{cursor:pointer;font-weight:750;color:var(--ink)}
+.info details{border-top:1px solid var(--line);padding:12px 0}
+.info p{margin:8px 0 0}
+footer{border-top:1px solid var(--line);padding:18px 0 24px;font-size:.8rem;color:var(--soft)}
+@media(max-width:850px){.stores{grid-template-columns:1fr 1fr}.store:last-child{grid-column:1/-1}.store:last-child .shop-list{display:grid;grid-template-columns:1fr 1fr;column-gap:22px}.store:last-child .shop-item:nth-child(2){border-top:none}}
+@media(max-width:660px){.wrap{width:calc(100% - 30px)}.hero,.day-summary,.meals,.cook-grid,.stores{grid-template-columns:1fr}.store:last-child .shop-list{display:block}.store:last-child .shop-item:nth-child(2){border-top:1px solid var(--line)}.section{margin-top:32px}.day{padding:8px 0;text-align:center}.day span{font-size:.58rem}.days{gap:4px}.meal-name{min-height:0}.day-summary{gap:11px}.macros{text-align:left}.macros div+div{padding-left:6px}.cover svg.art{right:-28px;bottom:-57px}.budget{padding:23px}.top .wrap{min-height:58px}nav{gap:11px;font-size:.8rem}.logo{font-size:.85rem;gap:5px}.logo-mark{width:27px;height:27px}.logo svg{width:19px}}
+@media(max-width:365px){nav{gap:7px;font-size:.72rem}.extras{grid-template-columns:1fr}.day span{letter-spacing:-.035em}}
+@media print{body{background:white}.top,footer,.hero,#menu,#cook,#method,.shop-toolbar,.shop-item .source,.no-print{display:none!important}.wrap{width:100%}main{padding:0}#shop{margin:0}.stores{display:block}.store{margin-bottom:10px}.store-head{background:white;color:#111}.shop-item{break-inside:avoid;min-height:0;padding:4px 0}.store:last-child .shop-list{display:block}.amount input{border:none;background:white}}
+</style>
+</head>
+<body>
+<header class="top" id="top"><div class="wrap">
+<a class="logo" href="#top"><span class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 11h16a8 8 0 0 1-16 0Zm4-3c-2-2 2-3 0-5m4 5c-2-2 2-3 0-5m4 5c-2-2 2-3 0-5"/></svg></span> Меню на неделю</a>
+<nav aria-label="Разделы"><a href="#menu">Меню</a><a href="#cook">Готовка</a><a href="#shop">Покупки</a></nav>
+</div></header>
+<main class="wrap">
+<div class="hero">
+<div class="cover">
+<svg class="art" viewBox="0 0 300 280" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+<circle cx="170" cy="158" r="108"/><circle cx="170" cy="158" r="94"/><circle cx="170" cy="158" r="74"/>
+<path d="M104 192c44-3 74-39 106-90m-57 62c-5-21 4-39 21-48 6 19-2 37-21 48Zm20-23c18 1 35-7 44-21-20-4-37 5-44 21Zm-41 42c-11-12-13-31-6-45 14 11 17 31 6 45Zm16-14c20 8 38 1 49-13-17-9-38-4-49 13Z"/>
+<path d="M53 109c-9-14-16-38-14-58m-9 48c-8-14-11-33-10-49m0 0 23-9 17 58-9 6 15 49m165-104 13-35m9 43 21-19m-40 20 22-43"/>
+<circle cx="219" cy="190" r="11"/><circle cx="211" cy="209" r="5"/><circle cx="120" cy="115" r="10"/>
+</svg>
+<p class="eyebrow">На одного человека · 3 готовки</p>
+<h1>Меню<br>на неделю</h1>
+<p>Завтрак, обед и ужин на каждый день. Утром кофе с молоком, на десерт — около 300 ккал.</p>
+</div>
+<aside class="budget" aria-label="Бюджет недели">
+<p class="eyebrow">Корзина на 7 дней</p>
+<div class="price" id="budget-total"></div><small>из 5 000 ₽ · за полные упаковки</small>
+<div class="meter" aria-hidden="true"><i id="budget-bar"></i></div>
+<small id="budget-left" aria-live="polite"></small>
+<a href="#shop">Открыть список покупок ↓</a>
+</aside>
+</div>
+<noscript><p class="tip">Включите JavaScript, чтобы открыть меню и список покупок.</p></noscript>
+<section id="menu" class="section">
+<div class="section-head"><div><p class="eyebrow">01 / Рацион</p><h2>Что едим</h2><p id="week-avg"></p></div>
+<button class="pill" id="show-week" type="button" aria-expanded="false" aria-controls="week-overview">Показать всю неделю</button></div>
+<div class="days" id="days" role="group" aria-label="Выбрать день"></div>
+<div id="daily" aria-live="polite"></div>
+<div id="week-overview" class="week-overview" hidden></div>
+</section>
+<section id="cook" class="section">
+<div class="section-head"><div><p class="eyebrow">02 / Заготовки</p><h2>Готовим трижды</h2><p>В рецептах есть граммовки на тарелку и на всю партию.</p></div></div>
+<div class="cook-grid" id="cook-grid"></div>
+<p class="tip">Если закупаетесь один раз, заморозьте сырое мясо для четверга и субботы отдельными порциями и переложите в холодильник накануне готовки. Разложите готовую еду по неглубоким контейнерам и уберите в холодильник (до +4 °C) в течение 2 часов. Если переносите порцию на более поздний день, заморозьте её после быстрого охлаждения. Разогревайте нужную порцию до +74 °C. <a href="https://www.foodsafety.gov/food-safety-charts/cold-food-storage-charts">Сроки хранения</a></p>
+</section>
+<section id="shop" class="section">
+<div class="section-head"><div><p class="eyebrow">03 / Корзина</p><h2>Список покупок</h2><p id="print-total"></p></div></div>
+<p class="info no-print">В строке — сколько купить и сколько уйдёт в блюда. Можно вписать местную цену за всю строку и отмечать купленное или то, что уже есть дома. Изменения сохраняются в этом браузере.</p>
+<div class="shop-toolbar"><span id="shop-status" aria-live="polite"></span><button id="clear-checks" class="pill" type="button">Снять отметки</button><button id="print" class="pill" type="button">Распечатать</button></div>
+<div class="stores" id="stores"></div>
+</section>
+<section id="method" class="section info" aria-label="Расчёты и источники">
+<details><summary>Как посчитаны КБЖУ</summary>
+<p>Ориентир на день — 1 620 ккал, 105 г белка, 55 г жиров и 175 г углеводов. Эти граммы дают примерно 1 615 ккал по формуле 4–9–4. В меню калории и БЖУ суммируются по продуктам отдельно. Итоги округлены, а значения зависят от этикетки.</p>
+<p>В рецептах указан сырой съедобный вес. Крупы и макароны взвешивайте сухими, рыбу — без глазури после разморозки, фрукты — без кожуры банана и сердцевины яблока, яйцо — без скорлупы. Для молока 1 мл принят за 1 г. В расчёте кофе — 7 г молотого кофе на чашку, 60 мл молока 2,5% и чайная ложка сахара без горки (5 г).</p>
+<p>Справочные значения и данные с этикеток. <a href="https://fdc.nal.usda.gov/">FoodData Central</a> · <a href="https://chizhik.club/product/tvorog-svetaevo-rassypchatyy-5-bzmzh-300g--4267723/">Творог</a> · <a href="https://chizhik.club/product/file-verner-kurinoe-bolshoe-okhlazhdennoe--4298488/">Курица</a> · <a href="https://kuper.ru/auchan/grudki-indeyki-file-indilayt-ohlazhdennye-500-g">Индейка</a></p>
+</details>
+<details><summary>Как посчитаны цены</summary>
+<p>Ориентиры по открытым каталогам, просмотренным 7 ноября 2026 года, и оценки для остальных позиций. В ссылках могут быть цены для разных регионов. Фасовка и наличие зависят от магазина. В сумму входят полные упаковки, включая кофе, соль, сахар и масло, без доставки. Для некоторых весовых продуктов есть запас на очистку, для рыбы — на глазурь.</p>
+<p>Каталоги и примеры цен. <a href="https://chizhik.club/catalog/">Чижик</a> · <a href="https://kuper.ru/auchan">Ашан в Купере</a> · <a href="https://magnit.ru/">Магнит</a></p>
+</details>
+</section>
+</main>
+<footer><div class="wrap">7 дней · 21 приём пищи · без острого, баклажанов и кабачков</div></footer>
+<script>
+
+// Values per 100 g, in the order kcal, protein, fat, carbohydrates.
+const nutrients = {"oat":[370,13,7,62],
+  "curd":[120,16,5,3],
+  "banana":[89,1.1,0.3,23],
+  "milk":[52,3,2.5,4.7],
+  "sugar":[400,0,0,100],
+  "coffee":[28.57,0,0,0],
+  "chicken":[115.6,22.6,2.8,0],
+  "buck":[343,13.3,3.4,68],
+  "carrot":[41,0.9,0.2,8],
+  "oil":[900,0,100,0],
+  "fish":[75,16,1,0],
+  "potato":[77,2,0.1,17],
+  "broc":[34,2.8,0.4,5],
+  "yog":[67,5,3,5],
+  "egg":[143,12.6,9.5,0.7],
+  "apple":[52,0.3,0.2,13],
+  "pasta":[350,12,1.5,72],
+  "turkey":[100,20,2.5,0],
+  "tomato":[30,1.4,0.2,5],
+  "cabbage":[25,1.3,0.1,5],
+  "bread":[245,8,3,47],
+  "cheese":[350,25,27,1],
+  "cuc":[15,0.7,0.1,3],
+  "peas":[78,5.2,0.4,13],
+  "ice":[222,2,14,21],
+  "choc":[520,5.2,27,61],
+  "cookie":[460,8.1,17,67],
+  "salt":[0,0,0,0]};
+const portions = {"coffee":{"coffee":7,"milk":60,"sugar":5},
+  "a1":{"oat":45,"curd":135,"banana":85,"milk":50},
+  "a2":{"chicken":125,"buck":55,"carrot":100,"oil":9,"salt":0.5},
+  "a3":{"fish":155,"potato":165,"broc":130,"yog":45,"oil":7,"salt":0.5},
+  "a4":{"ice":100,"choc":15},
+  "b1":{"curd":130,"egg":50,"oat":34,"apple":130},
+  "b2":{"turkey":115,"pasta":60,"tomato":100,"oil":12,"salt":0.5},
+  "b3":{"chicken":134,"potato":150,"cabbage":150,"carrot":50,"oil":6,"salt":0.5},
+  "b4":{"choc":17.5,"cookie":45.5},
+  "c1":{"egg":50,"bread":65,"curd":117,"cheese":15,"cuc":100},
+  "c2":{"fish":165,"buck":60,"peas":90,"oil":4,"salt":0.5},
+  "c3":{"turkey":90,"potato":220,"broc":130,"milk":40,"oil":7.5,"salt":0.5},
+  "c4":{"ice":100,"cookie":17}};
+const packs = {"oat":[500,75,1],
+  "curd":[300,109,0],
+  "banana":[450,80,2],
+  "milk":[925,79,0],
+  "sugar":[1000,95,0],
+  "coffee":[100,119,0],
+  "chicken":[1000,480,0],
+  "buck":[800,115,1],
+  "carrot":[500,45,2],
+  "oil":[500,110,1],
+  "fish":[600,350,1],
+  "potato":[1500,145,2],
+  "broc":[400,160,1],
+  "yog":[150,85,0],
+  "egg":[10,105,0],
+  "apple":[400,80,2],
+  "pasta":[400,85,1],
+  "turkey":[500,440,1],
+  "tomato":[250,115,1],
+  "cabbage":[700,70,2],
+  "bread":[300,75,2],
+  "cheese":[150,165,0],
+  "cuc":[300,70,2],
+  "peas":[400,125,1],
+  "ice":[100,90,2],
+  "choc":[80,140,2],
+  "cookie":[112,50,2],
+  "salt":[500,35,1]};
+const names = {
+  oat:'Овсяные хлопья', curd:'Творог «Светаево» 5%', banana:'Бананы', milk:'Молоко 2,5%',
+  sugar:'Сахар', coffee:'Кофе молотый', chicken:'Куриная грудка', buck:'Гречка',
+  carrot:'Морковь', oil:'Подсолнечное масло', fish:'Филе минтая «Каждый день»', potato:'Картофель',
+  broc:'Брокколи замороженная', yog:'Йогурт натуральный 3%', egg:'Яйца', apple:'Яблоки',
+  pasta:'Макароны', turkey:'Филе грудки индейки', tomato:'Протёртые томаты без специй',
+  cabbage:'Белокочанная капуста', bread:'Цельнозерновой хлеб', cheese:'Сыр полутвёрдый',
+  cuc:'Огурцы', peas:'Зелёный горошек замороженный', ice:'Шоколадный пломбир «Коровка из Кореновки»',
+  choc:'Молочный шоколад Alpen Gold', cookie:'Печенье «Юбилейное» молочное', salt:'Соль'
+};
+const sources = {
+  curd:'https://chizhik.club/product/tvorog-svetaevo-rassypchatyy-5-bzmzh-300g--4267723/',
+  milk:'https://chizhik.club/catalog/molochnye-produkty-yaytso--264C39140/',
+  coffee:'https://chizhik.club/catalog/chay-kofe--264C39224/',
+  chicken:'https://chizhik.club/product/file-verner-kurinoe-bolshoe-okhlazhdennoe--4298488/',
+  oat:'https://kuper.ru/auchan/hlop-ya-kazhdyy-den-gerkules-ovsyanye-500-g',
+  fish:'https://kuper.ru/auchan/mintay-kazhdyy-den-zamorozhennyy-file-bez-kozhi-600-g-c760220',
+  turkey:'https://kuper.ru/auchan/grudki-indeyki-file-indilayt-ohlazhdennye-500-g',
+  ice:'https://magnit.ru/product/1000045560-morozhenoe_korovka_iz_korenovki_plombir_shokoladnyy_v_stakanchike_100g?catalogType=1&shopCode=770282&shopType=1',
+  choc:'https://magnit.ru/product/1000070202-shokolad_alpen_gold_molochnyy_85g?shopCode=543817&shopType=9',
+  cookie:'https://magnit.ru/product/1000147822-pechene_yubileynoe_molochnoe_112g?shopCode=760147&shopType=1'
+};
+const recipes = {
+  a1:['Овсянка с творогом и бананом','Сварите хлопья на молоке с водой по инструкции на упаковке. Разложите кашу по контейнерам. Творог и свежий нарезанный банан добавляйте при подаче.'],
+  a2:['Куриная грудка с гречкой и морковью','Сварите гречку. Нарежьте курицу и морковь, перемешайте с маслом и солью. Запекайте при 200 °C около 20–25 минут, до +74 °C в центре курицы.'],
+  a3:['Минтай с картофелем и брокколи','Нарезанный картофель перемешайте с частью масла и запекайте 20 минут при 200 °C. Добавьте брокколи и минтай с оставшимся маслом и солью. Готовьте ещё 15–20 минут, до +63 °C в центре рыбы. Йогурт подавайте отдельно.'],
+  a4:['Шоколадный пломбир и молочный шоколад','Один стаканчик пломбира и 15 г шоколада.'],
+  b1:['Творожная запеканка с яблоком','Смешайте творог, яйца, хлопья и мелко нарезанные яблоки. Дайте хлопьям набухнуть 10 минут. Выпекайте в небольшой форме при 180 °C около 30–35 минут, пока середина не схватится (от +71 °C). Разделите пополам.'],
+  b2:['Паста с индейкой в томатном соусе','Отварите макароны. Кубики индейки обжарьте в масле, добавьте томаты и соль и тушите до +74 °C в центре кусочков. Смешайте с пастой.'],
+  b3:['Рагу из курицы, картофеля и капусты','Потушите нарезанную курицу и морковь с маслом. Добавьте картофель, капусту, соль и немного воды. Накройте и тушите до мягкости картофеля и +74 °C в центре курицы.'],
+  b4:['Молочное печенье и шоколад','Отвесьте печенье и шоколад по граммовке.'],
+  c1:['Хлеб с яйцом, сыром и огурцом','В субботу сварите яйца вкрутую сразу на два дня. При подаче выложите яйцо и сыр на хлеб. Творог и нарезанный огурец подайте рядом.'],
+  c2:['Минтай с гречкой и зелёным горошком','Сварите гречку и отдельно горошек по инструкции на пачке. Запеките минтай с маслом и солью при 190 °C около 15–20 минут, до +63 °C в центре рыбы.'],
+  c3:['Запечённая индейка с пюре и брокколи','Запеките полоски индейки с маслом и солью при 200 °C до +74 °C в центре. Картофель отварите и разомните с подогретым молоком. Брокколи отварите или приготовьте на пару.'],
+  c4:['Шоколадный пломбир с печеньем','Один стаканчик пломбира и 17 г молочного печенья.'],
+  coffee:['Кофе с молоком и сахаром','Заварите молотый кофе, добавьте 60 мл молока и одну чайную ложку сахара без горки.']
+};
+const batches = [
+  {days:['Понедельник','Вторник','Среда'], meals:['a1','a2','a3','a4'], note:'Поставьте в духовку курицу и картофель на отдельных противнях. На плите сварите овсянку и гречку. Минтай и брокколи добавьте к картофелю ближе к концу.'},
+  {days:['Четверг','Пятница'], meals:['b1','b2','b3','b4'], note:'Пока печётся запеканка, сварите пасту и приготовьте индейку в томатах и куриное рагу.'},
+  {days:['Суббота','Воскресенье'], meals:['c1','c2','c3','c4'], note:'Сварите яйца, гречку и картофель. Запекайте минтай и индейку в отдельных формах. Огурец нарежьте перед подачей.'}
+];
+const week = batches.flatMap((batch, index) => batch.days.map((name, offset) => ({name, batch, index, cook:offset === 0})));
+const labels = ['Завтрак','Обед','Ужин','Десерт','Утренний кофе'];
+const stores = [
+  ['Чижик','https://chizhik.club/catalog/'],
+  ['Ашан','https://kuper.ru/auchan'],
+  ['Магнит','https://magnit.ru/']
+];
+const number = new Intl.NumberFormat('ru-RU',{maximumFractionDigits:1});
+const whole = new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0});
+const rubles = value => new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:2,minimumFractionDigits:0}).format(value);
+const $ = id => document.getElementById(id);
+const unit = id => id === 'milk' ? 'мл' : 'г';
+const weight = (id, amount) => id === 'egg' && amount % 50 === 0
+  ? `${number.format(amount / 50)} шт. (${number.format(amount)} г)`
+  : `${number.format(amount)} ${unit(id)}`;
+const recipeStats = Object.fromEntries(Object.entries(portions).map(([id,items]) => [
+  id, Object.entries(items).reduce((sum,[item,g]) => sum.map((v,i) => v + nutrients[item][i] * g / 100), [0,0,0,0])
+]));
+const dailyStats = week.map(({batch}) => [...batch.meals,'coffee']
+  .reduce((sum,id) => sum.map((v,i) => v + recipeStats[id][i]), [0,0,0,0]));
+const average = dailyStats.reduce((sum,day) => sum.map((v,i) => v + day[i] / week.length),[0,0,0,0]);
+const statsLine = ([k,p,f,c]) => `${whole.format(k)} ккал · Б ${number.format(p)} · Ж ${number.format(f)} · У ${number.format(c)}`;
+$('week-avg').textContent = `В среднем за день · ${statsLine(average)} г`;
+
+function recipeCard(id, label, count) {
+  const [title, instructions] = recipes[id];
+  const rows = Object.entries(portions[id]).map(([ingredient,g]) => `<tr><th scope="row">${names[ingredient]}</th><td>${weight(ingredient,g)}</td>${count > 1 ? `<td>${weight(ingredient,g * count)}</td>` : ''}</tr>`).join('');
+  return `<details class="meal"><summary><span class="meal-label">${label}</span><span class="meal-name">${title}</span><span class="meal-stat">${statsLine(recipeStats[id])}</span></summary>
+  <div class="recipe"><table aria-label="Ингредиенты"><thead><tr><th scope="col">Продукт</th><th scope="col">1 порция</th>${count > 1 ? `<th scope="col">${count} порции</th>` : ''}</tr></thead><tbody>${rows}</tbody></table><p>${instructions}</p></div></details>`;
+}
+function selectDay(index) {
+  const {name, batch, cook} = week[index];
+  for (const [i,button] of [...$('days').children].entries()) button.setAttribute('aria-pressed', i === index);
+  const macros = ['ккал','белки, г','жиры, г','углеводы, г'].map((label,i) => `<div><strong>${(i ? number : whole).format(dailyStats[index][i])}</strong><span>${label}</span></div>`).join('');
+  const meals = batch.meals.slice(0,3).map((id,i) => recipeCard(id,labels[i],batch.days.length)).join('');
+  const extras = recipeCard('coffee',labels[4],1) + recipeCard(batch.meals[3],labels[3],1);
+  $('daily').innerHTML = `<div class="day-summary"><div><h3 class="day-title">${name}</h3><p class="day-caption">${cook ? `День готовки · по ${batch.days.length} порции` : 'Разогреваем и собираем'}</p></div><div class="macros" aria-label="Итого за день, включая кофе и десерт">${macros}</div></div><div class="meals">${meals}</div><div class="extras">${extras}</div>`;
+}
+$('days').innerHTML = week.map(({name,cook},i) => `<button class="day" type="button" data-day="${i}" aria-label="${name}, ${cook ? 'день готовки' : 'день без готовки'}">${['Пн','Вт','Ср','Чт','Пт','Сб','Вс'][i]}<span>${cook ? 'Готовим' : 'Готово'}</span></button>`).join('');
+$('days').addEventListener('click', event => {
+  const button = event.target.closest('button[data-day]');
+  if (button) selectDay(Number(button.dataset.day));
+});
+selectDay(0);
+$('week-overview').innerHTML = `<table><caption>На каждый день также запланирован утренний кофе</caption><thead><tr><th scope="col">День</th>${labels.slice(0,4).map(label => `<th scope="col">${label}</th>`).join('')}<th scope="col">ккал</th></tr></thead><tbody>${week.map(({name,batch},i) => `<tr><th scope="row">${name}</th>${batch.meals.map(id => `<td>${recipes[id][0]}</td>`).join('')}<td>${whole.format(dailyStats[i][0])}</td></tr>`).join('')}</tbody></table>`;
+$('show-week').addEventListener('click', () => {
+  const overview = $('week-overview');
+  overview.hidden = !overview.hidden;
+  $('show-week').setAttribute('aria-expanded', !overview.hidden);
+  $('show-week').textContent = overview.hidden ? 'Показать всю неделю' : 'Свернуть таблицу';
+});
+$('cook-grid').innerHTML = batches.map(({days,meals,note}) => `<article class="cook"><span class="badge">${days.length} порции каждого блюда</span><h3>${days[0]}</h3><p>${note}</p><ul>${meals.slice(0,3).map(id => `<li>${recipes[id][0]}</li>`).join('')}</ul></article>`).join('');
+
+const used = {};
+for (const {batch} of week) {
+  for (const id of [...batch.meals,'coffee']) {
+    for (const [item,g] of Object.entries(portions[id])) used[item] = (used[item] || 0) + g;
+  }
+}
+const yieldAllowance = {banana:1.55,apple:1.15,potato:1.15,fish:1.12,carrot:1.15,cabbage:1.15,cuc:1.05};
+const shopItems = Object.entries(packs).map(([id,[size,price,store]]) => {
+  const demand = id === 'egg' ? used[id] / 50 : used[id] * (yieldAllowance[id] || 1);
+  const count = Math.ceil(demand / size);
+  const packLabel = id === 'egg' ? `${size} шт.` : size >= 1000 && id !== 'milk' ? `${number.format(size / 1000)} кг` : `${size} ${unit(id)}`;
+  return {id,store,count,packLabel,total:count * price};
+});
+const storageKey = 'weekly-menu-5000-v1';
+let saved = {};
+try { saved = JSON.parse(localStorage.getItem(storageKey)) || {}; } catch {}
+const checks = new Set(Array.isArray(saved.checks) ? saved.checks : []);
+const prices = saved.prices && typeof saved.prices === 'object' ? saved.prices : {};
+function saveShop() {
+  try { localStorage.setItem(storageKey,JSON.stringify({checks:[...checks],prices})); } catch {}
+}
+const amountFor = item => Number.isFinite(prices[item.id]) && prices[item.id] >= 0 ? prices[item.id] : item.total;
+$('stores').innerHTML = stores.map(([name,url],index) => `<article class="store"><header class="store-head"><h3><a href="${url}">${name}</a></h3><strong id="store-total-${index}"></strong></header><ul class="shop-list">${shopItems.filter(item => item.store === index).map(item => {
+  const {id,count,packLabel} = item;
+  return `<li class="shop-item"><div><label><input type="checkbox" data-check="${id}" ${checks.has(id) ? 'checked' : ''}><span><span class="product">${names[id]}</span><small>${count} × ${packLabel} · нужно ${weight(id,used[id])}</small></span></label>
+  ${sources[id] ? `<a class="source" href="${sources[id]}" aria-label="Каталог: ${names[id]}">Каталог</a>` : ''}</div><span class="amount"><input type="number" min="0" step="0.01" inputmode="decimal" data-price="${id}" aria-label="Цена за всю строку: ${names[id]}" value="${amountFor(item)}"> ₽</span></li>`;
+}).join('')}</ul></article>`).join('');
+
+function renderBudget() {
+  const full = shopItems.reduce((sum,item) => sum + amountFor(item),0);
+  const pending = shopItems.filter(item => !checks.has(item.id));
+  const remaining = pending.reduce((sum,item) => sum + amountFor(item),0);
+  for (const [index] of stores.entries()) {
+    $('store-total-' + index).textContent = rubles(shopItems.filter(item => item.store === index).reduce((sum,item) => sum + amountFor(item),0));
+  }
+  $('budget-total').textContent = rubles(full);
+  $('budget-left').textContent = full > 5000 ? `Выше лимита на ${rubles(full - 5000)}` : `Запас ${rubles(5000 - full)}`;
+  $('budget-bar').style.width = `${Math.min(full / 50,100)}%`;
+  $('budget-bar').classList.toggle('over',full > 5000);
+  $('shop-status').textContent = `Осталось ${pending.length} из ${shopItems.length} поз. · ${rubles(remaining)}`;
+  $('print-total').textContent = `Вся корзина ${rubles(full)} · лимит ${rubles(5000)}`;
+}
+$('stores').addEventListener('change',event => {
+  const input = event.target;
+  if (input.dataset.check) {
+    if (input.checked) checks.add(input.dataset.check);
+    else checks.delete(input.dataset.check);
+  } else if (input.dataset.price) {
+    const item = shopItems.find(({id}) => id === input.dataset.price);
+    if (input.value === '') delete prices[item.id];
+    else if (input.validity.valid) prices[item.id] = input.valueAsNumber;
+    input.value = amountFor(item);
+  } else return;
+  saveShop();
+  renderBudget();
+});
+$('clear-checks').addEventListener('click',() => {
+  checks.clear();
+  for (const input of $('stores').querySelectorAll('[data-check]')) input.checked = false;
+  saveShop();
+  renderBudget();
+});
+$('print').addEventListener('click',() => window.print());
+renderBudget();
+</script>
+</body>
+</html>

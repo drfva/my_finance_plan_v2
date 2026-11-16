@@ -11,6 +11,7 @@ import { attachEditing } from './edit.js';
 import { freezePeriods, snapshotGoalCompletion } from '../engine/allocation.js';
 import { classifyIncomePeriods } from '../engine/income.js';
 import { createPlanCache } from './plan-cache.js';
+import { attachExpenseTracking, createExpenseTracking, syncExpenseTrackingDialog } from './expense-tracking.js';
 import { createFxUpdater } from '../core/fx-rates.js';
 import { createSecurity } from '../core/security.js';
 import { tourNeeded, tourPanel, tourHandle } from './tour.js';
@@ -100,6 +101,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
   let pendingServerRender = false;
   let lateCache;
   const plan = createPlanCache();
+  const trackingApi = createExpenseTracking(client);
   const fxUpdater = createFxUpdater(store);
   const changeToast=createChangeToast({onChange:entry=>{
     const host=byId('change-toast-host');
@@ -111,11 +113,16 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     const state = store.state;
     const c = store.config();
     const { fmt: f, income, sim, today } = plan(state, c);
+    const tracking = trackingApi.get(state.account?.id);
     const list = planYears(state, today);
     const currentTab = availableTabs({ state }).find(t => t.code === (ui.tab ?? c.get('start_tab')));
-    const yearOptions = currentTab?.yearOptions?.({ state, years: list }) ?? list;
+    const reportYears = ['facts', 'dashboard'].includes(currentTab?.code)
+      ? [...new Set([...list, ...(tracking?.purchases ?? []).map(p => Number(p.occurred_on.slice(0, 4))),
+        ...(tracking?.fact_overrides ?? []).map(f => Number(f.month.slice(0, 4)))])].sort((a,b)=>a-b)
+      : list;
+    const yearOptions = currentTab?.yearOptions?.({ state, years: reportYears }) ?? reportYears;
     if (!yearOptions.includes(ui.year)) ui.year = yearOptions.includes(Number(f.todayISO().slice(0, 4))) ? Number(f.todayISO().slice(0, 4)) : yearOptions[0];
-    return { store, state, cfg: c, fmt: f, income, sim, ui, year: ui.year, years: list, yearOptions,
+    return { store, state, tracking, cfg: c, fmt: f, income, sim, ui, year: ui.year, years: list, yearOptions,
       today: state.account?.plan_kind === 'family' ? familyToday() : f.todayISO(), canEdit: c.canEdit&&!store.historyBusy, security, onSignOut, notice };
   }
 
@@ -223,7 +230,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
           ${themeButton()}
         </div>
       </div>
-      <nav class="tabs">${tabsHtml(ctx, late)}</nav>
+      <div class="topbar-nav"><nav class="tabs" aria-label="Разделы плана">${tabsHtml(ctx, late)}</nav></div>
       </div>
       <main>
         ${ui.notice ? `<div class="info-box row between" style="background:var(--${ui.notice.kind}-soft);color:var(--${ui.notice.kind});">
@@ -236,15 +243,16 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       ${ctx.state.account?.plan_kind !== 'family' && !ui.draft.familyInvite && tourNeeded(ctx) ? tourPanel(ctx) : ''}`;
   }
 
-  function render() {
-    return store.withoutHistory?store.withoutHistory(renderView):renderView();
+  function render({synchronizePlan = true} = {}) {
+    const draw = () => renderView(synchronizePlan);
+    return store.withoutHistory ? store.withoutHistory(draw) : draw();
   }
 
-  function renderView() {
+  function renderView(synchronizePlan) {
     if (syncingSick) return;
-    if (fxUpdater.ensure()) return;
+    if (synchronizePlan && fxUpdater.ensure()) return;
     const ctx = context();
-    if (ctx.state.account?.plan_kind !== 'family') {
+    if (synchronizePlan && ctx.state.account?.plan_kind !== 'family') {
     if (ctx.canEdit && JSON.stringify(ctx.state.income?.periods ?? []) !== JSON.stringify(ctx.income.preparedPeriods)) {
       const next = ctx.income.preparedPeriods;
       const ids = new Set(next.map(p => p.id));
@@ -307,6 +315,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     adaptTables(byId('root'));
     syncMobileNavigation(byId('root'),ui);
     syncGoalDialog(byId('root'),ctx);
+    syncExpenseTrackingDialog(byId('root'), ui);
     syncGoalTimelines(byId('root'),ui);
     const deletion=byId('root').querySelector('.account-delete-dialog');
     (deletion?.querySelector('[data-account-delete-word]')??deletion?.querySelector('select:not(:disabled)')??deletion?.querySelector('button:not(:disabled)'))?.focus({preventScroll:true});
@@ -314,8 +323,6 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     const close = byId('notice-close');
     if (close) close.addEventListener('click', () => { ui.notice = null; render(); });
     renderStatus(store.status());
-    // активная вкладка всегда видна: список вкладок прокручивается по горизонтали
-    document.querySelector('nav.tabs button.active')?.scrollIntoView({ inline: 'center', block: 'nearest' });
     scrollToPending(byId('root'), ui);
 
   }
@@ -334,6 +341,19 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
 
   function start() {
     const root = byId('root');
+    const editingTracking = () => ui.trackingForm || ui.trackingJournal || ui.trackingIncomeSaving || ui.trackingFactsSaving
+      || document.activeElement?.closest('[data-tracking-form],[data-fact-editor]');
+    let trackingRenderPending = false;
+    const loadTracking = () => trackingApi.load(store.state.account?.id).then(changed => {
+      trackingRenderPending ||= changed;
+      if (trackingRenderPending && !editingTracking()) { trackingRenderPending = false; render(); }
+    }).catch(error => console.error('Не удалось загрузить учет расходов', error));
+    const refreshTracking = () => {
+      const tracking = trackingApi.get(store.state.account?.id);
+      if ((tracking?.fact_overrides || tracking?.settings?.income_tracking_from && store.state.account.plan_kind === 'personal')
+        && !editingTracking() && !document.activeElement?.matches('input,select,textarea')) void loadTracking();
+    };
+    attachExpenseTracking(root, context, render, trackingApi, () => render({synchronizePlan:false}));
     attachEditing(root, store, context, e => notice('danger', e.message));
     attachSettings(root, store, context, render);
     attachMobileNavigation(root,ui,render);
@@ -365,7 +385,14 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       const theme=ev.target.closest('[data-theme-cycle]');
       if(theme){updateThemeButton(theme,applyTheme(nextTheme(theme.dataset.theme)));return;}
       const tab = ev.target.closest('[data-tab]');
-      if (tab) { ui.tab = tab.dataset.tab==='goals'?ui.goalsTab:tab.dataset.tab; ui.open.clear(); render(); return; }
+      if (tab) {
+        const next = tab.dataset.tab === 'goals' ? ui.goalsTab : tab.dataset.tab;
+        if (next !== ui.tab) ui.trackingForm = null;
+        ui.tab = next;
+        ui.open.clear();
+        render();
+        return;
+      }
       const goalTab=ev.target.closest('[data-goal-tab]');
       if(goalTab&&isGoalTab(goalTab.dataset.goalTab)){ui.tab=goalTab.dataset.goalTab;ui.goalsTab=ui.tab;ui.open.clear();render();return;}
       const year = ev.target.closest('[data-year]');
@@ -373,11 +400,12 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       const toggle = ev.target.closest('[data-toggle]');
       if (toggle) {
         const key = toggle.dataset.toggle;
-        const keepToggleFocus = (toggle.classList.contains('category-head') || toggle.hasAttribute('data-goal-history')) && document.activeElement === toggle;
+        const keepToggleFocus = toggle.matches('.category-head, [data-goal-history], [data-toggle="set:accounts"]') && document.activeElement === toggle;
         const revealPast = key === 'past' && !ui.open.has(key);
+        if (key === 'set:accounts' && ui.open.has(key)) ui.trackingForm = null;
         if (ui.open.has(key)) ui.open.delete(key); else ui.open.add(key);
         render();
-        if (keepToggleFocus) [...root.querySelectorAll('.category-head,[data-goal-history]')]
+        if (keepToggleFocus) [...root.querySelectorAll('[data-toggle]')]
           .find(el => el.dataset.toggle === key)?.focus({ preventScroll: true });
         if (revealPast) {
           const anchor = root.querySelector('[data-past-anchor]');
@@ -409,17 +437,24 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       if (ev.type === 'loaded') {
         lastSync = ''; ui.tab = null; ui.year = null; ui.goal = null; ui.goalsTab='goals'; ui.historyYear=null; ui.open.clear();
         changeToast.dismiss();ui.goalModal=null;ui.goalViews={};ui.lastGoalTransaction=null;ui.goalTimelineScroll={};
+        ui.trackingForm = null;
+        ui.trackingFilters = null;
+        ui.trackingJournal = false;
         ui.scrollTarget = null;
         ui.draft = { familyInvite: ui.draft.familyInvite };
         const address = new URL(location.href); address.searchParams.set('plan',store.state.account.id);
-        window.history.replaceState(null,'',address); render(); return;
+        window.history.replaceState(null,'',address); render(); void loadTracking(); return;
       }
       if (ev.type === 'change') {
+        if (editingTracking()) return;
         const focused = document.activeElement;
         if (ev.fromServer && root.contains(focused) && focused.matches('input,select,textarea')) pendingServerRender = true;
         else render();
       }
-      else if(ev.type==='history'){if(ev.entry)changeToast.show(ev.entry);render();}
+      else if(ev.type==='history'){
+        if(ev.entry)changeToast.show(ev.entry);
+        if (!editingTracking()) render();
+      }
       else if (ev.type === 'status') renderStatus(ev.status);
       else if (ev.type === 'conflict') {
         notice('warn', 'Этот раздел только что изменили в другой вкладке или на другом устройстве. '
@@ -434,7 +469,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       if (!pendingServerRender) return;
       queueMicrotask(() => {
         const focused = document.activeElement;
-        if (pendingServerRender && !(root.contains(focused) && focused.matches('input,select,textarea'))) render();
+        if (!editingTracking() && pendingServerRender && !(root.contains(focused) && focused.matches('input,select,textarea'))) render();
       });
     });
 
@@ -446,11 +481,17 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
     });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') store.flush();
-      else render();
+      else if (!editingTracking()) { render(); refreshTracking(); }
     });
-    window.addEventListener('focus', () => render());
+    window.addEventListener('focus', () => {
+      if (!editingTracking()) render();
+    });
+    window.setInterval(() => {
+      if (document.visibilityState === 'visible') refreshTracking();
+    },60000);
 
     render();
+    void loadTracking();
   }
 
   return { start, render, notice };

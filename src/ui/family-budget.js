@@ -4,6 +4,7 @@ import { familyBudget, familyYearBudget } from '../engine/family.js';
 import { inSeason, inSeasonMonth } from '../engine/expenses.js';
 import { expenseAmountOn } from '../engine/expense-seasons.js';
 import { amountSeasons, amountSeasonHandle, amountSeasonChange } from './expense-seasons.js';
+import { baseExpenseFacts, categoryFactCell, expenseFactActions, expenseTrackingPanel, trackedFacts } from './expense-tracking.js';
 
 const activeCategories = ctx => ctx.state.family.categories.filter(c => !c.archived);
 const yearMonth = ctx => `${ctx.year}-${ctx.today.slice(5,7)}`;
@@ -11,7 +12,7 @@ const monthOf = ctx => ctx.ui.draft.familyFactMonth?.startsWith(String(ctx.year)
 const budgetRow = (ctx,c) => ctx.state.family.budget?.rows?.find(r=>r.contribution_id===c.id) ?? {allocations:[],expenses:0,locked:c.status==='posted'};
 const act = (action,label,id='',extra='') => `<button class="ghost small" data-family-budget-action="${action}" data-id="${esc(id)}" ${extra}>${esc(label)}</button>`;
 const control = (row,column,value,{disabled=false,type='text',label=column}={}) => `<input type="${type}" data-family-budget-field="${column}" data-id="${esc(row.id)}"
-  value="${esc(value??'')}" aria-label="${esc(`${row.title}: ${label}`)}"${disabled?' disabled':''}${['monthly_amount','percent_value','allocation','fact'].includes(column)?' inputmode="decimal" class="num"':''}>`;
+  value="${esc(value??'')}" aria-label="${esc(`${row.title}: ${label}`)}"${disabled?' disabled':''}${['monthly_amount','percent_value','allocation','fact'].includes(column)?` inputmode="decimal" class="num${column==='fact'&&value!=null&&value!==''?' own':''}"`:''}>`;
 const ruleValue = (r,date,percent) => !inSeason(date,r.season_from,r.season_to) ? 0 : percent ? Number(r.percent_value)||0 : expenseAmountOn(r,date,'monthly_amount');
 
 function season(ctx,row) {
@@ -69,6 +70,8 @@ export function familyCategories(ctx) {
 
 export function familyOverview(ctx,{memberTag}) {
   const f=ctx.state.family,b=familyYearBudget(f,ctx.year), money=v=>esc(ctx.fmt.money(v));
+  const journalFacts=ctx.tracking?.enabled || ctx.tracking?.fact_overrides?.length ? trackedFacts(ctx,f.expense_facts,true) : null;
+  const actual=journalFacts?.filter(r=>r.month.startsWith(String(ctx.year))).reduce((sum,r)=>sum+Number(r.amount),0);
   const stat=(label,value)=>`<div class="card stat"><div class="v">${money(value)}</div><div class="l">${label}</div></div>`;
   const members=f.members.filter(m=>m.active||f.contributions.some(c=>c.member_id===m.id&&c.pay_date.startsWith(String(ctx.year))));
   const memberRows=members.map(m=>{
@@ -80,7 +83,7 @@ export function familyOverview(ctx,{memberTag}) {
   const rows=months.map(month=>{const v=familyBudget(f,month);return `<tr><td>${esc(ctx.fmt.month(month,{withYear:false}))}</td>
     <td class="num">${money(v.received)}</td><td class="num">${money(v.future)}</td><td class="num">${money(v.expected)}</td>
     <td class="num">${money(v.planned)}</td><td class="num${v.forecastBalance<0?' danger-text':''}">${money(v.forecastBalance)}</td></tr>`;});
-  return `<h2>${ctx.year} год</h2><div class="grid cols-3">${stat('Получено за год',b.received)}${stat('Ожидается за год',b.future)}${stat('Расходы по плану за год',b.planned)}</div>
+  return `<h2>${ctx.year} год</h2><div class="grid cols-3">${stat('Получено за год',b.received)}${stat('Ожидается за год',b.future)}${stat('Расходы по плану за год',b.planned)}${journalFacts ? stat('Факт расходов за год',actual) : ''}</div>
     ${card({title:'Взносы участников за год',body:table({head:['Участник','Получено','Ожидается','Всего за год'],rows:memberRows})})}
     ${card({title:'Бюджет по месяцам',body:table({head:['Месяц','Получено','Ожидается','Всего взносов','План расходов','Остаток'],rows,
       foot:`<tr><td><b>Итого за год</b></td><td class="num">${money(b.received)}</td><td class="num">${money(b.future)}</td><td class="num">${money(b.expected)}</td><td class="num">${money(b.planned)}</td><td class="num${b.forecastBalance<0?' danger-text':''}"><b>${money(b.forecastBalance)}</b></td></tr>`})})}
@@ -138,26 +141,36 @@ export function familyFacts(ctx) {
   const f=ctx.state.family,month=monthOf(ctx),b=familyBudget(f,month),money=v=>esc(ctx.fmt.money(v)),plans=new Map();
   for(const r of f.budget?.rows??[])if(r.pay_date.startsWith(month))for(const a of r.allocations)plans.set(a.category_id,(plans.get(a.category_id)||0)+Number(a.amount));
   for(const t of b.targets??[])plans.set(t.category_id,Math.max(plans.get(t.category_id)||0,Number(t.target)));
-  const fact=id=>f.expense_facts.find(r=>r.category_id===id&&r.month===month)?.amount;
+  const journal = ctx.tracking?.enabled;
+  const canOverride = Array.isArray(ctx.tracking?.fact_overrides);
+  const projected = trackedFacts(ctx, f.expense_facts, true);
+  const details = ctx.tracking?.fact_overrides?.length ? baseExpenseFacts(ctx,f.expense_facts,true) : projected;
+  const fact=(id,rows=projected)=>rows.find(r=>r.category_id===id&&r.month===month)?.amount;
+  const actual=journal || canOverride ? projected.filter(r=>r.month===month).reduce((sum,r)=>sum+Number(r.amount),0) : b.actual;
   const monthTabs=`<div class="month-tabs">${Array.from({length:12},(_,i)=>`${ctx.year}-${String(i+1).padStart(2,'0')}`).map(m=>`<button class="${m===month?'active':''}" data-family-budget-action="fact-month" data-id="${m}">${esc(ctx.fmt.month(m,{withYear:false}))}</button>`).join('')}</div>`;
-  const visible=new Set(f.categories.filter(c=>plans.has(c.id)||fact(c.id)!=null).map(c=>c.id));
+  const visible=new Set(f.categories.filter(c=>plans.has(c.id)||fact(c.id)!=null||fact(c.id,details)!=null).map(c=>c.id));
   for(const c of f.categories)if(visible.has(c.id)&&c.parent_id)visible.add(c.parent_id);
   const categories=f.categories.filter(c=>!c.archived||visible.has(c.id));
   const rows=[];
-  const leaf=(c,label=c.title)=>`<tr${c.parent_id?' class="fact-item"':''}><td>${esc(label)}</td><td class="num muted">${money(plans.get(c.id)||0)}</td>
-    <td class="num">${control(c,'fact',fact(c.id),{disabled:!ctx.canEdit,label:`Факт за ${month}`})}</td><td class="num">${fact(c.id)==null?'':money(Number(fact(c.id))-(plans.get(c.id)||0))}</td></tr>`;
+  const leaf=(c,label=c.title,direct=false)=>{
+    const value=fact(c.id,c.parent_id||direct?details:projected);
+    const cell=canOverride&&!c.parent_id&&!direct ? categoryFactCell(ctx,month,c,value??0)
+      : journal ? money(value??0) : control(c,'fact',value,{disabled:!ctx.canEdit,label:`Факт за ${month}`});
+    return `<tr${c.parent_id||direct?' class="fact-item"':''}><td>${esc(label)}</td><td class="num muted">${money(plans.get(c.id)||0)}</td>
+      <td class="num">${cell}</td><td class="num">${value==null?'':money(Number(value)-(plans.get(c.id)||0))}</td></tr>`;
+  };
   for(const c of categories.filter(c=>!c.parent_id)){
     const items=categories.filter(i=>i.parent_id===c.id&&(inSeasonMonth(month,i.season_from,i.season_to)||visible.has(i.id)));
     if(!inSeasonMonth(month,c.season_from,c.season_to)&&!visible.has(c.id))continue;
     if(!items.length)rows.push(leaf(c));else{
       const group=[c,...items],plan=group.reduce((s,i)=>s+(plans.get(i.id)||0),0),actual=group.reduce((s,i)=>s+Number(fact(i.id)||0),0);
-      rows.push(`<tr><td><b>${esc(c.title)}</b></td><td class="num">${money(plan)}</td><td class="num">${money(actual)}</td><td class="num">${money(actual-plan)}</td></tr>`);
-      if((plans.get(c.id)||0)>0||fact(c.id)!=null)rows.push(leaf(c,'Без подкатегории'));
+      rows.push(`<tr><td><b>${esc(c.title)}</b></td><td class="num">${money(plan)}</td><td class="num">${canOverride?categoryFactCell(ctx,month,c,actual):money(actual)}</td><td class="num">${money(actual-plan)}</td></tr>`);
+      if((plans.get(c.id)||0)>0||fact(c.id,details)!=null)rows.push(leaf(c,'Без подкатегории',true));
       rows.push(...items.map(i=>leaf(i)));
     }
   }
-  return `${monthTabs}${card({title:`Расходы за ${ctx.fmt.month(month)}`,body:table({head:['Категория / подкатегория','План','Факт','Отклонение'],rows:rows.length?rows:['<tr><td colspan="4" class="muted">Категорий нет.</td></tr>'],
-    foot:`<tr><td><b>Итого</b></td><td class="num">${money(b.planned)}</td><td class="num">${money(b.actual)}</td><td class="num">${money(b.deviation)}</td></tr>`})})}`;
+  return `${monthTabs}${expenseTrackingPanel(ctx,month)}${card({title:`Факт за ${ctx.fmt.month(month)}`,actions:expenseFactActions(ctx),body:table({head:['Категория / подкатегория','План','Факт','Отклонение'],rows:rows.length?rows:['<tr><td colspan="4" class="muted">Категорий нет.</td></tr>'],
+    foot:`<tr><td><b>Итого</b></td><td class="num">${money(b.planned)}</td><td class="num">${money(actual)}</td><td class="num">${money(actual-b.planned)}</td></tr>`})})}`;
 }
 
 export function familyBudgetChange(ev,ctx) {

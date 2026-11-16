@@ -8,6 +8,7 @@ import { generateYear } from '../engine/income.js';
 import { addMonths, dayOfWeek, daysInMonth, isValid, pad2 } from '../engine/dates.js';
 import { ROLE_TITLES } from './app.js';
 import { personalFamilyCard } from './family.js';
+import { expenseTrackingSettings } from './expense-tracking.js';
 import { renderHistory } from './plan-history-view.js';
 
 export const code = 'settings';
@@ -418,6 +419,7 @@ export function render(ctx) {
 
     ${calendarCard(ctx)}
 
+    ${expenseTrackingSettings(ctx)}
     ${securityCard(ctx)}
     ${fxRows.length ? section({ key: 'set:fx', open: ctx.ui.open.has('set:fx'), title: 'Курсы валют', note: 'Сколько базовой валюты за единицу другой. Курс тянется раз в день.',
       body: table({ head: ['Пара', 'Дата', { title: 'Курс', cls: 'num' }, 'Источник'], rows: fxRows }) }) : ''}`;

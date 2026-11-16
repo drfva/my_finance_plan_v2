@@ -1,0 +1,52 @@
+.tracking-accounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 12px; }
+.tracking-accounts > div { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; overflow-wrap: anywhere; }
+.tracking-accounts b { display: block; margin-top: 4px; }
+.tracking-account-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tracking-default-icon { display: inline-grid; flex: 0 0 auto; place-items: center; width: 38px; height: 38px; color: var(--muted); }
+.tracking-accounts button.tracking-default-icon { margin: 0; padding: 0; background: transparent; }
+.tracking-default-icon.is-default { color: var(--accent-ink); }
+.tracking-account-history { display: grid; gap: 8px; margin-top: 12px; }
+.tracking-income-account { min-width: 0; }
+.tracking-fact-cell { display: grid; justify-items: end; gap: 4px; }
+.tracking-fact-amount { max-width: 130px; text-align: right; }
+.tracking-fact-amount::placeholder { color: var(--ink); opacity: 1; }
+.tracking-fact-cell small { white-space: normal; }
+.tracking-form { display: grid; gap: 12px; }
+.tracking-form .row, .tracking-purchase .row { gap: 8px; }
+.tracking-part { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 8px; margin-bottom: 12px; }
+.tracking-dialog { width: min(780px, calc(100% - 24px)); max-height: min(90dvh, 850px); padding: 20px; overflow: auto; border-radius: 16px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.tracking-dialog::backdrop { background: var(--backdrop); }
+.tracking-dialog > .row { gap: 12px; margin-bottom: 16px; }
+.tracking-dialog h2 { margin: 0; }
+.tracking-journal-scroll { max-height: 52dvh; overflow-y: auto; overscroll-behavior: contain; margin-top: 12px; padding-right: 8px; }
+.tracking-dropdown { min-width: 0; }
+.tracking-tags-field > label { margin-bottom: 0; }
+.tracking-dropdown summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 10px 8px 10px 14px; border: 1px solid transparent; border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink); font-size: 14px; font-weight: 500; cursor: pointer; list-style: none; }
+.tracking-dropdown summary::-webkit-details-marker { display: none; }
+.tracking-dropdown summary::after { content: ''; flex: 0 0 auto; width: 6px; height: 6px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg); }
+.tracking-dropdown summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tracking-dropdown summary:hover { border-color: var(--line); }
+.tracking-dropdown summary:focus { outline: none; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
+.tracking-dropdown > div { margin-top: 4px; padding: 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.tracking-tag-list { max-height: 160px; overflow-y: auto; }
+.tracking-tag { display: flex; align-items: center; gap: 8px; min-height: 32px; overflow-wrap: anywhere; }
+#root .tracking-tag input { width: 1.25rem; min-height: 0; flex: 0 0 auto; }
+.tracking-accounts button { margin-top: 8px; }
+.tracking-purchase { padding: 12px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.tracking-purchase summary { cursor: pointer; }
+.tracking-chart { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; margin-block: 18px; }
+.tracking-chart ul { display: grid; gap: 4px; min-width: 0; padding: 0; list-style: none; }
+.tracking-chart button { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-sm); text-align: left; overflow-wrap: anywhere; }
+.tracking-chart i { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%; }
+.tracking-wheel { position: relative; width: min(160px, 100%); aspect-ratio: 1; display: grid; place-items: center; text-align: center; }
+.tracking-wheel svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.tracking-wheel circle { cursor: pointer; pointer-events: visiblePainted; }
+.tracking-wheel circle:hover { filter: brightness(1.22); }
+.tracking-wheel b { position: relative; max-width: 66%; overflow-wrap: anywhere; pointer-events: none; }
+@media (max-width: 760px) {
+  .tracking-dropdown summary { font-size: 16px; padding-left: 12px; }
+}
+@media (max-width: 600px) {
+  .tracking-part { grid-template-columns: minmax(0, 1fr); padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .tracking-part button { justify-self: end; }
+}

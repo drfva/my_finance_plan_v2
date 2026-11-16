@@ -12,6 +12,7 @@ import { giftPlanTable } from './gifts.js';
 import { renderIncomeReport } from './income-report.js';
 import { buildIncomeReport } from '../engine/income-report.js';
 import {categoryItemAmounts} from '../engine/expenses.js';
+import { baseExpenseFacts, trackedFacts } from './expense-tracking.js';
 
 export const code = 'dashboard';
 export const title = () => 'Обзор';
@@ -25,7 +26,11 @@ const sumOf = obj => Object.values(obj ?? {}).reduce((s, x) => s + x, 0);
 function expensesView(ctx, rows) {
   const { fmt, state, year } = ctx;
   const cats = state.expenses?.expense_categories ?? [];
-  const facts = (state.facts?.expense_facts ?? []).filter(f => String(f.ym).startsWith(String(year)));
+  const yearFilter = f => String(f.ym).startsWith(String(year));
+  const manual = state.facts?.expense_facts ?? [];
+  const facts = trackedFacts(ctx,manual).filter(yearFilter);
+  const overrides = new Set((ctx.tracking?.fact_overrides ?? []).filter(f=>f.month.startsWith(String(year))).map(f=>f.category_id));
+  const detailFacts = overrides.size ? baseExpenseFacts(ctx,manual).filter(yearFilter) : facts;
 
   const plan = new Map();
   for (const r of rows) for (const c of r.expenses.categories) plan.set(c.category_id, (plan.get(c.category_id) ?? 0) + c.amount);
@@ -61,14 +66,14 @@ function expensesView(ctx, rows) {
     const diff = f - p;
     const children=items.filter(i=>i.category_id===c.id);
     const childLine=(title,plan,fact)=>`<tr class="fact-item"><td>${esc(title)}</td><td class="num muted">${esc(share(plan))}</td><td class="num">${esc(fmt.money(plan))}</td><td class="num">${esc(fmt.money(fact))}</td><td class="num">${fact?esc(fmt.money(fact-plan,undefined,{sign:true})):''}</td><td class="num">${esc(fmt.money(plan/12))}</td><td class="num">${esc(fmt.money(fact/12))}</td></tr>`;
-    const sub=children.map(i=>childLine(i.title,itemPlans.get(i.id)||0,facts.filter(x=>x.category_id===c.id&&x.item_key===i.id).reduce((s,x)=>s+Number(x.amount||0),0)));
+    const sub=children.map(i=>childLine(i.title,itemPlans.get(i.id)||0,detailFacts.filter(x=>x.category_id===c.id&&x.item_key===i.id).reduce((s,x)=>s+Number(x.amount||0),0)));
     const known=new Set(children.map(i=>i.id));
-    for(const key of new Set(facts.filter(x=>x.category_id===c.id&&x.item_key&&!known.has(x.item_key)).map(x=>x.item_key)))sub.push(childLine('Удалённая подкатегория',0,facts.filter(x=>x.category_id===c.id&&x.item_key===key).reduce((s,x)=>s+Number(x.amount||0),0)));
-    const unassigned=facts.filter(x=>x.category_id===c.id&&!x.item_key).reduce((s,x)=>s+Number(x.amount||0),0);
+    for(const key of new Set(detailFacts.filter(x=>x.category_id===c.id&&x.item_key&&!known.has(x.item_key)).map(x=>x.item_key)))sub.push(childLine('Удалённая подкатегория',0,detailFacts.filter(x=>x.category_id===c.id&&x.item_key===key).reduce((s,x)=>s+Number(x.amount||0),0)));
+    const unassigned=detailFacts.filter(x=>x.category_id===c.id&&!x.item_key).reduce((s,x)=>s+Number(x.amount||0),0);
     const unassignedPlan=Math.max(0,p-children.reduce((s,i)=>s+(itemPlans.get(i.id)||0),0));
     if(sub.length&&(unassigned||unassignedPlan>.5))sub.push(childLine('Без подкатегории',unassignedPlan,unassigned));
     return `<tr class="annual-expense-category">
-      <td>${esc(c.title)}</td><td class="num muted">${esc(share(p))}</td>
+      <td>${esc(c.title)}${overrides.has(c.id)?' <span class="small-note">есть ручной итог</span>':''}</td><td class="num muted">${esc(share(p))}</td>
       <td class="num">${esc(fmt.money(p))}</td><td class="num">${esc(fmt.money(f))}</td>
       <td class="num" style="${diff > 0 ? 'color:var(--danger);' : diff < 0 ? 'color:var(--good);' : ''}">${f ? esc(fmt.money(diff, undefined, { sign: true })) : ''}</td>
       <td class="num">${esc(fmt.money(p/12))}</td><td class="num">${esc(fmt.money(f/12))}</td>

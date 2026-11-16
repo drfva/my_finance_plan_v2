@@ -858,6 +858,47 @@ test('срок подушки ниже в очереди не отнимает �
   assert.ok(sim.rows.every(r => Math.abs(r.unallocated) < .01));
 });
 
+test('срок подушки: занятые будущие выплаты требуют раннего взноса, перенос даты не отдаляет прогноз', () => {
+  const st = plan({ periods: unevenPayouts([12000, 4000, 4000, 10000]), goals: [
+    goal('trip', { target_amount: 12000, deadline: '2028-04-15' }),
+    goal('home', { kind_code: 'reserve' }),
+  ], milestones: [
+    { id: 'dresser', goal_id: 'home', target: 10000, deadline: '2028-02-15' },
+    { id: 'later', goal_id: 'home', target: 0, deadline: null },
+  ] });
+  for (const deadline of ['2028-02-15', '2028-03-15', '2028-04-15']) {
+    st.savings.goal_milestones[0].deadline = deadline;
+    const sim = run(st);
+    assert.equal(sim.milestoneDates.home[0], deadline);
+    assert.ok(sim.milestoneDates.trip[0] <= '2028-04-15');
+    assert.ok(sim.rows.every(r => r.unallocated >= -.01));
+    assert.equal(sim.rows.reduce((s, r) => s + (r.allocations.home ?? 0), 0), 10000);
+    if (deadline === '2028-03-15') {
+      assert.deepEqual(sim.rows.slice(0, 3).map(r => r.allocations.home), [8000, 1000, 1000]);
+      assert.ok(sim.rows.slice(0, 3).every(r => r.allocations.trip >= 3000));
+    }
+  }
+});
+
+test('срок подушки: перенос на показанную дату сохраняет её при нескольких более ранних этапах', () => {
+  const st = plan({ periods: unevenPayouts([8000, 9000, 8000, 15000, 9000, 4000, 10000, 15000]), goals: [
+    goal('gifts', { kind_code: 'gifts', target_amount: 15000, deadline: '2028-07-15' }),
+    goal('small', { target_amount: 1000, deadline: '2028-03-15' }),
+    goal('trip', { target_amount: 19000, deadline: '2028-06-15', priority: 2 }),
+    goal('home', { kind_code: 'reserve', target_amount: 21000, deadline: '2028-04-15' }),
+  ] });
+  const before = run(st);
+  const forecast = before.milestoneDates.home[0];
+  assert.ok(forecast > st.savings.goals[3].deadline);
+  st.savings.goals[3].deadline = forecast;
+  const after = run(st);
+  assert.equal(after.milestoneDates.home[0], forecast);
+  for (const sim of [before, after]) {
+    for (const g of st.savings.goals.slice(0, 3)) assert.ok(sim.milestoneDates[g.id][0] <= g.deadline);
+    assert.ok(sim.rows.every(r => r.unallocated >= -.01));
+  }
+});
+
 test('доливка следует порядку этапов: Подарки после Подушек не объединяются с Копилками выше', () => {
   const periods = unevenPayouts([23000, 23000]);
   const sim = run(plan({ periods, goals: [

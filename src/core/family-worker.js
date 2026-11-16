@@ -4,6 +4,7 @@ import { createConfig } from './config.js';
 import { simulate, freezePeriods } from '../engine/allocation.js';
 import { computeIncome, classifyIncomePeriods } from '../engine/income.js';
 import { familyToday } from '../engine/family.js';
+import { postIncomeForPlan } from './income-deposit-worker.js';
 
 export async function runFamilyMember({ rpc, memberId, actor = null, post = false, now = new Date() }) {
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -100,6 +101,20 @@ export function createFamilyWorker({ env, fetch: request = fetch, now = () => ne
         if (!actor) return reply({ error: 'Сессия недействительна' }, 401);
       }
       const body=await req.json().catch(()=>({}));
+      if (body && Object.hasOwn(body,'income_plan_ids')) {
+        if (!cron) return reply({error:'Требуется серверная авторизация'},403);
+        const plans=body.income_plan_ids;
+        if (!Array.isArray(plans)||plans.length>10||plans.some(id=>typeof id!=='string'||!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id))) {
+          return reply({error:'Неверный пакет личных планов'},400);
+        }
+        let posted=0;
+        const errors=[];
+        for (const plan of new Set(plans)) {
+          try { posted+=await postIncomeForPlan(rpc,plan); }
+          catch (error) { errors.push({plan_id:plan,code:error.code||'error'}); }
+        }
+        return reply({posted,errors},errors.length?207:200);
+      }
       const requested=cron&&Array.isArray(body.member_ids)?body.member_ids:null;
       if(requested&&(requested.length>10||requested.some(id=>typeof id!=='string'||!/^[0-9a-f-]{36}$/i.test(id))))return reply({error:'Неверный пакет участников'},400);
       const mail=await sendFamilyInvites({rpc,request,url,headers,appUrl:env('FAMILY_APP_URL'),actor});

@@ -73,11 +73,15 @@ function paceWithinBudget(capacities, budget, requested) {
    денег мало, переносим нужное накопление вперёд за счёт менее срочных целей. */
 export function simulate(state, cfg, options = {}) {
   const income = options.income ?? computeIncome(state, cfg, { round: options.round });
-  let result = simulatePlan(state, cfg, { ...options, income });
+  // Опорные плановые взносы считаем без досрочной доливки. Иначе доливка
+  // сегодня уменьшает взнос завтра и выдаёт его за свободный бюджет подушки.
+  const scheduledReference = simulatePlan(state, cfg, { ...options, income, skipCascade: true });
+  let result = simulatePlan(state, cfg, { ...options, income, scheduledReference });
   for (let i = 0; i < 4; i++) {
-    const next = simulatePlan(state, cfg, { ...options, income, reference: result });
+    const next = simulatePlan(state, cfg, { ...options, income, reference: result, scheduledReference });
     const same = next.rows.every((r, n) => JSON.stringify(r.allocations) === JSON.stringify(result.rows[n].allocations)
       && JSON.stringify(r.reservePaces) === JSON.stringify(result.rows[n].reservePaces)
+      && JSON.stringify(r.scheduledGoalAllocations) === JSON.stringify(result.rows[n].scheduledGoalAllocations)
       && JSON.stringify(r.installmentDetails) === JSON.stringify(result.rows[n].installmentDetails)
       && r.familyContribution?.amount === result.rows[n].familyContribution?.amount);
     result = next;
@@ -86,7 +90,7 @@ export function simulate(state, cfg, options = {}) {
   return result;
 }
 
-function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst = true, today = '', reference = null } = {}) {
+function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst = true, today = '', reference = null, scheduledReference = null, skipCascade = false } = {}) {
   const inc = income ?? computeIncome(state, cfg, { round });
   const periods = inc.periods.map(r => r.period);
   const warnings = [...inc.warnings];
@@ -381,7 +385,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
     const needs = enabled.filter(g => !g.completed && !g.archived
       && (!req.reservePace || stageOfGoal(g) !== 'reserves')
       // Срок подушки ниже в очереди не перехватывает деньги более ранней цели.
-      && !(stageOfGoal(g) === 'reserves' && stageOfGoal(req.g) !== 'reserves'
+      && !(!req.cascade && stageOfGoal(g) === 'reserves' && stageOfGoal(req.g) !== 'reserves'
         && tierOf('reserves') > tierOf(stageOfGoal(req.g)))).flatMap(g => {
       return tracker.milestones(g.id).map((m, i) => {
         if (!m.deadline) return null;
@@ -390,10 +394,19 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       }).filter(Boolean);
     }).filter(r => r.deadline && r.amount > 0.0001);
     const currentIndex = reference.rows.findIndex(r => r.period.id === p.id);
+    const constraints = [];
     for (const deadline of new Set(needs.map(r => r.deadline))) {
       const byGoal = new Map();
       for (const r of needs) if (r.deadline <= deadline && r.amount > (byGoal.get(r.g.id)?.amount ?? 0)) byGoal.set(r.g.id, r);
       const group = [...byGoal.values()];
+      constraints.push({ deadline, group });
+      // Общего бюджета группы недостаточно для проверки подушки: в нём
+      // находятся также деньги, которые раньше неё заберут другие этапы.
+      for (const r of group) if (group.length > 1 && r.deadline === deadline && stageOfGoal(r.g) === 'reserves') {
+        constraints.push({ deadline, group: [r] });
+      }
+    }
+    for (const { deadline, group } of constraints) {
       const ids = new Set(group.map(r => r.g.id));
       const need = group.reduce((s, r) => s + r.amount, 0);
       let capacity = 0;
@@ -412,7 +425,12 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
               && (req.reservePace ? req.paceBefore.has(g.id)
                 : stageOfGoal(req.g) === 'reserves' || tierOf('reserves') < tierOf(stageOfGoal(req.g)));
             const pace = keepPace ? row.reservePaces[g.id] ?? 0 : 0;
-            free += Math.max(0, amount - pace);
+            // Плановые взносы предшествующих этапов не являются свободным
+            // бюджетом более поздней цели. Переносить можно их доливку.
+            const scheduled = !ids.has(g.id) && group.some(r => tierOf(stageOfGoal(g)) < tierOf(stageOfGoal(r.g)))
+              ? Math.max(scheduledReference?.byId.get(q.id)?.scheduledGoalAllocations?.[g.id] ?? 0,
+                row.scheduledGoalAllocations?.[g.id] ?? 0) : 0;
+            free += amount - Math.max(pace, scheduled);
           }
           available += Math.max(0, free);
           if (req.reservePace && !fixed.has(req.g.id)) paceCapacities.push(Math.max(0, free));
@@ -522,12 +540,13 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       byStage[s.code] = (byStage[s.code] ?? 0) + (before - remaining);
     }
 
+    const scheduledGoalAllocations = { ...allocations };
     /* доливка остатка: по одному этапу за раз, очередь строится заново */
     let cascaded = 0;
-    if (!manual) {
+    if (!manual && !skipCascade) {
       for (let guard = 0; remaining > 0.5 && guard < 60; guard++) {
         const pool = SAVINGS_STAGES.flatMap(code => activeGoals(code))
-          .filter(g => !fixedGoals.has(g.id)).map(g => requirement(g, p));
+          .filter(g => !fixedGoals.has(g.id)).map(g => ({ ...requirement(g, p), cascade: true }));
         let next = null;
         for (const req of cascadeOrder(pool)) {
           if (req.remaining <= 0.0001) continue;
@@ -589,6 +608,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
       cardBefore,
       cardState: Object.fromEntries([...cardState].map(([k, v]) => [k, { ...v }])),
       allocations,
+      scheduledGoalAllocations,
       reservePaces: Object.fromEntries(paceGiven),
       goalAllocations: Object.fromEntries(Object.entries(allocations).map(([id, amount]) =>
         [id, goalFx(p).fromBase(amount, goalsById.get(id)?.currency_code, p.pay_date) ?? 0])),

@@ -1,4 +1,5 @@
 import { esc, card, section, table, field, pill } from './dom.js';
+import { expenseTrackingSettings } from './expense-tracking.js';
 import { validateFamilyRule, familyToday } from '../engine/family.js';
 import { planSwitch, securityCard, handle as handleSettings } from './settings.js';
 import { uid } from './edit.js';
@@ -130,12 +131,13 @@ function settings(ctx) {
         ${m.is_self&&m.active?ownMember(ctx,m):memberTag(m)}<span class="small-note">${m.role==='owner'?'владелец':'участник'}</span>
         ${self?.role==='owner'&&m.active&&!m.is_self?action('remove','Исключить',m.id,'ghost small'):''}</div>`).join('')}</div>
       ${invitations}<p class="small-note">После ухода будущие взносы и добор недостачи прекращаются. Совершённые поступления и история сохраняются.</p>`})}
+    ${expenseTrackingSettings(ctx)}
     ${securityCard(ctx)}`;
 }
 
 function renderHistory(ctx) {
   const f=ctx.state.family, page=Number(f.audit_page)||1, pages=Number(f.audit_pages)||1, total=Number(f.audit_total)||f.audit.length;
-  const labels={families:'Семейный план',family_categories:'Категории',family_monthly_expenses:'План расходов',family_expense_facts:'Статистический факт',family_contributions:'Взнос',family_allocation_overrides:'Распределение взноса',family_members:'Участники',family_invitations:'Приглашение'};
+  const labels={families:'Семейный план',family_categories:'Категории',family_monthly_expenses:'План расходов',family_expense_facts:'Статистический факт',family_fact_override:'Ручной итог категории',family_contributions:'Взнос',family_allocation_overrides:'Распределение взноса',family_members:'Участники',family_invitations:'Приглашение'};
   const actions={INSERT:'Создано',UPDATE:'Изменено',DELETE:'Удалено'};
   const fields={title:'Название',month:'Месяц',amount:'Сумма',nickname:'Никнейм',color:'Цвет',role:'Роль',active:'Участие',email:'Почта',
     status:'Состояние',pay_date:'Дата поступления',current_amount:'Текущий взнос',arrears_amount:'Погашение недобора',expires_at:'Срок приглашения',deleted:'План удалён',

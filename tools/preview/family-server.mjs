@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { runFamilyMember } from '../../src/core/family-worker.js';
+import { postIncomeForPlan } from '../../src/core/income-deposit-worker.js';
 const entry=process.env.FINANCE_PGLITE_MODULE?pathToFileURL(process.env.FINANCE_PGLITE_MODULE).href:'@electric-sql/pglite';
 const { PGlite }=await import(entry);
 const { pgcrypto }=await import(process.env.FINANCE_PGLITE_MODULE?new URL('contrib/pgcrypto.js',entry).href:'@electric-sql/pglite/contrib/pgcrypto');
@@ -75,7 +76,35 @@ if(process.env.FINANCE_GUIDE_PREVIEW==='1'){
   catch(error){console.error('Не удалось подготовить примеры руководства:',error.message);process.exit(1);}
   for(const memberId of members)await runFamilyMember({rpc:(name,args)=>rpc(null,name,args,'service_role'),memberId,post:false});
 }
+if(process.env.FINANCE_TRACKING_GUIDE==='1'){
+  const first=crypto.randomUUID(), second=crypto.randomUUID();
+  const tracking=(action,payload,revision=null)=>rpc(A,'expense_tracking_command',{
+    p_plan:personal,p_action:action,p_payload:payload,p_revision:revision,
+  });
+  const started=await tracking('enable',{id:first,title:'Основная карта',date:today,amount:40000,fact_mode:'add'});
+  let journal=await tracking('account_add',{id:second,title:'Наличные',date:today,amount:500},started.settings.revision);
+  journal=await tracking('purchase_save',{
+    id:crypto.randomUUID(),date:today,category_id:'cat-life',item_id:'food',amount:3000,tags:['Дом','Выходные'],
+    parts:[{account_id:first,amount:2000},{account_id:second,amount:1000}],
+  },journal.settings.revision);
+  await tracking('purchase_save',{
+    id:crypto.randomUUID(),date:today,category_id:'cat-joy',item_id:'cafe',amount:650,tags:['Выходные'],
+    parts:[{account_id:first,amount:650}],
+  },journal.settings.revision);
+  if(process.env.FINANCE_INCOME_GUIDE==='1'){
+    const personalState=await rpc(A,'state_get',{p_account:personal});
+    const receipt={id:'guide-income-deposit',year:Number(today.slice(0,4)),title:'Премия',pay_date:today,
+      window_start:today,window_end:today,calc_mode:'manual',income_net:12000,income_manual:true,taxable:false,locked:true};
+    await rpc(A,'state_save',{p_account:personal,p_domain:'income',p_version:personalState.versions.income,
+      p_patch:{periods:[...personalState.income.periods,receipt]}});
+    await postIncomeForPlan((name,args)=>rpc(null,name,args,'service_role'),personal);
+  }
+}
 const allowed=new Set(['bootstrap_user','state_get','state_save','family_command','family_get','family_history','family_history_page','log_client_event','account_deletion_preview','account_assign_owner','delete_my_account']);
+allowed.add('expense_tracking_get');
+allowed.add('expense_tracking_command');
+allowed.add('expense_tracking_set_income_account');
+allowed.add('expense_tracking_set_category_fact');
 const json=(res,data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));};
 const server=http.createServer(async(req,res)=>{
   const address=new URL(req.url,'http://localhost');
@@ -123,7 +152,7 @@ const server=http.createServer(async(req,res)=>{
     if(!folder||absolute!==path.join(root,folder)&&!absolute.startsWith(path.join(root,folder)+path.sep))return json(res,{error:'Not found'},404);
     const file=decoded.endsWith('/')?path.join(absolute,'index.html'):absolute;
     const type={'.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.html':'text/html; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.webp':'image/webp'}[path.extname(file)]||'application/octet-stream';
-    res.writeHead(200,{'Content-Type':type});res.end(await fs.readFile(file));
+    res.writeHead(200,{'Content-Type':type,'Cache-Control':'no-store'});res.end(await fs.readFile(file));
   }catch(e){json(res,{error:e.message},500);}
 });
 server.listen(0,'127.0.0.1',()=>console.log(JSON.stringify({url:`http://127.0.0.1:${server.address().port}/?plan=${family}`,pid:process.pid})));

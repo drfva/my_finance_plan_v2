@@ -283,7 +283,7 @@ test('семья SQL: общий установщик разворачивает
   } finally {await clean.close();}
 });
 
-test('семья Cron: настройка проверяет Vault и отправляет все источники пакетами по 10, включая очередь приглашений', async () => {
+test('Cron: правила семьи и личные зачисления проверяют Vault и отправляют источники пакетами', async () => {
   const cron=new PGlite();
   try {
     await cron.exec(`create schema vault; create schema cron; create schema net; create schema family_api;
@@ -312,6 +312,16 @@ test('семья Cron: настройка проверяет Vault и отпра
     await cron.exec(jobs[0].command);
     const sizes=(await cron.query('select jsonb_array_length(body->\'member_ids\') as n from net.calls order by n')).rows.map(x=>x.n);
     assert.deepEqual(sizes,[0,1,10,10]);
+    await cron.exec(`create schema expense_tracking;
+      create function expense_tracking.due_income_plans() returns setof uuid language sql as $$select id from public.family_members$$;
+      truncate net.calls;`);
+    const income=fs.readFileSync(new URL('../tools/configure-income-cron.sql',import.meta.url),'utf8').replace(/^create extension.*;$/gm,'');
+    await cron.exec(income);await cron.exec(income);
+    const incomeJobs=(await cron.query("select * from cron.job where jobname='finance-income-hourly'")).rows;
+    assert.equal(incomeJobs.length,1);assert.equal(incomeJobs[0].schedule,'5 * * * *');
+    assert.equal((await cron.query('select count(*)::int as n from cron.job')).rows[0].n,2);
+    await cron.exec(incomeJobs[0].command);
+    assert.deepEqual((await cron.query("select jsonb_array_length(body->'income_plan_ids') as n from net.calls order by n")).rows.map(x=>x.n),[1,10,10]);
   } finally {await cron.close();}
 });
 

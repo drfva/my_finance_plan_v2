@@ -34,6 +34,8 @@ function server() {
       if(name==='family_worker_members')return Response.json([member]);
       if(name==='family_worker_read')return Response.json(structuredClone(state));
       if(name==='family_worker_commit')return Response.json({posted:args.p_post?1:0});
+      if(name==='expense_income_worker_read')return Response.json({...structuredClone(state),pending_income_receipts:['p']});
+      if(name==='expense_income_worker_post')return Response.json(args.p_rows.length);
       throw new Error('Неожиданный запрос');
     }});
   return {handler,calls,state};
@@ -66,6 +68,21 @@ test('сервер семьи: запрос без сессии и секрет�
   const response=await s.handler(new Request('https://worker.example.test',{method:'POST',body:'{}'}));
   assert.equal(response.status,401);
   assert.equal(s.calls.length,0);
+});
+
+test('личные зачисления: проводка доступна только задаче с секретом',async()=>{
+  const s=server();
+  const body=JSON.stringify({income_plan_ids:[user,user]});
+  const url='https://worker.example.test';
+  const denied=await s.handler(new Request(url,{method:'POST',headers:{Authorization:'Bearer valid-user-token'},body}));
+  assert.equal(denied.status,403);
+  assert.deepEqual(s.calls,[]);
+  const response=await s.handler(new Request(url,{method:'POST',headers:{'x-family-cron-secret':'server-scheduler-secret'},body}));
+  assert.equal(response.status,200);
+  assert.deepEqual(await response.json(),{posted:1,errors:[]});
+  const writes=s.calls.filter(c=>c.name==='expense_income_worker_post');
+  assert.equal(writes.length,1);
+  assert.deepEqual(writes[0].args.p_rows,[{period_id:'p',amount:100000}]);
 });
 
 test('сервер семьи: незавершённый больничный сохраняет прогнозы, не фиксируя его и последующие выплаты',async()=>{

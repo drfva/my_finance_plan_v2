@@ -6,6 +6,7 @@ import { freezePeriods } from '../engine/allocation.js';
 import { generateYear } from '../engine/income.js';
 import { monthlyAmountOn, categoryPercentOn } from '../engine/expenses.js';
 import { familyContributionControl, familyRuleDescription } from './family.js';
+import { incomeDepositField } from './expense-tracking.js';
 
 export const code = 'periods';
 export const title = () => 'Доходы';
@@ -202,6 +203,7 @@ function body(ctx, r) {
         ${r.income.extraIncome > 0.5 ? `<div class="small-note">+ разовый доход ${esc(fmt.money(r.income.extraIncome))}</div>` : ''}
       </div>
       ${field('Комментарий', input({ edit: 'income|periods|note', key: { id: p.id }, value: p.note, disabled: !canEdit }))}
+      ${incomeDepositField(ctx,r)}
     </div>
 
     ${r.income.extraIncome ? `<div class="small-note">Разовый доход: ${esc(fmt.money(r.income.extraIncome))}</div>` : ''}
