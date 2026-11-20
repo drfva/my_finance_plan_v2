@@ -76,6 +76,14 @@ if(process.env.FINANCE_GUIDE_PREVIEW==='1'){
   catch(error){console.error('Не удалось подготовить примеры руководства:',error.message);process.exit(1);}
   for(const memberId of members)await runFamilyMember({rpc:(name,args)=>rpc(null,name,args,'service_role'),memberId,post:false});
 }
+if(process.env.FINANCE_DEBT_GUIDE==='1'){
+  const s=await rpc(A,'state_get',{p_account:personal});
+  const due=s.debts.installment_payments[0]?.pay_date;
+  const date=s.income.periods.filter(p=>p.pay_date<=due).sort((a,b)=>a.pay_date.localeCompare(b.pay_date)).at(-1)?.pay_date;
+  if(date) await rpc(A,'state_save',{p_account:personal,p_domain:'income',p_version:s.versions.income,p_patch:{periods:[...s.income.periods,
+    {id:'zz-guide-debt',year:Number(date.slice(0,4)),title:'Подработка',pay_date:date,window_start:date,window_end:date,
+      calc_mode:'manual',income_net:20000,income_manual:true,taxable:false,manual_kind:'side_job'}]}});
+}
 if(process.env.FINANCE_TRACKING_GUIDE==='1'){
   const first=crypto.randomUUID(), second=crypto.randomUUID();
   const tracking=(action,payload,revision=null)=>rpc(A,'expense_tracking_command',{

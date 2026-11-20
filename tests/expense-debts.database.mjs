@@ -149,4 +149,16 @@ test('процент сохраняется без суммы; серверны�
   assert.notEqual(forecast.status,'posted');
 });
 
+test('рассрочки SQL: ручная сумма выплаты сохраняется, отрицательная откатывается, чужой план закрыт',async()=>{
+  let state=await rpc(A,'state_get',{p_account:a});
+  const override={period_id:state.income.periods[0].id,installment_id:state.debts.installments[0].id,amount:0};
+  await rpc(A,'state_save',{p_account:a,p_domain:'debts',p_version:state.versions.debts,p_patch:{installment_period_overrides:[override]}});
+  state=await rpc(A,'state_get',{p_account:a});
+  assert.deepEqual(state.debts.installment_period_overrides,[override]);
+  await assert.rejects(rpc(A,'state_save',{p_account:a,p_domain:'debts',p_version:state.versions.debts,
+    p_patch:{installment_period_overrides:[{...override,amount:-1}]}}),/constraint/);
+  await assert.rejects(rpc(B,'state_save',{p_account:a,p_domain:'debts',p_patch:{installment_period_overrides:[]}}),/Нет доступа|только на просмотр/);
+  assert.deepEqual((await rpc(A,'state_get',{p_account:a})).debts.installment_period_overrides,[override]);
+});
+
 test.after(async()=>{await db.close();});

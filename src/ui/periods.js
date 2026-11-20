@@ -97,9 +97,20 @@ function body(ctx, r) {
     </tr>`;
   });
 
-  const instRows = r.installments.map(x => `<tr><td>${esc(fmt.date(x.date))}${x.early ? ` ${pill('досрочно','ok')}` : ''}</td>
-    <td>${esc(x.installments.map(id => (state.debts?.installments ?? []).find(i => i.id === id)?.title ?? id).join(', '))}</td>
-    <td class="num">${esc(fmt.money(x.amount))}</td></tr>`);
+  const installmentOverrides = state.debts?.installment_period_overrides ?? [];
+  const canEditInstallments = Array.isArray(state.debts?.installment_period_overrides);
+  const instRows = (state.debts?.installments ?? []).filter(i=>r.installmentDetails.some(d=>d.installment_id===i.id)
+    || installmentOverrides.some(o=>o.period_id===p.id&&o.installment_id===i.id)).map(i=>{
+    const details = r.installmentDetails.filter(d=>d.installment_id===i.id);
+    const own = installmentOverrides.some(o=>o.period_id===p.id&&o.installment_id===i.id);
+    const amount = details.reduce((sum,d)=>sum+d.amount,0);
+    return `<tr><td>${[...new Set(details.map(d=>d.date))].map(d=>esc(fmt.date(d))).join(', ') || '—'}${details.some(d=>d.early)?` ${pill('досрочно','ok')}`:''}${details.some(d=>d.date<p.pay_date)?` ${pill('после срока','warn')}`:''}</td>
+      <td>${esc(i.title)}</td><td class="num">${canEditInstallments ? input({
+        edit:'debts|installment_period_overrides|amount',key:{period_id:p.id,installment_id:i.id},value:amount,type:'money',
+        disabled:!canEdit,cls:own?'own':'',style:'max-width:130px;text-align:right;',ariaLabel:`Платёж по рассрочке ${i.title}`,
+      }) : esc(fmt.money(amount))}</td></tr>`;
+  });
+  const hasInstallmentOverrides = installmentOverrides.some(o=>o.period_id===p.id);
 
   // карту показываем, только если по ней есть долг, погашение или своя сумма
   const cardRows = cards.filter(c => {
@@ -222,7 +233,9 @@ function body(ctx, r) {
       ${savingsCard('Распределение по копилкам', 'bucket')}
       ${savingsCard('Распределение по подушкам', 'reserve')}
     </div>
-    ${instRows.length ? `<div style="margin-top:20px;">${card({ title: 'Рассрочки из этой выплаты', body: table({ head: ['Дата', 'Покупка', { title: 'Сумма', cls: 'num' }], rows: instRows }) })}</div>` : ''}
+    ${instRows.length ? `<div style="margin-top:20px;">${card({ title: 'Рассрочки из этой выплаты',
+      actions:canEdit && hasInstallmentOverrides ? button({action:'reset-installments',value:p.id,label:'Сбросить на авто-расчёт'}) : '',
+      body: table({ head: ['Дата', 'Покупка', { title: 'Сумма', cls: 'num' }], rows: instRows }) })}</div>` : ''}
     ${cardRows.length ? `<div style="margin-top:20px;">${card({
       title: 'Кредитки',
       actions: canEdit && hasCardOverrides ? button({ action: 'reset-cards', value: p.id, label: 'Сбросить на авто-расчёт' }) : '',
@@ -304,6 +317,11 @@ export function render(ctx) {
 /* Кнопки вкладки. Возвращает true, если экран нужно перерисовать сразу. */
 export function handle(ev, ctx) {
   const { store, ui, fmt } = ctx;
+  const resetInstallments = ev.target.closest('[data-reset-installments]');
+  if (resetInstallments && ctx.canEdit) {
+    store.update('debts',d=>{d.installment_period_overrides=d.installment_period_overrides.filter(o=>o.period_id!==resetInstallments.dataset.resetInstallments);});
+    return false;
+  }
 
   const freeze = ev.target.closest('[data-freeze]');
   if (freeze) {

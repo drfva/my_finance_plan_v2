@@ -8,7 +8,7 @@ const equal=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 const KEYS={plan_years:['year'],payout_slots:['year','sort_order'],tax_brackets:['scale_id','sort_order'],
   allocation_rules:['stage_code'],fx_rates:['base_code','quote_code','rate_date'],income_history:['year','month'],
   working_day_overrides:['ym'],account_calendar_days:['date'],expense_period_overrides:['period_id','category_id'],
-  expense_facts:['ym','category_id','item_key'],credit_payment_overrides:['period_id','card_id'],
+  expense_facts:['ym','category_id','item_key'],credit_payment_overrides:['period_id','card_id'],installment_period_overrides:['period_id','installment_id'],
   savings_period_overrides:['period_id','goal_id'],gift_event_amounts:['event_id','year'],goal_cycle_skips:['cycle_id','occurrence_key']};
 const keyOf=(table,row)=>Object.fromEntries((KEYS[table]??['id']).map(k=>[k,row[k]??'']));
 const match=(row,key)=>Object.entries(key).every(([k,v])=>(row[k]??'')===v);

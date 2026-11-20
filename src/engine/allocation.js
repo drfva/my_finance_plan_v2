@@ -128,7 +128,7 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   });
 
   const debts = state.debts ?? {};
-  const inst = createInstallmentAllocator(debts.installments ?? [], debts.installment_payments ?? [], periods);
+  const inst = createInstallmentAllocator(debts.installments ?? [], debts.installment_payments ?? [], periods, debts.installment_period_overrides);
   if (inst.outside.length) warnOnce('installments_before_plan', { count: inst.outside.length });
 
   /* ---------------------------------------------------------- накопления */
@@ -184,13 +184,14 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   /* Что останется от будущей выплаты после расходов, рассрочек и уже закреплённых
      сумм в копилки — для прогноза, успеет ли карта закрыться в срок */
   const baseFree = new Map();
-  const projectedInstallments = createInstallmentAllocator(debts.installments ?? [], debts.installment_payments ?? [], periods);
+  const projectedInstallments = createInstallmentAllocator(debts.installments ?? [], debts.installment_payments ?? [], periods, debts.installment_period_overrides);
   for (const r of inc.periods) {
     const p = r.period;
     const ov = savingsOv.get(p.id);
     const committed = (p.locked || ov?.size) ? [...(ov?.values() ?? [])].reduce((s, x) => s + x, 0) : 0;
     projectedInstallments.step(p);
-    const parts = reference?.byId.get(p.id)?.installmentDetails?.filter(d => p.locked || !d.early) ?? projectedInstallments.details(p);
+    const parts = reference?.byId.get(p.id)?.installmentDetails?.filter(d => p.locked || !d.early
+      || debts.installment_period_overrides?.some(o=>o.period_id===p.id && o.installment_id===d.installment_id)) ?? projectedInstallments.details(p);
     const instTotal = parts.reduce((s, x) => s + x.amount, 0);
     baseFree.set(p.id, r.total - expenses.byPeriod.get(p.id).total - instTotal - committed);
   }
@@ -201,11 +202,15 @@ function simulatePlan(state, cfg, { income = null, round = Math.round, paceFirst
   function cardRequired(card, cs, p) {
     if (cs.debt <= 0.5 || !cs.deadline) return 0;
     if (cs.deadline < p.pay_date) return cs.debt;
-    const left = periods.filter(q => q.pay_date >= p.pay_date && q.pay_date <= cs.deadline);
+    const index = periods.findIndex(q=>q.id===p.id);
+    const left = periods.slice(index).filter(q => q.pay_date <= cs.deadline);
     if (left.length <= 1) return cs.debt;
     const even = cs.debt / left.length;
     let futureFreeBase = 0;
-    for (const q of left) if (q.pay_date > p.pay_date) futureFreeBase += Math.max(0, baseFree.get(q.id));
+    for (const q of left.slice(1)) {
+      const fixed = cardOv.get(q.id)?.get(card.id);
+      futureFreeBase += fixed === undefined ? (q.locked ? 0 : Math.max(0,baseFree.get(q.id))) : Math.max(0,fixed);
+    }
     const futureFree = fx.fromBase(futureFreeBase, card.currency_code, p.pay_date) ?? 0;
     let futureNet = 0;
     for (const o of cardOps.get(card.id)) {

@@ -260,7 +260,7 @@ export function createApp({ store, env = 'prod', client = null, onSignOut }) {
       syncingSick = true;
       try {
         store.update('income', d => { d.periods = next; });
-        for (const [domain, table] of [['expenses', 'expense_period_overrides'], ['savings', 'savings_period_overrides'], ['debts', 'credit_payment_overrides']]) {
+        for (const [domain, table] of [['expenses', 'expense_period_overrides'], ['savings', 'savings_period_overrides'], ['debts', 'credit_payment_overrides'], ['debts','installment_period_overrides']]) {
           if ((store.state[domain]?.[table] ?? []).some(r => removed.has(r.period_id))) {
             store.update(domain, d => { d[table] = d[table].filter(r => !removed.has(r.period_id)); });
           }

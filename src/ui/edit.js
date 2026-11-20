@@ -42,6 +42,7 @@ const DEPENDENTS = {
     ['expenses', 'expense_period_overrides', 'period_id'],
     ['savings', 'savings_period_overrides', 'period_id'],
     ['debts', 'credit_payment_overrides', 'period_id'],
+    ['debts', 'installment_period_overrides', 'period_id'],
   ],
   'income|plan_years': [['income', 'payout_slots', 'year']],   // выплаты года уносятся отдельно, вместе с их ручными суммами
   'income|tax_scales': [['income', 'tax_brackets', 'scale_id']],
@@ -49,7 +50,7 @@ const DEPENDENTS = {
     ['debts', 'credit_card_ops', 'card_id'],
     ['debts', 'credit_payment_overrides', 'card_id'],
   ],
-  'debts|installments': [['debts', 'installment_payments', 'installment_id']],
+  'debts|installments': [['debts', 'installment_payments', 'installment_id'], ['debts', 'installment_period_overrides', 'installment_id']],
   'savings|goals': [
     ['savings', 'goal_milestones', 'goal_id'],
     ['savings', 'goal_cycles', 'goal_id'],
@@ -124,6 +125,8 @@ export function applyEdit(store, el, fmt) {
     && (!Number.isFinite(value) || value < 0 || value > 100)) {
     throw new Error('Процент от выплаты должен быть от 0 до 100');
   }
+  if (domain === 'debts' && ['installment_period_overrides','credit_payment_overrides'].includes(table)
+    && (!Number.isFinite(value)||value<0)) throw new Error('Введите неотрицательную сумму погашения');
 
   store.update(domain, d => {
     const rows = d[table] ?? (d[table] = []);
@@ -204,7 +207,7 @@ export function deleteRow(store, domain, table, key) {
       d.sick_leaves = (d.sick_leaves ?? []).filter(s => !matches(s, key));
       d.periods = (d.periods ?? []).filter(p => !ids.has(p.id));
     });
-    for (const [depDomain, depTable] of [['expenses', 'expense_period_overrides'], ['savings', 'savings_period_overrides'], ['debts', 'credit_payment_overrides']]) {
+    for (const [depDomain, depTable] of [['expenses', 'expense_period_overrides'], ['savings', 'savings_period_overrides'], ['debts', 'credit_payment_overrides'], ['debts','installment_period_overrides']]) {
       if ((state[depDomain]?.[depTable] ?? []).some(r => ids.has(r.period_id))) {
         store.update(depDomain, d => { d[depTable] = d[depTable].filter(r => !ids.has(r.period_id)); });
       }

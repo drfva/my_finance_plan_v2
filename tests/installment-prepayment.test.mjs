@@ -15,6 +15,53 @@ function plan(enabled=true) {
 const run=state=>simulate(state,createConfig(state));
 const conservation=sim=>{for(const r of sim.rows)assert.equal(r.totalIncome,r.categoriesTotal+r.installmentsTotal+Object.values(r.debtPayments).reduce((a,b)=>a+b,0)+Object.values(r.allocations).reduce((a,b)=>a+b,0)+(r.familyContribution?.amount??0)+r.unallocated);};
 
+test('рассрочки: ручной ноль переносит платеж с разовой выплаты на зарплату того же дня',()=>{
+  const state=plan(false);
+  state.income.periods[1].pay_date=state.income.periods[0].pay_date;
+  state.debts.installment_payments=state.debts.installment_payments.slice(0,1);
+  state.debts.installment_period_overrides=[{period_id:'p2',installment_id:'i',amount:0}];
+  const sim=run(state);
+  assert.equal(sim.byId.get('p1').installmentsTotal,1000);
+  assert.equal(sim.byId.get('p2').installmentsTotal,0);
+  assert.equal(sim.rows.reduce((sum,r)=>sum+r.installmentsTotal,0),1000);
+  conservation(sim);
+});
+
+test('рассрочки: частичная сумма переносит остаток в следующую выплату и учитывает досрочное погашение',()=>{
+  const state=plan(true);
+  state.debts.installment_period_overrides=[{period_id:'p1',installment_id:'i',amount:300}];
+  const sim=run(state);
+  assert.deepEqual(sim.rows.map(r=>r.installmentsTotal),[300,1700,0]);
+  state.income.periods=freezePeriods(state,sim,['p1']).periods;
+  assert.deepEqual(run(state).rows.map(r=>r.installmentsTotal),[300,1700,0]);
+  conservation(sim);
+});
+
+test('кредитки: ручной ноль переносит долг на вторую выплату той же даты',()=>{
+  const state=plan(false);
+  state.income.periods=state.income.periods.slice(0,2).map(p=>({...p,pay_date:'2027-03-05',income_net:1000}));
+  state.debts.installments=[];state.debts.installment_payments=[];
+  state.debts.credit_cards=[{id:'c',title:'Карта',currency_code:'RUB',grace_days:20}];
+  state.debts.credit_card_ops=[{id:'op',card_id:'c',op_date:'2027-03-01',amount:1000,kind:'spend'}];
+  state.debts.credit_payment_overrides=[{period_id:'p1',card_id:'c',amount:0}];
+  state.settings.allocation_rules.push({stage_code:'credits',priority:1,enabled:true,params:{early_repayment:false}});
+  const sim=run(state);
+  assert.equal(sim.byId.get('p1').debtPayments.c??0,0);
+  assert.equal(sim.byId.get('p2').debtPayments.c,1000);
+  conservation(sim);
+});
+
+test('рассрочки: увеличение платежа уменьшает будущие части, изменение фиксации сохраняет общий долг',()=>{
+  const state=plan(true);
+  state.debts.installment_period_overrides=[{period_id:'p1',installment_id:'i',amount:1500}];
+  assert.deepEqual(run(state).rows.map(r=>r.installmentsTotal),[1500,500,0]);
+  state.income.periods=freezePeriods(state,run(state),['p1']).periods;
+  state.debts.installment_period_overrides[0].amount=300;
+  const changed=run(state);
+  assert.deepEqual(changed.rows.map(r=>r.installmentsTotal),[300,1700,0]);
+  conservation(changed);
+});
+
 test('рассрочки: выключено по умолчанию, досрочные суммы уменьшают следующие платежи',()=>{
   const off=plan(false);off.settings.allocation_rules[0].params={};
   assert.deepEqual(run(off).rows.map(r=>r.installmentsTotal),[1000,1000,0]);
