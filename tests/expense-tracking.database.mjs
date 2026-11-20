@@ -122,6 +122,16 @@ test('семья включает свой журнал отдельно и до
   const restored = await override(family,today.slice(0,7),'food',null,7000);
   assert.equal(trackedFacts({...ctx,tracking:restored},report.expense_facts,true).reduce((n,f)=>n+f.amount,0),12000);
   assert.equal((await get()).purchases.length,0);
+  const extra={id:crypto.randomUUID(),date:today,category_id:'food',item_id:'fruit',amount:500,
+    parts:[{account_id:id,amount:500}]};
+  let updated=await household('purchase_save',extra,restored.settings.revision);
+  assert.equal(updated.fact_overrides.find(f=>f.item_id==='fruit').amount,2500);
+  const included={...extra,id:crypto.randomUUID(),amount:2000,included_in_fact:true,parts:[{account_id:id,amount:2000}]};
+  updated=await household('purchase_save',included,updated.settings.revision);
+  assert.equal(updated.fact_overrides.find(f=>f.item_id==='fruit').amount,2500);
+  updated=await household('purchase_delete',{id:included.id},updated.settings.revision);
+  updated=await household('purchase_delete',{id:extra.id},updated.settings.revision);
+  assert.equal(updated.fact_overrides.find(f=>f.item_id==='fruit').amount,2000);
 });
 
 test('итоги подкатегорий складываются, ручной итог категории имеет приоритет',async()=>{
@@ -228,4 +238,74 @@ test('ручной итог заменяет сумму категории за 
   await setActor(outsider);
   try { await assert.rejects(override(plan,month,'food',5000),/Нет доступа/); }
   finally { await setActor(owner); }
+});
+
+test('покупки увеличивают ручные итоги категории и подкатегории; правка и удаление обратимы',async()=>{
+  await rpc('state_save',{p_account:plan,p_domain:'expenses',p_patch:{expense_categories:[
+    {id:'food',title:'Еда'},
+    {id:'manual-purchases',title:'Покупки'},
+    {id:'included-manual',title:'Внутри ручной суммы'},
+    {id:'reset-manual',title:'Новый итог'}, {id:'elsewhere',title:'Другая категория'},
+  ],expense_items:[{id:'detail',category_id:'manual-purchases',title:'Детали'}]}});
+  const month=today.slice(0,7), category='manual-purchases', item='detail';
+  let saved=await override(plan,month,category,5000);
+  saved=await override(plan,month,category,4000,null,item);
+  const entry={id:crypto.randomUUID(),date:today,category_id:category,item_id:item,amount:1000,
+    included_in_fact:false,parts:[{account_id:card,amount:1000}]};
+  const value=(s,id='')=>s.fact_overrides.find(f=>f.category_id===category&&f.item_id===id)?.amount;
+  saved=await command('purchase_save',entry,saved.settings.revision);
+  assert.equal(value(saved),6000); assert.equal(value(saved,item),5000);
+  const duplicate=await command('purchase_save',entry,saved.settings.revision);
+  assert.equal(value(duplicate),6000); assert.equal(value(duplicate,item),5000);
+  saved=await override(plan,month,category,6000,5000);
+  assert.equal(saved.settings.revision,duplicate.settings.revision,'повтор сохранения итога не меняет его исходную сумму');
+  saved=await command('purchase_save',{...entry,amount:1500,parts:[{account_id:card,amount:1500}]},saved.settings.revision);
+  assert.equal(value(saved),6500); assert.equal(value(saved,item),5500);
+  await assert.rejects(command('purchase_save',{...entry,amount:2000},saved.settings.revision),/Части оплаты/);
+  assert.deepEqual(await get(),saved,'неудачное сохранение не меняет журнал и ручные итоги');
+  saved=await command('purchase_delete',{id:entry.id},saved.settings.revision);
+  assert.equal(value(saved),5000); assert.equal(value(saved,item),4000);
+});
+
+test('включение покупки на всю ручную сумму не удваивает факт и проверяет оставшуюся часть',async()=>{
+  const month=today.slice(0,7), category='included-manual';
+  let saved=await override(plan,month,category,5000);
+  const entry={id:crypto.randomUUID(),date:today,category_id:category,amount:5000,
+    included_in_fact:true,parts:[{account_id:card,amount:5000}]};
+  const value=s=>s.fact_overrides.find(f=>f.category_id===category).amount;
+  saved=await command('purchase_save',entry,saved.settings.revision);
+  assert.equal(value(saved),5000);
+  assert.equal(saved.purchases.find(p=>p.id===entry.id).manual_fact_included,true);
+  saved=await command('purchase_save',entry,saved.settings.revision);
+  assert.equal(value(saved),5000,'повторная правка не учитывает покупку второй раз');
+  await assert.rejects(command('purchase_save',{...entry,id:crypto.randomUUID()},saved.settings.revision),/неразобранного/);
+  assert.deepEqual(await get(),saved);
+  saved=await command('purchase_delete',{id:entry.id},saved.settings.revision);
+  assert.equal(value(saved),5000,'удаление расшифровки сохраняет ручную сумму');
+});
+
+test('после новой ручной суммы правка покупки меняет только разницу, перенос возвращает добавку',async()=>{
+  const month=today.slice(0,7), category='reset-manual';
+  let saved=await override(plan,month,category,5000);
+  const entry={id:crypto.randomUUID(),date:today,category_id:category,amount:1000,
+    parts:[{account_id:card,amount:1000}]};
+  saved=await command('purchase_save',entry,saved.settings.revision);
+  saved=await override(plan,month,category,8000,6000);
+  saved=await command('purchase_save',{...entry,amount:1500,parts:[{account_id:card,amount:1500}]},saved.settings.revision);
+  assert.equal(saved.fact_overrides.find(f=>f.category_id===category).amount,8500);
+  saved=await command('purchase_save',{...entry,category_id:'elsewhere'},saved.settings.revision);
+  assert.equal(saved.fact_overrides.find(f=>f.category_id===category).amount,8000);
+});
+
+test('внутренние поправки факта закрыты от прямого доступа',async()=>{
+  await assert.rejects(db.query('select * from expense_tracking.purchase_fact_effects'),/permission denied/);
+  await db.exec('reset role');
+  try {
+    const result=(await db.query(`select
+    has_table_privilege('authenticated','expense_tracking.purchase_fact_effects','SELECT,INSERT,UPDATE,DELETE') as table_access,
+    has_function_privilege('anon','public.expense_tracking_command(uuid,text,jsonb,bigint)','EXECUTE') as anon_write,
+    has_function_privilege('authenticated','expense_tracking.command_before_purchase_facts(uuid,text,jsonb,bigint)','EXECUTE') as helper_access,
+    (select relrowsecurity from pg_class where oid='expense_tracking.purchase_fact_effects'::regclass) as rls`)).rows[0];
+    assert.deepEqual(result,{table_access:false,anon_write:false,helper_access:false,rls:true});
+  } finally { await db.exec('set role authenticated'); }
 });

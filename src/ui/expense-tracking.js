@@ -195,6 +195,7 @@ function purchaseForm(ctx, draft) {
   const options = categories(ctx).flatMap(c => [opt(JSON.stringify([c.id,'']), c.title, selected),
     ...c.items.map(i => opt(JSON.stringify([c.id,i.id]), `${c.title} / ${i.title}`, selected))]);
   const parts = purchase?.parts ?? [{ account_id: ctx.tracking.settings.debit_account, amount: '' }];
+  const split = parts.length>1;
   return `<div class="grid cols-2">
     ${label('Дата',textInput('date',purchase?.occurred_on ?? ctx.today,'type="date" required'))}
     ${label('Сумма покупки',textInput('amount',purchase?.total,'required inputmode="decimal"'))}
@@ -202,17 +203,17 @@ function purchaseForm(ctx, draft) {
     <div class="field tracking-tags-field"><label id="tracking-tag-picker-label">Теги</label>${tagPicker(ctx,draft)}</div>
     ${label('Комментарий',textInput('note',purchase?.note,'maxlength="2000"'))}
     </div>
-    <h3>Части оплаты</h3>
-    <div data-tracking-parts>${parts.map(part=>partRow(ctx,part)).join('')}</div>
-    <p class="small-note" data-tracking-parts-empty${parts.length?' hidden':''}>Добавьте счёт, с которого оплатили покупку.</p>
-    ${action('part-add','+ часть оплаты')}`;
+    <div data-tracking-payment data-split="${split}">
+    <h3 data-tracking-split-title${split?'':' hidden'}>Разделение траты</h3>
+    <div data-tracking-parts>${parts.map(part=>partRow(ctx,part,split)).join('')}</div>
+    ${action('part-add',split?'+ счёт':'Разделить трату')}</div>`;
 }
 
-function partRow(ctx, part = {}) {
+function partRow(ctx, part = {}, split = true) {
   return `<div class="tracking-part" data-tracking-part>
     ${label('Счет',selectAccount(ctx,'part_account',part.account_id,'Выберите счет'))}
-    ${label('Сумма',textInput('part_amount',part.amount,'inputmode="decimal"'))}
-    ${action('part-remove','Убрать')}
+    <label class="field" data-tracking-part-sum${split?'':' hidden'}><span>Сумма</span>${textInput('part_amount',part.amount,`inputmode="decimal"${split?'':' disabled'}`)}</label>
+    <button type="button" data-tracking-action="part-remove"${split?'':' hidden'}>Убрать</button>
   </div>`;
 }
 
@@ -590,14 +591,25 @@ export function attachExpenseTracking(root, getCtx, render, api, renderReport = 
     if (kind === 'part-add' || kind === 'part-remove') {
       const formNode = button.closest('[data-tracking-form]');
       const parts = formNode.querySelector('[data-tracking-parts]');
+      const payment = formNode.querySelector('[data-tracking-payment]');
       if (kind === 'part-remove') {
+        if (parts.childElementCount<=1) return;
         button.closest('[data-tracking-part]').remove();
         formNode.querySelector('[data-tracking-action="part-add"]').focus();
       } else if (parts.childElementCount < 30) {
+        if (payment.dataset.split==='false') parts.querySelector('[name="part_amount"]').value=formNode.querySelector('[name="amount"]').value;
         parts.insertAdjacentHTML('beforeend',partRow(ctx));
         parts.lastElementChild.querySelector('select').focus();
       }
-      formNode.querySelector('[data-tracking-parts-empty]').hidden = parts.childElementCount > 0;
+      const split=parts.childElementCount>1;
+      payment.dataset.split=String(split);
+      payment.querySelector('[data-tracking-split-title]').hidden=!split;
+      payment.querySelector('[data-tracking-action="part-add"]').textContent=split?'+ счёт':'Разделить трату';
+      for (const row of parts.children) {
+        row.querySelector('[data-tracking-part-sum]').hidden=!split;
+        row.querySelector('[name="part_amount"]').disabled=!split;
+        row.querySelector('[data-tracking-action="part-remove"]').hidden=!split;
+      }
       return;
     }
     if (kind === 'purchase_delete') {
@@ -708,7 +720,8 @@ export function attachExpenseTracking(root, getCtx, render, api, renderReport = 
         const accounts = fields.getAll('part_account');
         if (!accounts.length || accounts.some(id => !id)) throw new Error('Укажите счёт для каждой части оплаты');
         const amounts = fields.getAll('part_amount');
-        const parts = accounts.map((account_id,i)=>({account_id,amount:money(amounts[i])}));
+        const split=formNode.querySelector('[data-tracking-payment]').dataset.split==='true';
+        const parts = accounts.map((account_id,i)=>({account_id,amount:split?money(amounts[i]):payload.amount}));
         const [category, item] = JSON.parse(fields.get('category'));
         const draft = ctx.ui.trackingForm;
         const earlier = draft.purchase;
@@ -717,13 +730,14 @@ export function attachExpenseTracking(root, getCtx, render, api, renderReport = 
           && earlier.item_id === item && Number(earlier.total) === payload.amount;
         const family = ctx.state.account.plan_kind === 'family';
         const manual = (family ? ctx.state.family?.expense_facts : ctx.state.facts?.expense_facts) ?? [];
-        const categoryHasManual = retainedFact(ctx.tracking,month) && manual.some(row => (
+        const categoryHasManual = ctx.tracking.fact_overrides?.some(f=>f.month===month&&f.category_id===category
+          && (!f.item_id||f.item_id===item)&&Number(f.amount)>0) || retainedFact(ctx.tracking,month) && manual.some(row => (
           family ? row.month === month && row.category_id === (item || category)
             : row.ym === month && row.category_id === category && (row.item_key ?? '') === item
         ) && Number(row.amount)>0);
         Object.assign(payload,{
           category_id:category, item_id:item, tags:draft.tags ?? earlier?.tags ?? [],
-          included_in_fact:samePurchase ? earlier.included_in_fact : categoryHasManual &&
+          included_in_fact:samePurchase ? earlier.manual_fact_included ?? earlier.included_in_fact : categoryHasManual &&
             window.confirm('За этот месяц есть ручной факт. Нажмите «ОК», если покупка уже учтена в этой сумме. «Отмена» добавит покупку к факту.'),
           parts,
         });

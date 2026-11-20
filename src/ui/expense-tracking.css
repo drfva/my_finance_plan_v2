@@ -14,6 +14,8 @@
 .tracking-form { display: grid; gap: 12px; }
 .tracking-form .row, .tracking-purchase .row { gap: 8px; }
 .tracking-part { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 8px; margin-bottom: 12px; }
+[data-tracking-payment][data-split="false"] .tracking-part { grid-template-columns: minmax(0,1fr); }
+[data-tracking-payment] [hidden] { display: none; }
 .tracking-dialog { width: min(780px, calc(100% - 24px)); max-height: min(90dvh, 850px); padding: 20px; overflow: auto; border-radius: 16px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
 .tracking-dialog::backdrop { background: var(--backdrop); }
 .tracking-dialog > .row { gap: 12px; margin-bottom: 16px; }
